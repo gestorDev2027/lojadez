@@ -1,10 +1,16 @@
-"""Frete pela Loggi: endereço pelo CEP (ViaCEP), token OAuth2 e cotação.
+"""Frete e envio pela Loggi: endereço pelo CEP (ViaCEP), token OAuth2, cotação, envio, etiqueta, cancelamento e rastreio.
 
-No ambiente "simulado" a cotação é uma conta local (para desenvolver sem as credenciais). Em staging/producao, chama a
-API da Loggi: POST /v2/oauth2/token (client_id e client_secret → idToken) e
-POST /v1/companies/{company_id}/quotations.
+No ambiente "simulado" tudo é uma conta local (para desenvolver sem as credenciais). Em staging/producao, chama a API da
+Loggi (sempre em /v1/companies/{company_id}):
+- POST /v2/oauth2/token (client_id e client_secret → idToken, vale 24 h);
+- POST /quotations (cotação);
+- POST /async-shipments (cria o pacote; a Loggi confirma depois, por isso a etiqueta pode demorar uns segundos);
+- POST /labels (etiqueta em PDF, base64);
+- POST /packages/cancel?loggi_key= (cancela);
+- GET /packages/{tracking_code}/tracking (rastreio).
 """
 
+import base64
 import math
 import re
 import threading
@@ -84,12 +90,12 @@ def _obter_token(renovar: bool = False) -> str:
         return _token["valor"]
 
 
-def _chamar(metodo: str, caminho: str, corpo: dict | None = None) -> httpx.Response:
+def _chamar(metodo: str, caminho: str, corpo: dict | None = None, params: dict | None = None) -> httpx.Response:
     url = f"{config.LOGGI_URL}/v1/companies/{config.LOGGI_COMPANY_ID}{caminho}"
     for tentativa in range(2):
         cabecalhos = {"Authorization": f"Bearer {_obter_token(renovar=tentativa > 0)}"}
         try:
-            r = httpx.request(metodo, url, json=corpo, headers=cabecalhos, timeout=20)
+            r = httpx.request(metodo, url, json=corpo, params=params, headers=cabecalhos, timeout=30)
         except httpx.HTTPError:
             raise ErroFrete("A Loggi não respondeu. Tente de novo em instantes.")
         if r.status_code != 401:  # token vencido antes da hora: renova uma vez
@@ -139,7 +145,8 @@ def _cotar_loggi(destino: dict, caixa: dict) -> list[dict]:
     for cotacao in (dados[0].get("quotations") or []) if dados else []:
         tipo = cotacao.get("freightType") or "FREIGHT_TYPE_ECONOMIC"
         preco = cotacao.get("price") or {}
-        opcoes.append({"tipo": tipo, "nome": cotacao.get("freightTypeLabel") or ROTULOS.get(tipo, tipo),
+        rotulo = (cotacao.get("freightTypeLabel") or ROTULOS.get(tipo, tipo)).removeprefix("Loggi ").strip()  # "Loggi Econômico"
+        opcoes.append({"tipo": tipo, "nome": rotulo or ROTULOS.get(tipo, tipo),
                        "centavos": _centavos(preco.get("totalAmount", 0)), "prazo_dias": int(cotacao.get("sloInDays") or 0),
                        "servico": cotacao.get("externalServiceId")})
     return opcoes
@@ -166,3 +173,147 @@ def cotar(cep: str, kits: int, valor_centavos: int) -> dict:
     if not opcoes:
         raise ErroFrete("A Loggi não entrega neste CEP.")
     return {"endereco": destino, "opcoes": sorted(opcoes, key=lambda o: o["centavos"])}
+
+
+# ───────── Envio (criar o pacote na Loggi) ─────────
+
+def _erro_da_loggi(r: httpx.Response, acao: str) -> ErroFrete:
+    try:
+        dados = r.json()
+        detalhe = dados.get("message") or dados.get("detail") or ""
+    except ValueError:
+        detalhe = ""
+    return ErroFrete(f"A Loggi recusou {acao} (erro {r.status_code}){': ' + str(detalhe)[:300] if detalhe else ''}.")
+
+
+def _endereco_correios(rua: str, numero: str, complemento: str | None, bairro: str, cep: str, cidade: str, uf: str) -> dict:
+    endereco = {"logradouro": rua[:128], "numero": (numero or "S/N")[:8], "bairro": bairro[:64], "cep": cep,
+                "cidade": cidade[:32], "uf": uf}
+    if complemento:
+        endereco["complemento"] = complemento[:128]
+    return endereco
+
+
+def remetente() -> dict:
+    r = config.REMETENTE
+    if not r["nome"] or len(r["documento"]) not in (11, 14) or not r["numero"]:
+        raise ErroFrete("Faltam os dados do remetente no .env: LOJA_REMETENTE_NOME, LOJA_REMETENTE_DOCUMENTO e "
+                        "LOJA_ORIGEM_NUMERO.")
+    origem = endereco_do_cep(config.ORIGEM_CEP)
+    dados = {"name": r["nome"][:128], "federalTaxId": r["documento"], "address": {
+        "instructions": r["instrucoes"][:300],
+        "correiosAddress": _endereco_correios(r["rua"] or origem["rua"], r["numero"], r["complemento"] or None,
+                                              r["bairro"] or origem["bairro"], origem["cep"], origem["cidade"], origem["uf"]),
+    }}
+    if r["telefone"]:
+        dados["phoneNumber"] = r["telefone"][:16]
+    return dados
+
+
+def corpo_envio(pedido: dict) -> dict:
+    caixa = pacote(pedido["kits"], pedido["preco_centavos"])
+    destinatario = {
+        "name": pedido["nome"][:128], "federalTaxId": pedido["cpf"], "email": pedido["email"][:300],
+        "phoneNumber": pedido["telefone"][:16],
+        "address": {
+            "instructions": (pedido.get("complemento") or "Entregar ao destinatário")[:300],
+            "correiosAddress": _endereco_correios(pedido["rua"], pedido["numero"], pedido.get("complemento"),
+                                                  pedido["bairro"], pedido["cep"], pedido["cidade"], pedido["uf"]),
+        },
+    }
+    return {
+        "externalServiceId": (config.LOGGI_SERVICOS or ["SIMULADO"])[0],
+        "shipFrom": remetente() if config.LOGGI_AMBIENTE != "simulado" else {"name": "Loja (simulado)"},
+        "shipTo": destinatario,
+        "packages": [{
+            "sequence": pedido["order_nsu"],
+            "freightType": pedido["frete_tipo"] if pedido["frete_tipo"] in ROTULOS else "FREIGHT_TYPE_ECONOMIC",
+            "weightG": caixa["peso_g"], "lengthCm": caixa["comprimento_cm"], "widthCm": caixa["largura_cm"],
+            "heightCm": caixa["altura_cm"],
+            "documentTypes": [{"contentDeclaration": {
+                "totalValue": f"{pedido['preco_centavos'] / 100:.2f}",
+                "description": f"{config.CONTEUDO_DECLARADO} ({pedido['kits']} kit{'s' if pedido['kits'] > 1 else ''})"[:200],
+            }}],
+        }],
+    }
+
+
+def criar_envio(pedido: dict) -> dict:
+    """Cria o pacote na Loggi. Devolve {"loggi_key", "tracking_code"}."""
+    corpo = corpo_envio(pedido)
+    if config.LOGGI_AMBIENTE == "simulado":
+        chave = "SIM" + pedido["order_nsu"].replace("-", "").upper()[:23]
+        return {"loggi_key": chave, "tracking_code": chave[-8:]}
+    r = _chamar("POST", "/async-shipments", corpo)
+    if r.status_code >= 400:
+        raise _erro_da_loggi(r, "o envio")
+    pacotes = r.json().get("packages") or []
+    if not pacotes or not pacotes[0].get("loggiKey"):
+        raise ErroFrete("A Loggi aceitou o envio, mas não devolveu o código do pacote.")
+    return {"loggi_key": pacotes[0]["loggiKey"], "tracking_code": pacotes[0].get("trackingCode") or ""}
+
+
+# Um PDF mínimo, só para o modo simulado.
+_PDF_SIMULADO = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj "
+                 b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 298 420]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+
+
+def etiqueta(loggi_key: str, layout: str = "LABEL_LAYOUT_A6") -> bytes:
+    """A etiqueta Loggi em PDF. Logo depois de criar o envio, a Loggi ainda pode estar processando: tente de novo."""
+    if config.LOGGI_AMBIENTE == "simulado":
+        return _PDF_SIMULADO
+    r = _chamar("POST", "/labels", {"loggiKeys": [loggi_key], "format": "LABEL_FORMAT_PDF", "layout": layout,
+                                    "responseType": "LABEL_RESPONSE_TYPE_BASE_64", "labelType": "LABEL_TYPE_DEFAULT"})
+    if r.status_code >= 400:
+        raise _erro_da_loggi(r, "a etiqueta")
+    dados = r.json()
+    if dados.get("failure"):
+        motivo = ((dados["failure"][0].get("status") or {}).get("message") or "").strip()
+        raise ErroFrete("A etiqueta ainda não está pronta (a Loggi está confirmando o envio). Tente de novo em alguns "
+                        f"segundos.{' Motivo: ' + motivo if motivo else ''}")
+    conteudo = (dados.get("success") or {}).get("content")
+    if not conteudo:
+        raise ErroFrete("A Loggi não devolveu a etiqueta.")
+    return base64.b64decode(conteudo)
+
+
+def cancelar_envio(loggi_key: str) -> str | None:
+    """Cancela o pacote. Devolve o aviso da Loggi, se houver (ex.: já em rota, cancelamento não garantido)."""
+    if config.LOGGI_AMBIENTE == "simulado":
+        return None
+    r = _chamar("POST", "/packages/cancel", params={"loggi_key": loggi_key})
+    if r.status_code >= 400:
+        raise _erro_da_loggi(r, "o cancelamento")
+    try:
+        return r.json().get("warning_message") or None
+    except ValueError:
+        return None
+
+
+def rastrear(tracking_code: str) -> dict:
+    """A situação do pacote, só com o que pode ir para o cliente (sem nome, documento ou dados do motorista)."""
+    if config.LOGGI_AMBIENTE == "simulado":
+        return {"descricao": "Pedido recebido pela Loggi (simulado)", "situacao": "simulado", "atualizado_em": None,
+                "previsao": None, "historico": []}
+    r = _chamar("GET", f"/packages/{tracking_code}/tracking")
+    if r.status_code == 404:
+        return {"descricao": "A Loggi ainda não registrou movimentação.", "situacao": None, "atualizado_em": None,
+                "previsao": None, "historico": []}
+    if r.status_code >= 400:
+        raise _erro_da_loggi(r, "o rastreio")
+    pacotes = r.json().get("packages") or []
+    if not pacotes:
+        return {"descricao": "Sem informações ainda.", "situacao": None, "atualizado_em": None, "previsao": None, "historico": []}
+    p = pacotes[0]
+    estado = p.get("status") or {}
+
+    def local(item):
+        lugar = item.get("location") or {}
+        return ", ".join(x for x in (lugar.get("city"), lugar.get("state")) if x) or None
+
+    historico = [{"descricao": (h.get("status") or {}).get("description") or "",
+                  "quando": (h.get("status") or {}).get("updatedTime"), "local": local(h)}
+                 for h in (p.get("trackingHistory") or [])][-15:]
+    return {"descricao": estado.get("description") or estado.get("highLevelStatus") or "",
+            "situacao": estado.get("highLevelStatus"), "atualizado_em": estado.get("updatedTime"),
+            "previsao": p.get("promisedDate"), "local": local(p), "historico": historico}

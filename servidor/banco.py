@@ -50,7 +50,12 @@ pedidos = Table(
     # o envio
     Column("codigo_rastreio", Text),
     Column("enviado_em", DateTime(timezone=True)),
+    Column("loggi_key", Text),  # o pacote criado na Loggi
+    Column("envio_criado_em", DateTime(timezone=True)),
 )
+
+# Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
+COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP WITH TIME ZONE"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -86,6 +91,14 @@ engine = _criar_engine()
 
 def iniciar() -> None:
     metadata.create_all(engine)
+    from sqlalchemy import inspect, text
+
+    with engine.begin() as c:
+        for tabela, colunas in COLUNAS_NOVAS.items():
+            existentes = {col["name"] for col in inspect(c).get_columns(tabela)}
+            for nome, tipo in colunas.items():
+                if nome not in existentes:
+                    c.execute(text(f"ALTER TABLE {tabela} ADD COLUMN {nome} {tipo}"))
 
 
 def agora() -> datetime:

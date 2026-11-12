@@ -37,6 +37,7 @@ export type PedidoPublico = {
   recibo_url: string | null;
   codigo_rastreio: string | null;
   link_pagamento: string | null;
+  tem_envio_loggi: boolean;
 };
 
 export type PedidoVendedor = Omit<PedidoPublico, "primeiro_nome" | "situacao"> & {
@@ -56,6 +57,20 @@ export type PedidoVendedor = Omit<PedidoPublico, "primeiro_nome" | "situacao"> &
   parcelas: number | null;
   valor_pago_centavos: number | null;
   frete_prazo_dias: number | null;
+  loggi_key: string | null;
+  envio_criado_em: string | null;
+};
+
+export type Rastreio = {
+  codigo: string | null;
+  rastreio: {
+    descricao: string;
+    situacao: string | null;
+    atualizado_em: string | null;
+    previsao: string | null;
+    local?: string | null;
+    historico: { descricao: string; quando: string | null; local: string | null }[];
+  } | null;
 };
 
 export class ErroApi extends Error {

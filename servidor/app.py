@@ -152,6 +152,12 @@ def ver_pedido(order_nsu: str):
     return pedidos.publico(pedido)
 
 
+@app.get("/api/pedidos/{order_nsu}/rastreio")
+def rastreio_pedido(order_nsu: str, request: Request):
+    _limitar(request, "rastreio", 20)
+    return pedidos.rastreio(_nsu(order_nsu))
+
+
 @app.post("/api/pedidos/{order_nsu}/conferir")
 async def conferir_pedido(order_nsu: str, request: Request):
     _limitar(request, "conferir", 20)
@@ -213,6 +219,29 @@ async def vendedor_enviado(order_nsu: str, request: Request):
 def vendedor_cancelar(order_nsu: str, request: Request):
     _vendedor(request)
     return banco_para_tela(pedidos.cancelar(_nsu(order_nsu)))
+
+
+# Envio pela Loggi: cria o pacote (de verdade, fora do modo simulado), baixa a etiqueta e cancela.
+
+@app.post("/api/vendedor/pedidos/{order_nsu}/loggi/envio")
+def vendedor_criar_envio(order_nsu: str, request: Request):
+    _vendedor(request)
+    return banco_para_tela(pedidos.criar_envio_loggi(_nsu(order_nsu)))
+
+
+@app.get("/api/vendedor/pedidos/{order_nsu}/loggi/etiqueta")
+def vendedor_etiqueta(order_nsu: str, request: Request):
+    _vendedor(request)
+    nsu = _nsu(order_nsu)
+    pdf = pedidos.etiqueta_loggi(nsu)
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="etiqueta-loggi-{nsu[:8]}.pdf"', "Cache-Control": "no-store"})
+
+
+@app.post("/api/vendedor/pedidos/{order_nsu}/loggi/cancelar")
+def vendedor_cancelar_envio(order_nsu: str, request: Request):
+    _vendedor(request)
+    return banco_para_tela(pedidos.cancelar_envio_loggi(_nsu(order_nsu)))
 
 
 # Produto e preços: o que muda aqui vale na hora na landing page e no checkout.

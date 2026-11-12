@@ -187,6 +187,7 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
   const [codigo, setCodigo] = useState("");
   const [erro, setErro] = useState("");
   const [copiado, setCopiado] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
   const situacao = SITUACOES[p.situacao] ?? { rotulo: p.situacao, cor: "bg-white/10" };
   const endereco = [
     p.nome,
@@ -200,6 +201,34 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
     try {
       await chamar(`/api/vendedor/pedidos/${p.order_nsu}/${caminho}`, { metodo: "POST", corpo, senha });
       aoMudar();
+    } catch (e) {
+      setErro((e as Error).message);
+    }
+  }
+
+  async function comOcupado(fazer: () => Promise<void>) {
+    setOcupado(true);
+    try {
+      await fazer();
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function baixarEtiqueta() {
+    setErro("");
+    try {
+      const r = await fetch(`/api/vendedor/pedidos/${p.order_nsu}/loggi/etiqueta`, { headers: { Authorization: `Bearer ${senha}` } });
+      if (!r.ok) {
+        const dados = await r.json().catch(() => ({}));
+        throw new Error(dados.erro ?? dados.detail ?? "Não consegui gerar a etiqueta.");
+      }
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `etiqueta-loggi-${p.order_nsu.slice(0, 8)}.pdf`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (e) {
       setErro((e as Error).message);
     }
@@ -252,7 +281,51 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
           {copiado ? "Endereço copiado" : "Copiar endereço"}
         </button>
       </div>
-      {p.codigo_rastreio && <p className="text-sm">Rastreio: {p.codigo_rastreio}</p>}
+      {(p.situacao === "pago" || p.situacao === "enviado") && (
+        <div className="grid gap-2 rounded-xl border border-linha-2 p-3">
+          <p className="flex items-center justify-between gap-2 text-sm">
+            <span className="font-bold">Loggi</span>
+            <span className="font-mono text-xs text-suave">
+              {p.loggi_key ? `Envio criado · rastreio ${p.codigo_rastreio || "—"}` : "Sem envio"}
+            </span>
+          </p>
+          {!p.loggi_key ? (
+            <button
+              type="button"
+              disabled={ocupado}
+              onClick={() => {
+                if (window.confirm("Criar o envio na Loggi? Ele aparece no painel da Loggi e pode gerar cobrança do frete."))
+                  void comOcupado(() => acao("loggi/envio"));
+              }}
+              className="btn-laranja px-4 py-2.5 text-xs"
+            >
+              {ocupado ? "Criando…" : "Criar envio na Loggi"}
+            </button>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={ocupado}
+                onClick={() => void comOcupado(baixarEtiqueta)}
+                className="btn-laranja px-4 py-2.5 text-xs"
+              >
+                {ocupado ? "Gerando…" : "Etiqueta (PDF)"}
+              </button>
+              <button
+                type="button"
+                disabled={ocupado}
+                onClick={() => {
+                  if (window.confirm("Cancelar o envio na Loggi? Se o pacote já estiver em rota, o cancelamento pode não valer."))
+                    void comOcupado(() => acao("loggi/cancelar"));
+                }}
+                className="rounded-full px-3 text-xs font-medium text-alerta"
+              >
+                Cancelar envio
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {p.situacao === "pago" && (
         <form
           className="flex gap-2"
@@ -267,15 +340,16 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
           <input
             id={`rastreio-${p.order_nsu}`}
             className="campo"
-            placeholder="Código de rastreio da Loggi"
+            placeholder={p.codigo_rastreio ? `Rastreio ${p.codigo_rastreio}` : "Código de rastreio"}
             value={codigo}
             onChange={(e) => setCodigo(e.target.value)}
           />
-          <button type="submit" className="btn-laranja shrink-0 rounded-[14px] px-4 text-xs">
+          <button type="submit" className="btn-laranja shrink-0 rounded-[14px] px-4 text-xs" title="Depois de deixar o pacote no ponto Loggi">
             Marcar enviado
           </button>
         </form>
       )}
+      {p.situacao === "enviado" && p.codigo_rastreio && <p className="text-sm">Enviado · rastreio {p.codigo_rastreio}</p>}
       {(p.situacao === "aguardando_pagamento" || p.situacao === "pagamento_divergente") && (
         <button
           type="button"

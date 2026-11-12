@@ -189,3 +189,64 @@ def test_status_das_integracoes_sem_chaves(cliente):
     assert all(isinstance(v, (bool, int, str)) for v in r["infinitepay"].values())
     teste = cliente.post("/api/vendedor/integracoes/loggi/testar", json={"cep": "20040002"}, headers=VENDEDOR).json()
     assert teste["ok"] and len(teste["opcoes"]) == 2
+
+def _pedido_pago(cliente) -> str:
+    _, r = _pedido(cliente)
+    nsu = r.json()["order_nsu"]
+    cliente.post(f"/simulador/pagar/{nsu}", content="forma=pix",
+                 headers={"content-type": "application/x-www-form-urlencoded"}, follow_redirects=False)
+    assert cliente.get(f"/api/pedidos/{nsu}").json()["situacao"] == "pago"
+    return nsu
+
+
+def test_envio_loggi_etiqueta_rastreio_e_cancelamento(cliente):
+    nsu = _pedido_pago(cliente)
+    assert cliente.post(f"/api/vendedor/pedidos/{nsu}/loggi/envio").status_code == 401
+    r = cliente.post(f"/api/vendedor/pedidos/{nsu}/loggi/envio", headers=VENDEDOR)
+    assert r.status_code == 200, r.text
+    assert r.json()["loggi_key"] and r.json()["codigo_rastreio"]
+    assert cliente.post(f"/api/vendedor/pedidos/{nsu}/loggi/envio", headers=VENDEDOR).status_code == 409  # sem pacote duplicado
+
+    pdf = cliente.get(f"/api/vendedor/pedidos/{nsu}/loggi/etiqueta", headers=VENDEDOR)
+    assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf" and pdf.content.startswith(b"%PDF")
+
+    publico = cliente.get(f"/api/pedidos/{nsu}").json()
+    assert publico["tem_envio_loggi"] and publico["codigo_rastreio"]
+    rastreio = cliente.get(f"/api/pedidos/{nsu}/rastreio").json()
+    assert rastreio["rastreio"]["descricao"]
+
+    enviado = cliente.post(f"/api/vendedor/pedidos/{nsu}/enviado", json={"codigo_rastreio": ""}, headers=VENDEDOR)
+    assert enviado.json()["situacao"] == "enviado"  # usa o código da Loggi
+
+    cancelado = cliente.post(f"/api/vendedor/pedidos/{nsu}/loggi/cancelar", headers=VENDEDOR).json()
+    assert cancelado["loggi_key"] is None and cancelado["situacao"] == "pago"
+
+
+def test_envio_so_de_pedido_pago(cliente):
+    _, r = _pedido(cliente)
+    assert cliente.post(f"/api/vendedor/pedidos/{r.json()['order_nsu']}/loggi/envio", headers=VENDEDOR).status_code == 409
+
+
+def test_corpo_do_envio_real(monkeypatch):
+    """O pacote que vai para a Loggi de verdade: formato da documentação (async-shipments)."""
+    from servidor import config, loggi
+
+    monkeypatch.setattr(config, "LOGGI_AMBIENTE", "producao")
+    monkeypatch.setattr(config, "LOGGI_SERVICOS", ["DLVR-SPOT-DOOR-STAN-01"])
+    monkeypatch.setattr(config, "REMETENTE", {**config.REMETENTE, "nome": "Loja Teste", "documento": "52998224725",
+                                               "numero": "100", "telefone": "11999998888"})
+    monkeypatch.setattr(loggi, "endereco_do_cep", lambda cep: ENDERECOS[loggi.limpar_cep(cep)])
+    pedido = {"order_nsu": "abc", "kits": 2, "preco_centavos": 4490, "frete_tipo": "FREIGHT_TYPE_ECONOMIC",
+              "nome": "Maria Souza", "cpf": "52998224725", "email": "m@exemplo.com", "telefone": "21999998888",
+              "rua": "Rua da Assembleia", "numero": "10", "complemento": "Sala 2", "bairro": "Centro", "cep": "20040002",
+              "cidade": "Rio de Janeiro", "uf": "RJ"}
+    corpo = loggi.corpo_envio(pedido)
+    assert corpo["externalServiceId"] == "DLVR-SPOT-DOOR-STAN-01"
+    assert corpo["shipFrom"]["federalTaxId"] == "52998224725"
+    assert corpo["shipFrom"]["address"]["correiosAddress"]["cep"] == "01310100"
+    destino = corpo["shipTo"]["address"]["correiosAddress"]
+    assert destino == {"logradouro": "Rua da Assembleia", "numero": "10", "complemento": "Sala 2", "bairro": "Centro",
+                       "cep": "20040002", "cidade": "Rio de Janeiro", "uf": "RJ"}
+    pacote = corpo["packages"][0]
+    assert pacote["documentTypes"][0]["contentDeclaration"]["totalValue"] == "44.90"
+    assert pacote["weightG"] == 700 and pacote["lengthCm"] + pacote["widthCm"] + pacote["heightCm"] <= 200

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { chamar, reais, type Loja, type PedidoPublico } from "../api";
+import { chamar, reais, type Loja, type PedidoPublico, type Rastreio } from "../api";
 
 // A volta da InfinitePay: o endereço traz order_nsu, transaction_nsu, slug e receipt_url. O servidor confere o pagamento
 // na InfinitePay (nunca confia só no endereço); enquanto não confirma, tenta de novo a cada 3 segundos por 1 minuto.
@@ -94,6 +94,7 @@ export function PaginaObrigado({ loja }: { loja: Loja }) {
           )}
           {pedido.codigo_rastreio && <Linha rotulo="Rastreio Loggi" valor={pedido.codigo_rastreio} />}
         </dl>
+        {pedido.tem_envio_loggi && <BlocoRastreio nsu={pedido.order_nsu} />}
         <div className="mt-6 flex flex-wrap gap-3">
           {pedido.recibo_url && (
             <a href={pedido.recibo_url} target="_blank" rel="noreferrer" className="rounded-full border border-linha-2 px-5 py-2.5 font-medium hover:border-laranja">
@@ -116,6 +117,40 @@ export function PaginaObrigado({ loja }: { loja: Loja }) {
         </div>
         <p className="mt-4 text-xs text-suave">Pedido {pedido.order_nsu}</p>
       </div>
+    </section>
+  );
+}
+
+const quando = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+
+function BlocoRastreio({ nsu }: { nsu: string }) {
+  const [dados, setDados] = useState<Rastreio | null>(null);
+  useEffect(() => {
+    chamar<Rastreio>(`/api/pedidos/${encodeURIComponent(nsu)}/rastreio`)
+      .then(setDados)
+      .catch(() => setDados(null));
+  }, [nsu]);
+  const r = dados?.rastreio;
+  if (!r) return null;
+  return (
+    <section aria-label="Rastreio da entrega" className="mt-5 rounded-2xl border border-linha-2 p-4">
+      <p className="font-mono text-xs tracking-widest text-laranja-2">ENTREGA LOGGI</p>
+      <p className="mt-1 font-bold">{r.descricao}</p>
+      <p className="text-xs text-suave">
+        {[r.local, quando(r.atualizado_em)].filter(Boolean).join(" · ")}
+        {r.previsao ? ` · previsão ${new Date(r.previsao).toLocaleDateString("pt-BR")}` : ""}
+      </p>
+      {r.historico.length > 1 && (
+        <ol className="mt-3 grid gap-2 border-l border-linha-2 pl-3 text-sm">
+          {[...r.historico].reverse().map((h, i) => (
+            <li key={i}>
+              <span className="block">{h.descricao}</span>
+              <span className="text-xs text-suave">{[h.local, quando(h.quando)].filter(Boolean).join(" · ")}</span>
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   );
 }

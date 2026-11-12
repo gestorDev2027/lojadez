@@ -84,6 +84,19 @@ LOGGI_COMPANY_ID = _texto("LOGGI_COMPANY_ID")
 # Os códigos de serviço (SISU) que a Loggi passa na homologação, separados por vírgula.
 LOGGI_SERVICOS = [s.strip() for s in _texto("LOGGI_SERVICOS").split(",") if s.strip()]
 ORIGEM_CEP = "".join(c for c in _texto("LOJA_ORIGEM_CEP", "01310100") if c.isdigit())
+# Quem envia (vai na etiqueta e no envio da Loggi). Rua, bairro e cidade vêm do CEP; os campos abaixo trocam se precisar.
+REMETENTE = {
+    "nome": _texto("LOJA_REMETENTE_NOME"),
+    "documento": "".join(c for c in _texto("LOJA_REMETENTE_DOCUMENTO") if c.isdigit()),  # CPF ou CNPJ
+    "telefone": "".join(c for c in _texto("LOJA_REMETENTE_TELEFONE") if c.isdigit()),
+    "numero": _texto("LOJA_ORIGEM_NUMERO"),
+    "complemento": _texto("LOJA_ORIGEM_COMPLEMENTO"),
+    "rua": _texto("LOJA_ORIGEM_RUA"),
+    "bairro": _texto("LOJA_ORIGEM_BAIRRO"),
+    "instrucoes": _texto("LOJA_ORIGEM_INSTRUCOES", "Remetente da loja"),
+}
+# Como o pacote vai documentado no envio: declaração de conteúdo (sem nota fiscal).
+CONTEUDO_DECLARADO = _texto("LOGGI_DESCRICAO_CONTEUDO", "Kit barbeador com aparelho e refis de lâminas")
 
 # ───────── InfinitePay (pagamento) ─────────
 
@@ -113,6 +126,11 @@ def conferir() -> list[str]:
             problemas.append("Falta LOGGI_SERVICOS (os códigos de serviço da Loggi).")
     if len(ORIGEM_CEP) != 8:
         problemas.append("LOJA_ORIGEM_CEP precisa ter 8 dígitos.")
+    if LOGGI_AMBIENTE != "simulado":
+        if not REMETENTE["nome"] or len(REMETENTE["documento"]) not in (11, 14):
+            problemas.append("Para criar envios na Loggi: LOJA_REMETENTE_NOME e LOJA_REMETENTE_DOCUMENTO (CPF ou CNPJ).")
+        if not REMETENTE["numero"]:
+            problemas.append("Para criar envios na Loggi: LOJA_ORIGEM_NUMERO (o número do endereço de origem).")
     if INFINITEPAY_AMBIENTE not in ("simulado", "real"):
         problemas.append("INFINITEPAY_AMBIENTE deve ser simulado ou real.")
     if INFINITEPAY_AMBIENTE == "real" and not INFINITEPAY_HANDLE:

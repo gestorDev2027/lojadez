@@ -5,6 +5,7 @@ O preço e o frete nunca vêm do navegador: o servidor recalcula tudo na hora de
 
 import logging
 import re
+import threading
 import uuid
 
 from servidor import banco, catalogo, config, infinitepay, loggi
@@ -164,13 +165,14 @@ def publico(pedido: dict) -> dict:
         "cidade": pedido["cidade"], "uf": pedido["uf"], "forma_pagamento": pedido["forma_pagamento"],
         "recibo_url": pedido["recibo_url"], "codigo_rastreio": pedido["codigo_rastreio"],
         "link_pagamento": pedido["link_pagamento"] if pedido["situacao"] == "aguardando_pagamento" else None,
+        "tem_envio_loggi": bool(pedido.get("loggi_key")),
     }
 
 
 def marcar_enviado(order_nsu: str, codigo_rastreio: str) -> dict:
-    codigo = " ".join((codigo_rastreio or "").split())[:60]
+    codigo = " ".join((codigo_rastreio or "").split())[:60] or (banco.buscar(order_nsu) or {}).get("codigo_rastreio")
     if not codigo:
-        raise ErroPedido("Informe o código de rastreio.")
+        raise ErroPedido("Informe o código de rastreio (ou crie o envio na Loggi).")
     if not banco.alterar(order_nsu, {"situacao": "enviado", "codigo_rastreio": codigo, "enviado_em": banco.agora()},
                          so_se_situacao=("pago",)):
         raise ErroPedido("Só pedidos pagos podem ser marcados como enviados.", 409)
@@ -181,3 +183,69 @@ def cancelar(order_nsu: str) -> dict:
     if not banco.alterar(order_nsu, {"situacao": "cancelado"}, so_se_situacao=("aguardando_pagamento", "pagamento_divergente")):
         raise ErroPedido("Só pedidos não pagos podem ser cancelados aqui (pago: estorne na InfinitePay).", 409)
     return banco.buscar(order_nsu)
+
+
+# ───────── Envio pela Loggi ─────────
+
+_trava_envio = threading.Lock()
+
+
+def _pedido(order_nsu: str) -> dict:
+    pedido = banco.buscar(order_nsu)
+    if not pedido:
+        raise ErroPedido("Pedido não encontrado.", 404)
+    return pedido
+
+
+def criar_envio_loggi(order_nsu: str) -> dict:
+    """Cria o pacote na Loggi (uma vez por pedido pago). O código de rastreio passa a aparecer para o cliente."""
+    with _trava_envio:  # dois cliques rápidos não criam dois pacotes
+        pedido = _pedido(order_nsu)
+        if pedido["situacao"] not in ("pago", "enviado"):
+            raise ErroPedido("Só pedidos pagos podem ir para a Loggi.", 409)
+        if pedido.get("loggi_key"):
+            raise ErroPedido("Este pedido já tem envio na Loggi.", 409)
+        if not pedido.get("cpf"):
+            raise ErroPedido("O pedido não tem CPF: a Loggi exige o CPF de quem recebe.", 409)
+        try:
+            envio = loggi.criar_envio(pedido)
+        except loggi.ErroFrete as erro:
+            raise ErroPedido(str(erro), 502)
+        banco.alterar(order_nsu, {"loggi_key": envio["loggi_key"], "envio_criado_em": banco.agora(),
+                                  "codigo_rastreio": envio["tracking_code"] or pedido.get("codigo_rastreio")})
+        log.info("Envio criado na Loggi para o pedido %s.", order_nsu)
+        return banco.buscar(order_nsu)
+
+
+def etiqueta_loggi(order_nsu: str) -> bytes:
+    pedido = _pedido(order_nsu)
+    if not pedido.get("loggi_key"):
+        raise ErroPedido("Crie o envio na Loggi antes de gerar a etiqueta.", 409)
+    try:
+        return loggi.etiqueta(pedido["loggi_key"])
+    except loggi.ErroFrete as erro:
+        raise ErroPedido(str(erro), 502)
+
+
+def cancelar_envio_loggi(order_nsu: str) -> dict:
+    pedido = _pedido(order_nsu)
+    if not pedido.get("loggi_key"):
+        raise ErroPedido("Este pedido não tem envio na Loggi.", 409)
+    try:
+        aviso = loggi.cancelar_envio(pedido["loggi_key"])
+    except loggi.ErroFrete as erro:
+        raise ErroPedido(str(erro), 502)
+    banco.alterar(order_nsu, {"loggi_key": None, "envio_criado_em": None, "codigo_rastreio": None,
+                              "situacao": "pago" if pedido["situacao"] == "enviado" else pedido["situacao"]})
+    return {**banco.buscar(order_nsu), "aviso_loggi": aviso}
+
+
+def rastreio(order_nsu: str) -> dict:
+    """O rastreio público do pedido (o order_nsu é o segredo do link do cliente)."""
+    pedido = _pedido(order_nsu)
+    if not pedido.get("codigo_rastreio") or not pedido.get("loggi_key"):
+        return {"codigo": pedido.get("codigo_rastreio"), "rastreio": None}
+    try:
+        return {"codigo": pedido["codigo_rastreio"], "rastreio": loggi.rastrear(pedido["codigo_rastreio"])}
+    except loggi.ErroFrete:
+        return {"codigo": pedido["codigo_rastreio"], "rastreio": None}
