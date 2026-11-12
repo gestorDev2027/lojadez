@@ -45,23 +45,23 @@ def cliente():
 
 
 def _pedido(cliente, **mudar):
-    frete = cliente.post("/api/frete", json={"cep": "20040-002", "quantidade": 2}).json()
-    dados = {"quantidade": 2, "cep": "20040002", "frete_tipo": frete["opcoes"][0]["tipo"], "nome": "Maria Souza",
+    frete = cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit2"}).json()
+    dados = {"oferta": "kit2", "cep": "20040002", "frete_tipo": frete["opcoes"][0]["tipo"], "nome": "Maria Souza", "cpf": "529.982.247-25",
              "email": "maria@exemplo.com", "telefone": "(21) 99999-8888", "numero": "10", "rua": "", "bairro": "", **mudar}
     return frete, cliente.post("/api/pedidos", json=dados)
 
 
 def test_frete_tem_duas_opcoes_com_total(cliente):
-    r = cliente.post("/api/frete", json={"cep": "20040-002", "quantidade": 2})
+    r = cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit2"})
     assert r.status_code == 200
     corpo = r.json()
     assert [o["nome"] for o in corpo["opcoes"]] == ["Econômico", "Expresso"]
     assert corpo["opcoes"][0]["total_centavos"] == corpo["produto_centavos"] + corpo["opcoes"][0]["centavos"]
 
 
-def test_frete_recusa_cep_e_quantidade_invalidos(cliente):
-    assert cliente.post("/api/frete", json={"cep": "123", "quantidade": 1}).status_code == 422
-    assert cliente.post("/api/frete", json={"cep": "20040002", "quantidade": 99}).status_code == 422
+def test_frete_recusa_cep_e_oferta_invalidos(cliente):
+    assert cliente.post("/api/frete", json={"cep": "123", "oferta": "kit1"}).status_code == 422
+    assert cliente.post("/api/frete", json={"cep": "20040002", "oferta": "kit99"}).status_code == 422
 
 
 def test_compra_completa(cliente):
@@ -102,7 +102,7 @@ def test_webhook_falso_nao_marca_pago(cliente):
 
 
 def test_preco_do_navegador_e_ignorado(cliente):
-    frete, r = _pedido(cliente, preco_unitario_centavos=1, total_centavos=1, frete_centavos=0)
+    frete, r = _pedido(cliente, preco_centavos=1, total_centavos=1, frete_centavos=0)
     assert r.status_code == 200
     pedido = cliente.get(f"/api/pedidos/{r.json()['order_nsu']}").json()
     assert pedido["total_centavos"] == frete["opcoes"][0]["total_centavos"]
@@ -117,3 +117,21 @@ def test_dados_do_comprador_conferidos(cliente):
     assert _pedido(cliente, nome="Maria")[1].status_code == 422
     assert _pedido(cliente, email="sem-arroba")[1].status_code == 422
     assert _pedido(cliente, telefone="123")[1].status_code == 422
+    assert _pedido(cliente, cpf="111.111.111-11")[1].status_code == 422
+    assert _pedido(cliente, cpf="529.982.247-26")[1].status_code == 422
+
+
+def test_preco_da_oferta_e_o_do_servidor(cliente):
+    from servidor import config
+
+    frete, r = _pedido(cliente)
+    pedido = cliente.get(f"/api/pedidos/{r.json()['order_nsu']}").json()
+    assert pedido["preco_centavos"] == config.oferta("kit2")["preco_centavos"]
+    assert pedido["kits"] == 2 and "44 refis" in pedido["produto"]
+
+
+def test_config_da_landing_page(cliente):
+    r = cliente.get("/lp-config.js")
+    assert r.status_code == 200 and r.text.startswith("window.LP_CONFIG = ")
+    assert '"checkoutUrl": "/checkout?oferta=kit2"' in r.text
+    assert '"pagamentoNaEntrega": false' in r.text

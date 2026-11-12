@@ -4,6 +4,7 @@ Rodar: .venv\\Scripts\\python -m uvicorn servidor.app:app --reload --port 8000
 """
 
 import hmac
+import json
 import logging
 import threading
 import time
@@ -14,8 +15,7 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from servidor import banco, config, loggi, pedidos, simulador
 
@@ -76,12 +76,41 @@ async def _json(request: Request) -> dict:
 
 # ───────── A loja ─────────
 
+def _ofertas() -> list[dict]:
+    return [{**o, "descricao": pedidos.descricao_oferta(o)} for o in config.OFERTAS]
+
+
 @app.get("/api/loja")
 def loja():
     p = config.PRODUTO
-    return {"nome": config.LOJA_NOME, "quantidade_maxima": config.QUANTIDADE_MAXIMA,
+    return {"nome": config.LOJA_NOME, "whatsapp": config.LOJA_WHATSAPP,
             "testes": config.LOGGI_AMBIENTE == "simulado" or config.INFINITEPAY_AMBIENTE == "simulado",
-            "produto": {k: p[k] for k in ("sku", "ean", "nome", "resumo", "preco_centavos")}}
+            "produto": {k: p[k] for k in ("sku", "ean", "nome", "aparelhos", "refis", "laminas_por_refil")},
+            "ofertas": _ofertas(), "oferta_padrao": config.OFERTA_PADRAO}
+
+
+@app.get("/lp-config.js", include_in_schema=False)
+def lp_config():
+    """A configuração da landing page (web/lp), montada do servidor: os preços valem só daqui."""
+    p = config.PRODUTO
+    dados = {
+        "marca": config.LOJA_NOME,
+        "produto": {"nome": p["nome"], "aparelhos": p["aparelhos"], "refis": p["refis"], "laminasPorRefil": p["laminas_por_refil"]},
+        "pagamentoNaEntrega": False,
+        "whatsapp": {"numero": config.LOJA_WHATSAPP, "mensagem": "Olá! Tenho interesse no {kit} ({preco})."},
+        "checkout": {"repassarParametros": True, "abrirEmNovaAba": False},
+        "ofertas": [{"id": o["id"], "titulo": o["titulo"], "quantidade": o["kits"], "preco": o["preco_centavos"] / 100,
+                     "precoDe": None, "selo": o["selo"], "checkoutUrl": f"/checkout?oferta={o['id']}"} for o in config.OFERTAS],
+        "ofertaPadrao": config.OFERTA_PADRAO,
+        "calculadora": {"barbeadasPorSemana": 5, "usosPorRefil": 5},
+        "contagem": {"ativo": bool(config.LOJA_PROMO_ATE), "terminaEm": config.LOJA_PROMO_ATE,
+                     "titulo": "Preço promocional válido por"},
+        "depoimentos": [],  # só depoimentos reais
+        "empresa": config.EMPRESA,
+        "rastreamento": config.RASTREAMENTO,
+    }
+    texto = "window.LP_CONFIG = " + json.dumps(dados, ensure_ascii=False).replace("</", "<\\/") + ";\n"
+    return Response(texto, media_type="application/javascript", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/cep/{cep}")
@@ -97,7 +126,7 @@ def cep(cep: str, request: Request):
 async def frete(request: Request):
     _limitar(request, "frete", 20)
     dados = await _json(request)
-    return pedidos.cotar_frete(str(dados.get("cep") or ""), dados.get("quantidade"))
+    return pedidos.cotar_frete(str(dados.get("cep") or ""), dados.get("oferta"))
 
 
 @app.post("/api/pedidos")
@@ -216,20 +245,26 @@ def simulador_comprovante(order_nsu: str):
 
 
 # ───────── O site (web/dist, depois do npm run build) ─────────
+# "/" é a landing page (web/public/loja.html, com assets/ do modelo); /checkout, /obrigado e /vendedor são o app React
+# (web/dist/index.html, com app-assets/).
 
 _SITE = config.RAIZ / "web" / "dist"
-if (_SITE / "assets").is_dir():
-    app.mount("/assets", StaticFiles(directory=_SITE / "assets"), name="assets")
+PAGINAS_DO_APP = ("checkout", "obrigado", "vendedor")
 
 
 @app.get("/{caminho:path}", include_in_schema=False)
 def site(caminho: str):
     if caminho.startswith(("api/", "simulador/")):
         raise HTTPException(404)
-    arquivo = (_SITE / caminho).resolve()
-    if caminho and arquivo.is_file() and _SITE.resolve() in arquivo.parents:
-        return FileResponse(arquivo)
-    indice = _SITE / "index.html"
-    if not indice.is_file():
+    if not (_SITE / "index.html").is_file():
         return HTMLResponse("<p>O site ainda não foi construído: rode <code>npm run build</code> na pasta web.</p>")
-    return FileResponse(indice)
+    limpo = caminho.strip("/")
+    if not limpo:
+        return FileResponse(_SITE / "loja.html")
+    if limpo.split("/")[0] in PAGINAS_DO_APP:
+        return FileResponse(_SITE / "index.html")
+    arquivo = (_SITE / limpo).resolve()
+    if arquivo.is_file() and _SITE.resolve() in arquivo.parents:
+        cache = "public, max-age=31536000, immutable" if limpo.startswith("app-assets/") else "public, max-age=3600"
+        return FileResponse(arquivo, headers={"Cache-Control": cache})
+    raise HTTPException(404)

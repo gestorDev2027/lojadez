@@ -1,61 +1,128 @@
 @import "tailwindcss";
 
-/* As cores da loja: o verde-sálvia da embalagem e um verde bem escuro para o texto. Claro e escuro. */
+/* As cores e as fontes da landing page (public/assets/css/style.css): preto profundo, laranja e aço. */
 @theme {
-  --color-fundo: #f6f8f7;
-  --color-cartao: #ffffff;
-  --color-tinta: #14231f;
-  --color-suave: #55655f;
-  --color-linha: #dbe3df;
-  --color-salvia: #9fd3c3;
-  --color-salvia-forte: #2f6f5f;
-  --color-escuro: #1f3d36;
-  --color-alerta: #9a3412;
-  --color-ok: #15803d;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-fundo: #0f1715;
-    --color-cartao: #16211e;
-    --color-tinta: #e8f0ed;
-    --color-suave: #9fb0a9;
-    --color-linha: #2a3a35;
-    --color-salvia: #4f9c88;
-    --color-salvia-forte: #9fd3c3;
-    --color-escuro: #9fd3c3;
-    --color-alerta: #fdba74;
-    --color-ok: #86efac;
-  }
+  --color-fundo: #0a0a0b;
+  --color-fundo-2: #111214;
+  --color-cartao: #17181b;
+  --color-tinta: #f3f4f6;
+  --color-tinta-2: #c4c8cf;
+  --color-suave: #8b9099;
+  --color-linha: rgb(255 255 255 / 0.09);
+  --color-linha-2: rgb(255 255 255 / 0.16);
+  --color-laranja: #ff6a13;
+  --color-laranja-2: #ff9a3c;
+  --color-laranja-3: #c94a00;
+  --color-aco: #d6dbe2;
+  --color-ok: #4ade80;
+  --color-alerta: #fca5a5;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
 }
 
 html {
   background: var(--color-fundo);
   color: var(--color-tinta);
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
 }
 
 body {
   margin: 0;
   background: var(--color-fundo);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--color-laranja);
+  color: #000;
 }
 
 :focus-visible {
-  outline: 3px solid var(--color-salvia-forte);
-  outline-offset: 2px;
+  outline: 2px solid var(--color-laranja);
+  outline-offset: 3px;
 }
 
 .campo {
   width: 100%;
-  border: 1px solid var(--color-linha);
-  background: var(--color-cartao);
+  border: 1px solid var(--color-linha-2);
+  background: rgb(255 255 255 / 0.03);
   color: var(--color-tinta);
-  border-radius: 10px;
-  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
+  padding: 0.8rem 0.95rem;
   font-size: 1rem;
+  transition: border-color 0.2s, background 0.2s;
 }
 
-.campo:disabled {
-  opacity: 0.7;
+.campo::placeholder {
+  color: var(--color-suave);
+}
+
+.campo:focus {
+  outline: none;
+  border-color: var(--color-laranja);
+  background: rgb(255 106 19 / 0.06);
+}
+
+.btn-laranja {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #120700;
+  background: linear-gradient(180deg, var(--color-laranja-2), var(--color-laranja) 45%, var(--color-laranja-3));
+  box-shadow: 0 10px 30px -8px rgb(255 106 19 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.45);
+  transition: box-shadow 0.3s, transform 0.3s, opacity 0.2s;
+}
+
+.btn-laranja:hover:not(:disabled) {
+  box-shadow: 0 16px 44px -8px rgb(255 106 19 / 0.85), inset 0 1px 0 rgb(255 255 255 / 0.5);
+  transform: translateY(-1px);
+}
+
+.btn-laranja:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-laranja::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(105deg, transparent 30%, rgb(255 255 255 / 0.55) 50%, transparent 70%);
+  transform: translateX(-120%);
+  animation: brilho 3.6s cubic-bezier(0.7, 0, 0.2, 1) infinite;
+}
+
+@keyframes brilho {
+  0%,
+  55% {
+    transform: translateX(-120%);
+  }
+  85%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-laranja::before {
+    animation: none;
+  }
+}
+
+.grao {
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgb(255 106 19 / 0.14), transparent 60%),
+    radial-gradient(800px 400px at -10% 110%, rgb(255 106 19 / 0.08), transparent 60%);
 }

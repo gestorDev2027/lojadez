@@ -1,7 +1,15 @@
 // As chamadas à API da loja (servidor Python). Os preços estão sempre em centavos.
 
-export type Produto = { sku: string; ean: string; nome: string; resumo: string; preco_centavos: number };
-export type Loja = { nome: string; quantidade_maxima: number; testes: boolean; produto: Produto };
+export type Produto = { sku: string; ean: string; nome: string; aparelhos: number; refis: number; laminas_por_refil: number };
+export type Oferta = { id: string; titulo: string; kits: number; preco_centavos: number; selo: string; descricao: string };
+export type Loja = {
+  nome: string;
+  whatsapp: string;
+  testes: boolean;
+  produto: Produto;
+  ofertas: Oferta[];
+  oferta_padrao: string;
+};
 export type Endereco = { cep: string; rua: string; bairro: string; cidade: string; uf: string };
 export type OpcaoFrete = {
   tipo: string;
@@ -17,8 +25,8 @@ export type PedidoPublico = {
   situacao: "aguardando_pagamento" | "pago" | "enviado" | "cancelado" | "pagamento_divergente";
   primeiro_nome: string;
   produto: string;
-  quantidade: number;
-  preco_unitario_centavos: number;
+  kits: number;
+  preco_centavos: number;
   frete_descricao: string;
   frete_centavos: number;
   total_centavos: number;
@@ -36,6 +44,7 @@ export type PedidoVendedor = Omit<PedidoPublico, "primeiro_nome" | "situacao"> &
   pago_em: string | null;
   enviado_em: string | null;
   nome: string;
+  cpf: string;
   email: string;
   telefone: string;
   cep: string;
@@ -82,6 +91,14 @@ export const reais = (centavos: number) =>
 export const formatarCep = (cep: string) => {
   const d = cep.replace(/\D/g, "").slice(0, 8);
   return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+};
+
+export const formatarCpf = (cpf: string) => {
+  const d = cpf.replace(/\D/g, "").slice(0, 11);
+  return d
+    .replace(/^(\d{3})(\d)/, "$1.$2")
+    .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d{1,2})$/, ".$1-$2");
 };
 
 export const formatarTelefone = (tel: string) => {

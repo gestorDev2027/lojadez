@@ -19,7 +19,21 @@ services:
         sync: false
       - key: LOJA_ORIGEM_CEP
         sync: false
-      - key: PRODUTO_PRECO_CENTAVOS
+      - key: LOJA_WHATSAPP
+        sync: false
+      - key: LOJA_PROMO_ATE
+        sync: false
+      - key: EMPRESA_RAZAO_SOCIAL
+        sync: false
+      - key: EMPRESA_CNPJ
+        sync: false
+      - key: EMPRESA_EMAIL
+        sync: false
+      - key: OFERTA_KIT1_CENTAVOS
+        sync: false
+      - key: OFERTA_KIT2_CENTAVOS
+        sync: false
+      - key: OFERTA_KIT3_CENTAVOS
         sync: false
       - key: PRODUTO_PESO_G
         sync: false

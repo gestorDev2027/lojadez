@@ -1,9 +1,18 @@
-# Loja de lâminas de barbear
+# Wolf & Co — loja do kit barbeador
 
-Site de venda de um produto (o kit de lâminas MADE basics, MADE-BB006). O cliente calcula o frete pela **Loggi**, preenche
-os dados de entrega e paga por Pix ou cartão no **checkout da InfinitePay**. O vendedor vê os pedidos pagos em `/vendedor`.
+Site de venda do kit barbeador (aparelho + 22 refis de 3 lâminas, MADE basics MADE-BB006). A **landing page** (`/`) mostra
+o produto e as ofertas de 1, 2 e 3 kits; o botão "Comprar" leva ao **checkout** (`/checkout?oferta=kit2`), onde o cliente
+calcula o frete pela **Loggi**, preenche os dados (com CPF, que a Loggi exige para o envio) e paga por Pix ou cartão no
+**checkout da InfinitePay**. O vendedor vê os pedidos pagos em `/vendedor`.
 
 As duas integrações têm um **modo simulado**: dá para rodar e testar o fluxo inteiro sem credenciais e sem cobrar nada.
+
+## As páginas
+
+- **Landing page:** `web/public/loja.html` e `web/public/assets/` (o modelo "LP Barbeador", estático). A configuração dela
+  (marca, ofertas, preços, WhatsApp, contagem, empresa, pixels) vem do servidor em `/lp-config.js`: os preços só existem
+  no servidor (`.env`), e cada botão de compra leva a `/checkout?oferta=<kit>`.
+- **App React** (`web/src`): checkout, página do pedido (`/obrigado`) e área do vendedor, no mesmo visual da landing page.
 
 ## Como a compra funciona
 
@@ -57,10 +66,18 @@ staging.
 
 ## Ligar a InfinitePay de verdade
 
+São duas chaves, e só a primeira é obrigatória:
+
+| Variável | O que é | Onde pegar |
+|---|---|---|
+| `INFINITEPAY_HANDLE` | sua InfiniteTag, sem o `$` | o seu nome de usuário no app InfinitePay |
+| `INFINITEPAY_API_KEY` | a API Key do Checkout Integrado (começa com `inchk_`) | app.infinitepay.io → Checkout Integrado → Configurações → criar API Key (aparece uma vez só) |
+
 1. No app da InfinitePay, ative o **Checkout Integrado**.
-2. No `.env`: `INFINITEPAY_AMBIENTE=real` e `INFINITEPAY_HANDLE` (sua InfiniteTag, sem o `$`).
-3. Opcional: crie uma API Key e ponha em `INFINITEPAY_API_KEY`. Com ela, cada link vale por 48 h, aceita um pagamento só
-   e aceita Pix e cartão.
+2. No `.env`: `INFINITEPAY_AMBIENTE=real` e `INFINITEPAY_HANDLE`.
+3. Recomendado: `INFINITEPAY_API_KEY`. Ela vai só no cabeçalho `X-Api-Key`, pelo servidor; com ela cada link vale por
+   48 h, aceita um pagamento só e aceita Pix e cartão. A InfiniteTag continua necessária: é com ela que a loja confere os
+   pagamentos (`/payment_check`). Nunca ponha a chave no código nem em mensagens.
 4. `SITE_URL` precisa ser o endereço público com `https://`. Sem isso a InfinitePay não manda o webhook, e o pedido só é
    confirmado quando o cliente volta para `/obrigado`.
 
@@ -77,10 +94,11 @@ painel do Render. Use o plano `starter` ou acima: no free o site dorme, e o webh
 
 ## Antes de vender
 
-- [ ] Preço, peso e medidas da embalagem (`.env`).
-- [ ] Quantas cargas vêm no kit (pôr no `PRODUTO_RESUMO`).
-- [ ] Fotos de produto boas no lugar de `web/public/produto/frente.jpg` e `verso.jpg` (hoje são as fotos do celular).
-- [ ] Nome da loja e domínio próprios (a loja não deve parecer o site oficial da marca MADE basics).
+- [ ] Preço das ofertas: os de 2 e 3 kits (R$ 47,90 e R$ 64,90) vieram marcados como "exemplo" no modelo
+      (`OFERTA_KIT*_CENTAVOS` no `.env`).
+- [ ] Peso e medidas de um kit embalado (`PRODUTO_PESO_G`, `PRODUTO_DIMENSOES_CM`).
+- [ ] O número do WhatsApp (`LOJA_WHATSAPP`, veio do modelo) e a data da promoção (`LOJA_PROMO_ATE`): só uma data real.
+- [ ] Razão social, CNPJ e e-mail no rodapé (`EMPRESA_*`).
 - [ ] Política de privacidade, trocas e devoluções (Código de Defesa do Consumidor: 7 dias para compras online), com CNPJ
       ou CPF e contato da loja no rodapé.
 - [ ] Nota fiscal (ou declaração de conteúdo) para o envio.
@@ -102,6 +120,7 @@ servidor/infinitepay.py  link de pagamento e payment_check (real ou simulado)
 servidor/simulador.py    a InfinitePay de mentira (só em testes)
 servidor/banco.py        a tabela de pedidos (SQLite local ou Postgres)
 servidor/config.py       as variáveis de ambiente e o produto
-web/src/paginas/         Loja (produto, frete e checkout), Obrigado e Vendedor
+web/public/loja.html     a landing page (modelo estático) e web/public/assets/ (css, js, imagens)
+web/src/paginas/         Checkout (kit, frete e dados), Obrigado e Vendedor
 testes/test_fluxo.py     o fluxo inteiro, simulado
 ```

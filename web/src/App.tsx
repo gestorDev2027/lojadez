@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { chamar, type Loja } from "./api";
-import { PaginaLoja } from "./paginas/Loja";
+import { PaginaCheckout } from "./paginas/Checkout";
 import { PaginaObrigado } from "./paginas/Obrigado";
 import { PaginaVendedor } from "./paginas/Vendedor";
 
-// Três páginas, escolhidas pelo endereço: a loja (/), a volta do pagamento (/obrigado) e o vendedor (/vendedor).
+// O app React cuida de três páginas: o checkout (/checkout), a volta do pagamento (/obrigado) e o vendedor (/vendedor).
+// A landing page (/) é estática: public/loja.html.
 export function App() {
   const [loja, setLoja] = useState<Loja | null>(null);
   const [erro, setErro] = useState("");
@@ -14,7 +15,8 @@ export function App() {
     chamar<Loja>("/api/loja")
       .then((l) => {
         setLoja(l);
-        document.title = caminho === "/vendedor" ? `Pedidos · ${l.nome}` : `${l.produto.nome} · ${l.nome}`;
+        const titulo = { "/vendedor": "Pedidos", "/obrigado": "Seu pedido" }[caminho] ?? "Finalizar compra";
+        document.title = `${titulo} · ${l.nome}`;
       })
       .catch((e: Error) => setErro(e.message));
   }, [caminho]);
@@ -23,53 +25,66 @@ export function App() {
   if (!loja) return <p className="p-6 text-center text-suave">Carregando…</p>;
 
   return (
-    <div className="min-h-dvh flex flex-col">
+    <div className="grao flex min-h-dvh flex-col">
       <Cabecalho loja={loja} />
       <main className="flex-1">
         {caminho === "/obrigado" ? (
-          <PaginaObrigado />
+          <PaginaObrigado loja={loja} />
         ) : caminho === "/vendedor" ? (
           <PaginaVendedor />
         ) : (
-          <PaginaLoja loja={loja} />
+          <PaginaCheckout loja={loja} />
         )}
       </main>
-      <Rodape loja={loja} />
+      <footer className="border-t border-linha">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-6 text-sm text-suave">
+          <span>
+            © {new Date().getFullYear()} {loja.nome}
+          </span>
+          <span>Seus dados são usados só para entregar o pedido e falar com você sobre ele.</span>
+        </div>
+      </footer>
     </div>
+  );
+}
+
+export function Marca({ nome }: { nome: string }) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <span aria-hidden className="grid size-9 place-items-center rounded-[10px] border border-linha-2 bg-fundo-2">
+        <span className="flex w-5 flex-col gap-[3px]">
+          <i className="block h-[5px] rounded-sm bg-laranja" />
+          <i className="block h-[2px] bg-aco" />
+          <i className="block h-[2px] bg-aco" />
+        </span>
+      </span>
+      <span className="font-display text-2xl font-extrabold uppercase tracking-wide">{nome}</span>
+    </span>
   );
 }
 
 function Cabecalho({ loja }: { loja: Loja }) {
   return (
-    <header className="border-b border-linha bg-cartao">
+    <header className="sticky top-0 z-20 border-b border-linha bg-fundo/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-        <a href="/" className="flex items-center gap-2 font-bold text-lg text-tinta no-underline">
-          <span aria-hidden className="grid size-8 place-items-center rounded-lg bg-escuro text-fundo">
-            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M6 8h12M6 12h12M6 16h12" />
-            </svg>
-          </span>
-          {loja.nome}
+        <a href="/" aria-label={`Voltar para a página da ${loja.nome}`}>
+          <Marca nome={loja.nome} />
         </a>
-        {loja.testes && (
-          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">Ambiente de testes</span>
-        )}
+        <div className="flex items-center gap-3">
+          {loja.testes && (
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 font-mono text-xs font-bold text-amber-300">
+              AMBIENTE DE TESTES
+            </span>
+          )}
+          <span className="hidden items-center gap-1.5 font-mono text-xs text-suave sm:flex">
+            <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+            </svg>
+            COMPRA SEGURA
+          </span>
+        </div>
       </div>
     </header>
-  );
-}
-
-function Rodape({ loja }: { loja: Loja }) {
-  return (
-    <footer className="mt-12 border-t border-linha bg-cartao">
-      <div className="mx-auto grid max-w-6xl gap-2 px-4 py-6 text-sm text-suave sm:grid-cols-2">
-        <p>
-          <strong className="text-tinta">{loja.nome}</strong> · Pagamento por Pix ou cartão pela InfinitePay · Entrega pela Loggi
-        </p>
-        <p className="sm:text-right">
-          Usamos seus dados só para entregar o pedido e falar com você sobre ele.
-        </p>
-      </div>
-    </footer>
   );
 }

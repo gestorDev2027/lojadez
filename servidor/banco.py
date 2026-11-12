@@ -16,9 +16,10 @@ pedidos = Table(
     # aguardando_pagamento → pago → enviado; ou cancelado
     Column("situacao", String(30), nullable=False, default="aguardando_pagamento"),
     Column("sku", String(40), nullable=False),
-    Column("produto", Text, nullable=False),
-    Column("quantidade", Integer, nullable=False),
-    Column("preco_unitario_centavos", Integer, nullable=False),
+    Column("oferta", String(20), nullable=False),
+    Column("produto", Text, nullable=False),  # ex.: "Kit Barbeador 3 Lâminas - 2 Kits (2 aparelhos + 44 refis)"
+    Column("kits", Integer, nullable=False),
+    Column("preco_centavos", Integer, nullable=False),  # o preço da oferta
     Column("frete_tipo", String(40), nullable=False),
     Column("frete_descricao", Text, nullable=False),
     Column("frete_prazo_dias", Integer),
@@ -26,6 +27,7 @@ pedidos = Table(
     Column("total_centavos", Integer, nullable=False),
     # o comprador
     Column("nome", Text, nullable=False),
+    Column("cpf", String(11), nullable=False),  # a Loggi exige o CPF do destinatário para criar o envio
     Column("email", Text, nullable=False),
     Column("telefone", Text, nullable=False),
     Column("cep", String(8), nullable=False),

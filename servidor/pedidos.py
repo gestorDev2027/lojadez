@@ -21,14 +21,28 @@ class ErroPedido(Exception):
 EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,24}$", re.I)
 
 
-def _quantidade(valor) -> int:
-    try:
-        quantidade = int(valor)
-    except (TypeError, ValueError):
-        quantidade = 0
-    if not 1 <= quantidade <= config.QUANTIDADE_MAXIMA:
-        raise ErroPedido(f"Escolha de 1 a {config.QUANTIDADE_MAXIMA} unidades.")
-    return quantidade
+def _oferta(oferta_id) -> dict:
+    oferta = config.oferta(str(oferta_id or ""))
+    if not oferta:
+        raise ErroPedido("Escolha um dos kits.")
+    return oferta
+
+
+def descricao_oferta(oferta: dict) -> str:
+    p = config.PRODUTO
+    aparelhos, refis = p["aparelhos"] * oferta["kits"], p["refis"] * oferta["kits"]
+    return f"{p['nome']} - {oferta['titulo']} ({aparelhos} {'aparelhos' if aparelhos > 1 else 'aparelho'} + {refis} refis)"
+
+
+def cpf_valido(cpf: str) -> bool:
+    """Os dois dígitos verificadores do CPF."""
+    if len(cpf) != 11 or cpf == cpf[0] * 11:
+        return False
+    for tamanho in (9, 10):
+        soma = sum(int(cpf[i]) * (tamanho + 1 - i) for i in range(tamanho))
+        if (soma * 10 % 11) % 10 != int(cpf[tamanho]):
+            return False
+    return True
 
 
 def _texto(dados: dict, campo: str, rotulo: str, minimo: int = 1, maximo: int = 120, obrigatorio: bool = True) -> str:
@@ -40,22 +54,29 @@ def _texto(dados: dict, campo: str, rotulo: str, minimo: int = 1, maximo: int = 
     return valor
 
 
-def cotar_frete(cep: str, quantidade) -> dict:
-    quantidade = _quantidade(quantidade)
+def _cotar(cep: str, oferta: dict) -> dict:
     try:
-        cotacao = loggi.cotar(cep, quantidade)
+        return loggi.cotar(cep, oferta["kits"], oferta["preco_centavos"])
     except loggi.ErroFrete as erro:
         raise ErroPedido(str(erro))
-    produto = config.PRODUTO["preco_centavos"] * quantidade
+
+
+def cotar_frete(cep: str, oferta_id) -> dict:
+    oferta = _oferta(oferta_id)
+    cotacao = _cotar(cep, oferta)
+    produto = oferta["preco_centavos"]
     return {**cotacao, "produto_centavos": produto,
             "opcoes": [{**o, "total_centavos": produto + o["centavos"]} for o in cotacao["opcoes"]]}
 
 
 def criar(dados: dict) -> dict:
-    quantidade = _quantidade(dados.get("quantidade"))
+    oferta = _oferta(dados.get("oferta"))
     nome = _texto(dados, "nome", "o nome completo", minimo=5)
     if len(nome.split()) < 2:
         raise ErroPedido("Informe nome e sobrenome.")
+    cpf = re.sub(r"\D", "", str(dados.get("cpf") or ""))
+    if not cpf_valido(cpf):
+        raise ErroPedido("CPF inválido.")
     email = _texto(dados, "email", "o e-mail", maximo=200).lower()
     if not EMAIL.match(email):
         raise ErroPedido("E-mail inválido.")
@@ -65,10 +86,7 @@ def criar(dados: dict) -> dict:
     numero = _texto(dados, "numero", "o número", maximo=20)
     complemento = _texto(dados, "complemento", "o complemento", maximo=80, obrigatorio=False)
 
-    try:
-        cotacao = loggi.cotar(dados.get("cep") or "", quantidade)
-    except loggi.ErroFrete as erro:
-        raise ErroPedido(str(erro))
+    cotacao = _cotar(str(dados.get("cep") or ""), oferta)
     opcao = next((o for o in cotacao["opcoes"] if o["tipo"] == dados.get("frete_tipo")), None)
     if not opcao:
         raise ErroPedido("Esta opção de frete não está mais disponível. Calcule o frete de novo.", 409)
@@ -78,15 +96,14 @@ def criar(dados: dict) -> dict:
     if not rua or not bairro:
         raise ErroPedido("Preencha a rua e o bairro.")
 
-    produto = config.PRODUTO
     pedido = {
         "order_nsu": str(uuid.uuid4()), "criado_em": banco.agora(), "situacao": "aguardando_pagamento",
-        "sku": produto["sku"], "produto": produto["nome"], "quantidade": quantidade,
-        "preco_unitario_centavos": produto["preco_centavos"], "frete_tipo": opcao["tipo"],
+        "sku": config.PRODUTO["sku"], "oferta": oferta["id"], "produto": descricao_oferta(oferta), "kits": oferta["kits"],
+        "preco_centavos": oferta["preco_centavos"], "frete_tipo": opcao["tipo"],
         "frete_descricao": f"Frete Loggi {opcao['nome']} (até {opcao['prazo_dias']} dias úteis)",
         "frete_prazo_dias": opcao["prazo_dias"], "frete_centavos": opcao["centavos"],
-        "total_centavos": produto["preco_centavos"] * quantidade + opcao["centavos"],
-        "nome": nome, "email": email, "telefone": telefone, "cep": endereco["cep"], "rua": rua, "numero": numero,
+        "total_centavos": oferta["preco_centavos"] + opcao["centavos"],
+        "nome": nome, "cpf": cpf, "email": email, "telefone": telefone, "cep": endereco["cep"], "rua": rua, "numero": numero,
         "complemento": complemento or None, "bairro": bairro, "cidade": endereco["cidade"], "uf": endereco["uf"],
     }
     banco.inserir(pedido)
@@ -141,8 +158,8 @@ def publico(pedido: dict) -> dict:
     """O que o comprador vê do pedido (sem e-mail, telefone ou endereço completo)."""
     return {
         "order_nsu": pedido["order_nsu"], "situacao": pedido["situacao"], "primeiro_nome": pedido["nome"].split()[0],
-        "produto": pedido["produto"], "quantidade": pedido["quantidade"],
-        "preco_unitario_centavos": pedido["preco_unitario_centavos"], "frete_descricao": pedido["frete_descricao"],
+        "produto": pedido["produto"], "kits": pedido["kits"], "preco_centavos": pedido["preco_centavos"],
+        "frete_descricao": pedido["frete_descricao"],
         "frete_centavos": pedido["frete_centavos"], "total_centavos": pedido["total_centavos"],
         "cidade": pedido["cidade"], "uf": pedido["uf"], "forma_pagamento": pedido["forma_pagamento"],
         "recibo_url": pedido["recibo_url"], "codigo_rastreio": pedido["codigo_rastreio"],

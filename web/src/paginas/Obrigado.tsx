@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { chamar, reais, type PedidoPublico } from "../api";
+import { chamar, reais, type Loja, type PedidoPublico } from "../api";
 
 // A volta da InfinitePay: o endereço traz order_nsu, transaction_nsu, slug e receipt_url. O servidor confere o pagamento
 // na InfinitePay (nunca confia só no endereço); enquanto não confirma, tenta de novo a cada 3 segundos por 1 minuto.
-export function PaginaObrigado() {
+export function PaginaObrigado({ loja }: { loja: Loja }) {
   const parametros = new URLSearchParams(window.location.search);
   const nsu = parametros.get("order_nsu") ?? "";
   const [pedido, setPedido] = useState<PedidoPublico | null>(null);
@@ -48,11 +48,11 @@ export function PaginaObrigado() {
   const pago = pedido.situacao === "pago" || pedido.situacao === "enviado";
   return (
     <section className="mx-auto max-w-xl px-4 py-10">
-      <div className="rounded-2xl border border-linha bg-cartao p-6">
+      <div className="rounded-[22px] border border-linha-2 bg-cartao p-6">
         {pago ? (
           <>
             <Selo ok />
-            <h1 className="mt-4 text-2xl font-bold">Pagamento confirmado, {pedido.primeiro_nome}!</h1>
+            <h1 className="mt-4 font-display text-4xl leading-none font-extrabold uppercase">Pagamento confirmado, {pedido.primeiro_nome}!</h1>
             <p className="mt-2 text-suave">
               Seu pedido vai para {pedido.cidade}/{pedido.uf}. Guarde o link desta página: quando o pedido sair, o código de
               rastreio da Loggi aparece aqui.
@@ -61,14 +61,14 @@ export function PaginaObrigado() {
         ) : pedido.situacao === "aguardando_pagamento" ? (
           <>
             <Selo />
-            <h1 className="mt-4 text-2xl font-bold">{desistiu ? "Ainda não recebemos o pagamento" : "Confirmando o pagamento…"}</h1>
+            <h1 className="mt-4 font-display text-4xl leading-none font-extrabold uppercase">{desistiu ? "Ainda não recebemos o pagamento" : "Confirmando o pagamento…"}</h1>
             <p className="mt-2 text-suave">
               {desistiu
                 ? "Se você já pagou, ele aparece aqui em alguns minutos: pode recarregar a página. Se não terminou, volte ao pagamento."
                 : "Isso leva poucos segundos."}
             </p>
             {desistiu && pedido.link_pagamento && (
-              <a href={pedido.link_pagamento} className="mt-4 inline-block rounded-full bg-escuro px-5 py-3 font-semibold text-fundo">
+              <a href={pedido.link_pagamento} className="mt-4 inline-block btn-laranja px-5 py-3 text-sm">
                 Voltar ao pagamento
               </a>
             )}
@@ -76,7 +76,7 @@ export function PaginaObrigado() {
         ) : (
           <>
             <Selo />
-            <h1 className="mt-4 text-2xl font-bold">Precisamos conferir este pedido</h1>
+            <h1 className="mt-4 font-display text-4xl leading-none font-extrabold uppercase">Precisamos conferir este pedido</h1>
             <p className="mt-2 text-suave">
               {pedido.situacao === "cancelado"
                 ? "Este pedido foi cancelado."
@@ -86,7 +86,7 @@ export function PaginaObrigado() {
         )}
 
         <dl className="mt-6 grid gap-2 border-t border-linha pt-4 text-sm">
-          <Linha rotulo={`${pedido.quantidade} × ${pedido.produto}`} valor={reais(pedido.preco_unitario_centavos * pedido.quantidade)} />
+          <Linha rotulo={pedido.produto} valor={reais(pedido.preco_centavos)} />
           <Linha rotulo={pedido.frete_descricao} valor={reais(pedido.frete_centavos)} />
           <Linha rotulo="Total" valor={reais(pedido.total_centavos)} forte />
           {pedido.forma_pagamento && (
@@ -96,11 +96,21 @@ export function PaginaObrigado() {
         </dl>
         <div className="mt-6 flex flex-wrap gap-3">
           {pedido.recibo_url && (
-            <a href={pedido.recibo_url} target="_blank" rel="noreferrer" className="rounded-full border border-linha px-5 py-2.5 font-medium">
+            <a href={pedido.recibo_url} target="_blank" rel="noreferrer" className="rounded-full border border-linha-2 px-5 py-2.5 font-medium hover:border-laranja">
               Ver comprovante
             </a>
           )}
-          <a href="/" className="rounded-full px-5 py-2.5 font-medium text-salvia-forte">
+          {loja.whatsapp && (
+            <a
+              href={`https://wa.me/${loja.whatsapp}?text=${encodeURIComponent(`Olá! Sobre o meu pedido ${pedido.order_nsu}.`)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-full border border-linha-2 px-5 py-2.5 font-medium hover:border-laranja"
+            >
+              Falar no WhatsApp
+            </a>
+          )}
+          <a href="/" className="rounded-full px-5 py-2.5 font-medium text-laranja-2">
             Voltar à loja
           </a>
         </div>
@@ -113,10 +123,10 @@ export function PaginaObrigado() {
 function Caixa({ titulo, texto }: { titulo: string; texto: string }) {
   return (
     <section className="mx-auto max-w-xl px-4 py-10">
-      <div className="rounded-2xl border border-linha bg-cartao p-6">
-        <h1 className="text-2xl font-bold">{titulo}</h1>
+      <div className="rounded-[22px] border border-linha-2 bg-cartao p-6">
+        <h1 className="font-display text-4xl leading-none font-extrabold uppercase">{titulo}</h1>
         <p className="mt-2 text-suave">{texto}</p>
-        <a href="/" className="mt-4 inline-block font-medium text-salvia-forte">
+        <a href="/" className="mt-4 inline-block font-medium text-laranja-2">
           Voltar à loja
         </a>
       </div>
@@ -128,7 +138,7 @@ function Selo({ ok = false }: { ok?: boolean }) {
   return (
     <span
       aria-hidden
-      className={`grid size-12 place-items-center rounded-full text-2xl ${ok ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-800"}`}
+      className={`grid size-12 place-items-center rounded-full text-2xl ${ok ? "bg-ok/15 text-ok" : "bg-amber-400/15 text-amber-300"}`}
     >
       {ok ? "✓" : "…"}
     </span>

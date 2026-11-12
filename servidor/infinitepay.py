@@ -37,7 +37,7 @@ def _telefone(telefone: str) -> str:
 def montar_corpo(pedido: dict) -> dict:
     corpo = {
         "itens": [
-            {"quantity": pedido["quantidade"], "price": pedido["preco_unitario_centavos"], "description": pedido["produto"]},
+            {"quantity": 1, "price": pedido["preco_centavos"], "description": pedido["produto"]},
             {"quantity": 1, "price": pedido["frete_centavos"], "description": pedido["frete_descricao"]},
         ],
         "order_nsu": pedido["order_nsu"],

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { chamar, ErroApi, formatarCep, formatarTelefone, reais, type PedidoVendedor } from "../api";
+import { chamar, ErroApi, formatarCep, formatarCpf, formatarTelefone, reais, type PedidoVendedor } from "../api";
 
 // A área do vendedor: os pedidos, com os dados de entrega. A senha (VENDEDOR_SENHA) fica só nesta aba do navegador.
 const CHAVE = "loja-senha-vendedor";
@@ -12,11 +12,11 @@ const FILTROS = [
 ];
 
 const SITUACOES: Record<string, { rotulo: string; cor: string }> = {
-  pago: { rotulo: "Pago", cor: "bg-green-100 text-green-800" },
-  aguardando_pagamento: { rotulo: "Aguardando pagamento", cor: "bg-amber-100 text-amber-900" },
-  enviado: { rotulo: "Enviado", cor: "bg-sky-100 text-sky-900" },
-  cancelado: { rotulo: "Cancelado", cor: "bg-zinc-200 text-zinc-700" },
-  pagamento_divergente: { rotulo: "Valor divergente", cor: "bg-red-100 text-red-800" },
+  pago: { rotulo: "Pago", cor: "bg-ok/15 text-ok" },
+  aguardando_pagamento: { rotulo: "Aguardando pagamento", cor: "bg-amber-400/15 text-amber-300" },
+  enviado: { rotulo: "Enviado", cor: "bg-sky-400/15 text-sky-300" },
+  cancelado: { rotulo: "Cancelado", cor: "bg-white/10 text-suave" },
+  pagamento_divergente: { rotulo: "Valor divergente", cor: "bg-red-400/15 text-red-300" },
 };
 
 function lerSenha() {
@@ -96,7 +96,7 @@ export function PaginaVendedor() {
             type="button"
             onClick={() => setFiltro(f.valor)}
             className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
-              filtro === f.valor ? "bg-escuro text-fundo" : "border border-linha bg-cartao"
+              filtro === f.valor ? "bg-laranja text-black font-bold" : "border border-linha bg-cartao"
             }`}
           >
             {f.rotulo}
@@ -145,7 +145,7 @@ function Entrar({ erro, aoEntrar }: { erro: string; aoEntrar: (senha: string) =>
             {erro}
           </p>
         )}
-        <button type="submit" className="rounded-full bg-escuro px-5 py-3 font-semibold text-fundo">
+        <button type="submit" className="btn-laranja px-5 py-3 text-sm">
           Entrar
         </button>
       </form>
@@ -157,7 +157,7 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
   const [codigo, setCodigo] = useState("");
   const [erro, setErro] = useState("");
   const [copiado, setCopiado] = useState(false);
-  const situacao = SITUACOES[p.situacao] ?? { rotulo: p.situacao, cor: "bg-zinc-200" };
+  const situacao = SITUACOES[p.situacao] ?? { rotulo: p.situacao, cor: "bg-white/10" };
   const endereco = [
     p.nome,
     `${p.rua}, ${p.numero}${p.complemento ? ` - ${p.complemento}` : ""}`,
@@ -194,7 +194,7 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
       <div className="flex flex-wrap justify-between gap-2">
         <div>
           <p className="font-semibold">
-            {p.quantidade} × {p.produto}
+            {p.produto}
           </p>
           <p className="text-sm text-suave">{p.frete_descricao}</p>
         </div>
@@ -207,7 +207,7 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
           )}
         </div>
       </div>
-      <div className="rounded-xl bg-fundo p-3 text-sm">
+      <div className="rounded-xl bg-fundo-2 p-3 text-sm">
         <address className="not-italic">
           {endereco.map((l) => (
             <span key={l} className="block">
@@ -216,9 +216,9 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
           ))}
         </address>
         <p className="mt-2 text-suave">
-          {p.email} · {formatarTelefone(p.telefone)}
+          {p.email} · {formatarTelefone(p.telefone)} · CPF {formatarCpf(p.cpf)}
         </p>
-        <button type="button" onClick={() => void copiar()} className="mt-2 text-sm font-medium text-salvia-forte">
+        <button type="button" onClick={() => void copiar()} className="mt-2 text-sm font-medium text-laranja-2">
           {copiado ? "Endereço copiado" : "Copiar endereço"}
         </button>
       </div>
@@ -241,7 +241,7 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
             value={codigo}
             onChange={(e) => setCodigo(e.target.value)}
           />
-          <button type="submit" className="shrink-0 rounded-xl bg-escuro px-4 text-sm font-semibold text-fundo">
+          <button type="submit" className="btn-laranja shrink-0 rounded-[14px] px-4 text-xs">
             Marcar enviado
           </button>
         </form>

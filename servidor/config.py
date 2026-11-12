@@ -36,26 +36,47 @@ def _dimensoes(nome: str, padrao: str) -> tuple[int, int, int]:
 
 # ───────── A loja ─────────
 
-LOJA_NOME = _texto("LOJA_NOME", "Barba Feita")
+LOJA_NOME = _texto("LOJA_NOME", "Wolf & Co")
 # Endereço público do site, sem a barra final. É para cá que a InfinitePay manda o cliente de volta e o webhook.
 SITE_URL = _texto("SITE_URL", "http://localhost:8000").rstrip("/")
 VENDEDOR_SENHA = _texto("VENDEDOR_SENHA")  # vazia: a área do vendedor fica fechada
-QUANTIDADE_MAXIMA = _inteiro("LOJA_QUANTIDADE_MAXIMA", 10)
+LOJA_WHATSAPP = "".join(c for c in _texto("LOJA_WHATSAPP", "5511983910543") if c.isdigit())
+# Fim da promoção (contagem regressiva da LP). Vazio: a contagem não aparece. Use só uma data real.
+LOJA_PROMO_ATE = _texto("LOJA_PROMO_ATE", "2026-11-30T23:59:59-03:00")
+EMPRESA = {"razaoSocial": _texto("EMPRESA_RAZAO_SOCIAL"), "cnpj": _texto("EMPRESA_CNPJ"), "email": _texto("EMPRESA_EMAIL")}
+RASTREAMENTO = {"metaPixelId": _texto("META_PIXEL_ID"), "gtmId": _texto("GTM_ID")}
 
 # ───────── O produto (valores provisórios: confira) ─────────
 
-_comprimento, _largura, _altura = _dimensoes("PRODUTO_DIMENSOES_CM", "26x15x4")
+# Medidas e peso de UM kit embalado (a caixa da Loggi soma os kits do pedido).
+_comprimento, _largura, _altura = _dimensoes("PRODUTO_DIMENSOES_CM", "32x17x5")
 PRODUTO = {
     "sku": "MADE-BB006",
     "ean": "7892125080110",
-    "nome": _texto("PRODUTO_NOME", "Kit Lâminas de Barbear MADE basics"),
-    "resumo": _texto("PRODUTO_RESUMO", "Aparelho com cabo e cargas de reposição com lâminas múltiplas e tira lubrificante."),
-    "preco_centavos": _inteiro("PRODUTO_PRECO_CENTAVOS", 3990),
-    "peso_g": _inteiro("PRODUTO_PESO_G", 200),  # de uma unidade, já embalada
+    "nome": _texto("PRODUTO_NOME", "Kit Barbeador 3 Lâminas"),
+    "aparelhos": 1,
+    "refis": _inteiro("PRODUTO_REFIS", 22),
+    "laminas_por_refil": 3,
+    "peso_g": _inteiro("PRODUTO_PESO_G", 300),
     "comprimento_cm": _comprimento,
     "largura_cm": _largura,
     "altura_cm": _altura,
 }
+
+# As ofertas: quantos kits e o preço de cada pacote (em centavos). O preço vale só daqui: a LP e o checkout leem do
+# servidor, e o pedido é sempre calculado aqui.
+OFERTAS = [
+    {"id": "kit1", "titulo": "1 Kit", "kits": 1, "preco_centavos": _inteiro("OFERTA_KIT1_CENTAVOS", 2690), "selo": ""},
+    {"id": "kit2", "titulo": "2 Kits", "kits": 2, "preco_centavos": _inteiro("OFERTA_KIT2_CENTAVOS", 4790),
+     "selo": "Recomendado"},
+    {"id": "kit3", "titulo": "3 Kits", "kits": 3, "preco_centavos": _inteiro("OFERTA_KIT3_CENTAVOS", 6490),
+     "selo": "Menor preço por refil"},
+]
+OFERTA_PADRAO = "kit2"
+
+
+def oferta(oferta_id: str) -> dict | None:
+    return next((o for o in OFERTAS if o["id"] == oferta_id), None)
 
 # ───────── Loggi (frete) ─────────
 

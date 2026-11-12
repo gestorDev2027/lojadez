@@ -51,11 +51,11 @@ def endereco_do_cep(cep: str) -> dict:
 
 # ───────── O pacote ─────────
 
-def pacote(quantidade: int) -> dict:
-    """Uma caixa com todas as unidades empilhadas (altura × quantidade) e 100 g de embalagem."""
+def pacote(kits: int, valor_centavos: int) -> dict:
+    """Uma caixa com os kits empilhados (altura × kits) e 100 g de embalagem."""
     p = config.PRODUTO
-    return {"peso_g": p["peso_g"] * quantidade + 100, "comprimento_cm": p["comprimento_cm"], "largura_cm": p["largura_cm"],
-            "altura_cm": min(p["altura_cm"] * quantidade, 100), "valor_centavos": p["preco_centavos"] * quantidade}
+    return {"peso_g": p["peso_g"] * kits + 100, "comprimento_cm": p["comprimento_cm"], "largura_cm": p["largura_cm"],
+            "altura_cm": min(p["altura_cm"] * kits, 100), "valor_centavos": valor_centavos}
 
 
 # ───────── Token (OAuth2 client credentials) ─────────
@@ -158,10 +158,10 @@ def _cotar_simulado(destino: dict, caixa: dict) -> list[dict]:
     ]
 
 
-def cotar(cep: str, quantidade: int) -> dict:
-    """As opções de frete para o CEP e a quantidade. Devolve o endereço achado e as opções (mais barata primeiro)."""
+def cotar(cep: str, kits: int, valor_centavos: int) -> dict:
+    """As opções de frete para o CEP e os kits. Devolve o endereço achado e as opções (mais barata primeiro)."""
     destino = endereco_do_cep(cep)
-    caixa = pacote(quantidade)
+    caixa = pacote(kits, valor_centavos)
     opcoes = _cotar_simulado(destino, caixa) if config.LOGGI_AMBIENTE == "simulado" else _cotar_loggi(destino, caixa)
     if not opcoes:
         raise ErroFrete("A Loggi não entrega neste CEP.")
