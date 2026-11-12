@@ -89,6 +89,9 @@ export function PaginaObrigado({ loja }: { loja: Loja }) {
           <Linha rotulo={pedido.produto} valor={reais(pedido.preco_centavos)} />
           <Linha rotulo={pedido.frete_descricao} valor={reais(pedido.frete_centavos)} />
           <Linha rotulo="Total" valor={reais(pedido.total_centavos)} forte />
+          {pedido.valor_pago_centavos != null && pedido.valor_pago_centavos < pedido.total_centavos && (
+            <Linha rotulo={`Pago com desconto no Pix${pedido.desconto_pix ? ` (${pedido.desconto_pix}% off)` : ""}`} valor={reais(pedido.valor_pago_centavos)} />
+          )}
           {pedido.forma_pagamento && (
             <Linha rotulo="Forma de pagamento" valor={pedido.forma_pagamento === "pix" ? "Pix" : "Cartão de crédito"} />
           )}

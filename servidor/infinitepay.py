@@ -55,6 +55,8 @@ def montar_corpo(pedido: dict) -> dict:
         validade = banco.agora() + timedelta(hours=config.INFINITEPAY_VALIDADE_HORAS)
         corpo["options"] = {"single_payment": True, "payment_methods_enabled": ["credit_card", "pix"],
                             "valid_until": validade.strftime("%Y-%m-%dT%H:%M:%S.000Z")}
+        if pedido.get("desconto_pix"):  # a InfinitePay mostra e aplica o desconto quando o cliente escolhe Pix
+            corpo["options"]["discounts"] = {"pix": pedido["desconto_pix"]}
     return corpo
 
 

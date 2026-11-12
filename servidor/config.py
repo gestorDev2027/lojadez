@@ -1,10 +1,16 @@
-"""Configuração da loja: tudo vem das variáveis de ambiente (arquivo .env no desenvolvimento).
+"""Configuração da loja.
 
-Nenhuma chave fica no código. Os valores do produto abaixo são PROVISÓRIOS: confira preço, peso e medidas da embalagem
-antes de vender (a cotação da Loggi depende deles).
+De onde vem cada valor, nesta ordem:
+1. o que o vendedor salvou na aba Configurações (tabela `configuracoes`; os segredos no Vault do Supabase);
+2. as variáveis de ambiente (arquivo .env no desenvolvimento);
+3. o padrão abaixo.
+
+No .env (e no Render) só precisa ficar o DATABASE_URL. Nenhuma chave fica no código. `aplicar()` recalcula os valores
+quando o vendedor salva (servidor/configuracoes.py): vale na hora, sem republicar o site.
 """
 
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -13,19 +19,108 @@ RAIZ = Path(__file__).resolve().parent.parent
 load_dotenv(RAIZ / ".env")
 
 
-def _texto(nome: str, padrao: str = "") -> str:
-    return (os.getenv(nome) or padrao).strip()
+@dataclass(frozen=True)
+class Campo:
+    chave: str  # o nome da variável de ambiente e da linha no banco
+    rotulo: str
+    grupo: str
+    tipo: str = "texto"  # texto | segredo | escolha | sim_nao | inteiro | decimal | digitos | dimensoes | url | email | data
+    padrao: str = ""
+    ajuda: str = ""
+    opcoes: tuple[str, ...] = ()
+    minimo: float | None = None
+    maximo: float | None = None
+    tamanhos: tuple[int, ...] = field(default=())  # para "digitos": quantos dígitos valem
 
 
-def _inteiro(nome: str, padrao: int) -> int:
+GRUPOS = {
+    "loja": "A loja",
+    "pacote": "O pacote (para a Loggi)",
+    "loggi": "Loggi",
+    "remetente": "Remetente (quem envia)",
+    "infinitepay": "InfinitePay",
+    "rastreamento": "Rastreamento (opcional)",
+}
+
+CAMPOS: tuple[Campo, ...] = (
+    Campo("LOJA_NOME", "Nome da loja", "loja", padrao="Wolf & Co"),
+    Campo("SITE_URL", "Endereço do site", "loja", "url", "http://localhost:8000",
+          "Sem a barra no fim. A InfinitePay manda o cliente de volta para cá; o aviso de pagamento só vem com https."),
+    Campo("LOJA_WHATSAPP", "WhatsApp", "loja", "digitos", "5511983910543", "Com 55 e o DDD, só números.",
+          tamanhos=(12, 13)),
+    Campo("LOJA_PROMO_ATE", "Fim da promoção", "loja", "data", "2026-11-30T23:59:59-03:00",
+          "Contagem regressiva da página. Vazio: não aparece. Use só uma data real."),
+    Campo("EMPRESA_RAZAO_SOCIAL", "Razão social", "loja"),
+    Campo("EMPRESA_CNPJ", "CNPJ", "loja", "digitos", tamanhos=(14,)),
+    Campo("EMPRESA_EMAIL", "E-mail de contato", "loja", "email"),
+
+    Campo("PRODUTO_NOME", "Nome do produto", "pacote", padrao="Kit Barbeador 3 Lâminas"),
+    Campo("PRODUTO_PESO_G", "Peso de 1 kit embalado (g)", "pacote", "inteiro", "300", minimo=1, maximo=30000),
+    Campo("PRODUTO_DIMENSOES_CM", "Medidas de 1 kit embalado (cm)", "pacote", "dimensoes", "32x17x5",
+          "Comprimento x largura x altura, ex.: 25x15x2."),
+
+    Campo("LOGGI_AMBIENTE", "Ambiente", "loggi", "escolha", "simulado",
+          "simulado: frete de mentira, nada vai para a Loggi.", opcoes=("simulado", "staging", "producao")),
+    Campo("LOGGI_CLIENT_ID", "client_id", "loggi", "segredo"),
+    Campo("LOGGI_CLIENT_SECRET", "client_secret", "loggi", "segredo"),
+    Campo("LOGGI_COMPANY_ID", "company_id", "loggi", "digitos", tamanhos=tuple(range(1, 21))),
+    Campo("LOGGI_SERVICOS", "Código do serviço (externalServiceId)", "loggi", ajuda="Mais de um: separe por vírgula."),
+    Campo("LOGGI_ENVIO_AUTOMATICO", "Criar o envio sozinho quando o pagamento entra", "loggi", "sim_nao", "nao",
+          "Se a Loggi recusar, o pedido mostra o motivo e o envio é criado à mão."),
+    Campo("LOGGI_DESCRICAO_CONTEUDO", "Conteúdo declarado", "loggi",
+          padrao="Kit barbeador com aparelho e refis de lâminas"),
+
+    Campo("LOJA_ORIGEM_CEP", "CEP de onde sai o envio", "remetente", "digitos", "01310100", tamanhos=(8,)),
+    Campo("LOJA_ORIGEM_NUMERO", "Número", "remetente"),
+    Campo("LOJA_ORIGEM_COMPLEMENTO", "Complemento", "remetente"),
+    Campo("LOJA_ORIGEM_RUA", "Rua", "remetente", ajuda="Vazio: a rua do CEP."),
+    Campo("LOJA_ORIGEM_BAIRRO", "Bairro", "remetente", ajuda="Vazio: o bairro do CEP."),
+    Campo("LOJA_ORIGEM_INSTRUCOES", "Instruções para a coleta", "remetente", padrao="Remetente da loja"),
+    Campo("LOJA_REMETENTE_NOME", "Nome ou razão social", "remetente"),
+    Campo("LOJA_REMETENTE_DOCUMENTO", "CPF ou CNPJ", "remetente", "digitos", tamanhos=(11, 14)),
+    Campo("LOJA_REMETENTE_TELEFONE", "Telefone com DDD", "remetente", "digitos", tamanhos=(10, 11)),
+
+    Campo("INFINITEPAY_AMBIENTE", "Ambiente", "infinitepay", "escolha", "simulado",
+          "simulado: página de pagamento de mentira da própria loja.", opcoes=("simulado", "real")),
+    Campo("INFINITEPAY_HANDLE", "InfiniteTag", "infinitepay", ajuda="Seu usuário no app da InfinitePay, sem o $."),
+    Campo("INFINITEPAY_API_KEY", "API Key do Checkout Integrado", "infinitepay", "segredo",
+          ajuda="Começa com inchk_. Necessária para o desconto no Pix e para o link valer um pagamento só."),
+    Campo("INFINITEPAY_DESCONTO_PIX", "Desconto no Pix (%)", "infinitepay", "decimal", "0",
+          "0: sem desconto. Vale sobre o total (kit + frete). Precisa da API Key.", minimo=0, maximo=50),
+    Campo("INFINITEPAY_VALIDADE_HORAS", "Validade do link (horas)", "infinitepay", "inteiro", "48", minimo=1, maximo=720),
+
+    Campo("META_PIXEL_ID", "Meta Pixel ID", "rastreamento", "digitos", tamanhos=tuple(range(10, 21))),
+    Campo("GTM_ID", "Google Tag Manager ID", "rastreamento", ajuda="Ex.: GTM-XXXXXXX."),
+)
+
+POR_CHAVE = {c.chave: c for c in CAMPOS}
+
+# Valores que não mudam pela tela
+PRODUTO_SKU, PRODUTO_EAN = "MADE-BB006", "7892125080110"
+INFINITEPAY_URL = "https://api.checkout.infinitepay.io"
+DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
+
+
+def _digitos(texto: str) -> str:
+    return "".join(c for c in texto or "" if c.isdigit())
+
+
+def _inteiro(texto: str, padrao: int) -> int:
     try:
-        return int(_texto(nome) or padrao)
+        return int(str(texto).strip() or padrao)
     except ValueError:
         return padrao
 
 
-def _dimensoes(nome: str, padrao: str) -> tuple[int, int, int]:
-    partes = [p for p in _texto(nome, padrao).lower().replace(" ", "").split("x") if p]
+def _decimal(texto: str, padrao: float) -> float:
+    try:
+        return float(str(texto).strip().replace(",", ".") or padrao)
+    except ValueError:
+        return padrao
+
+
+def dimensoes(texto: str, padrao: str = "32x17x5") -> tuple[int, int, int]:
+    partes = [p for p in str(texto).lower().replace(" ", "").split("x") if p]
     try:
         c, l, a = (int(p) for p in partes)
         return c, l, a
@@ -34,105 +129,106 @@ def _dimensoes(nome: str, padrao: str) -> tuple[int, int, int]:
         return c, l, a
 
 
-# ───────── A loja ─────────
+def do_ambiente(chave: str) -> str | None:
+    """O valor da variável de ambiente (None se não existe ou está vazia)."""
+    valor = (os.getenv(chave) or "").strip()
+    return valor or None
 
-LOJA_NOME = _texto("LOJA_NOME", "Wolf & Co")
-# Endereço público do site, sem a barra final. É para cá que a InfinitePay manda o cliente de volta e o webhook.
-SITE_URL = _texto("SITE_URL", "http://localhost:8000").rstrip("/")
-VENDEDOR_SENHA = _texto("VENDEDOR_SENHA")  # vazia: a área do vendedor fica fechada
-LOJA_WHATSAPP = "".join(c for c in _texto("LOJA_WHATSAPP", "5511983910543") if c.isdigit())
-# Fim da promoção (contagem regressiva da LP). Vazio: a contagem não aparece. Use só uma data real.
-LOJA_PROMO_ATE = _texto("LOJA_PROMO_ATE", "2026-11-30T23:59:59-03:00")
-EMPRESA = {"razaoSocial": _texto("EMPRESA_RAZAO_SOCIAL"), "cnpj": _texto("EMPRESA_CNPJ"), "email": _texto("EMPRESA_EMAIL")}
-RASTREAMENTO = {"metaPixelId": _texto("META_PIXEL_ID"), "gtmId": _texto("GTM_ID")}
 
-# ───────── O produto (valores provisórios: confira) ─────────
+def aplicar(sobrepor: dict | None = None) -> None:
+    """Recalcula a configuração: o que veio do banco (`sobrepor`) vale sobre o .env, que vale sobre o padrão."""
+    sobrepor = sobrepor or {}
 
-# Medidas e peso de UM kit embalado (a caixa da Loggi soma os kits do pedido).
-_comprimento, _largura, _altura = _dimensoes("PRODUTO_DIMENSOES_CM", "32x17x5")
-PRODUTO = {
-    "sku": "MADE-BB006",
-    "ean": "7892125080110",
-    "nome": _texto("PRODUTO_NOME", "Kit Barbeador 3 Lâminas"),
-    "aparelhos": 1,
-    "refis": _inteiro("PRODUTO_REFIS", 19),
-    "laminas_por_refil": 3,
-    "peso_g": _inteiro("PRODUTO_PESO_G", 300),
-    "comprimento_cm": _comprimento,
-    "largura_cm": _largura,
-    "altura_cm": _altura,
-}
+    def v(chave: str) -> str:
+        if chave in sobrepor and sobrepor[chave] is not None:
+            return str(sobrepor[chave]).strip()
+        return do_ambiente(chave) or POR_CHAVE[chave].padrao
+
+    g = globals()
+    g["LOJA_NOME"] = v("LOJA_NOME")
+    g["SITE_URL"] = v("SITE_URL").rstrip("/")
+    g["LOJA_WHATSAPP"] = _digitos(v("LOJA_WHATSAPP"))
+    g["LOJA_PROMO_ATE"] = v("LOJA_PROMO_ATE")
+    g["EMPRESA"] = {"razaoSocial": v("EMPRESA_RAZAO_SOCIAL"), "cnpj": v("EMPRESA_CNPJ"), "email": v("EMPRESA_EMAIL")}
+    g["RASTREAMENTO"] = {"metaPixelId": v("META_PIXEL_ID"), "gtmId": v("GTM_ID")}
+
+    comprimento, largura, altura = dimensoes(v("PRODUTO_DIMENSOES_CM"))
+    g["PRODUTO"] = {
+        "sku": PRODUTO_SKU, "ean": PRODUTO_EAN, "nome": v("PRODUTO_NOME"), "aparelhos": 1,
+        # refis e preços: os padrões; o vendedor muda pela aba Produto e preços (servidor/catalogo.py)
+        "refis": _inteiro(os.getenv("PRODUTO_REFIS") or "", 19), "laminas_por_refil": 3,
+        "peso_g": _inteiro(v("PRODUTO_PESO_G"), 300),
+        "comprimento_cm": comprimento, "largura_cm": largura, "altura_cm": altura,
+    }
+
+    g["LOGGI_AMBIENTE"] = v("LOGGI_AMBIENTE").lower()
+    g["LOGGI_URL"] = {"staging": "https://stg.api.loggi.com", "producao": "https://api.loggi.com"}.get(g["LOGGI_AMBIENTE"], "")
+    g["LOGGI_CLIENT_ID"] = v("LOGGI_CLIENT_ID")
+    g["LOGGI_CLIENT_SECRET"] = v("LOGGI_CLIENT_SECRET")
+    g["LOGGI_COMPANY_ID"] = v("LOGGI_COMPANY_ID")
+    g["LOGGI_SERVICOS"] = [s.strip() for s in v("LOGGI_SERVICOS").split(",") if s.strip()]
+    g["LOGGI_ENVIO_AUTOMATICO"] = v("LOGGI_ENVIO_AUTOMATICO").lower() in ("sim", "s", "true", "1")
+    g["CONTEUDO_DECLARADO"] = v("LOGGI_DESCRICAO_CONTEUDO")
+    g["ORIGEM_CEP"] = _digitos(v("LOJA_ORIGEM_CEP"))
+    g["REMETENTE"] = {
+        "nome": v("LOJA_REMETENTE_NOME"), "documento": _digitos(v("LOJA_REMETENTE_DOCUMENTO")),
+        "telefone": _digitos(v("LOJA_REMETENTE_TELEFONE")), "numero": v("LOJA_ORIGEM_NUMERO"),
+        "complemento": v("LOJA_ORIGEM_COMPLEMENTO"), "rua": v("LOJA_ORIGEM_RUA"), "bairro": v("LOJA_ORIGEM_BAIRRO"),
+        "instrucoes": v("LOJA_ORIGEM_INSTRUCOES"),
+    }
+
+    g["INFINITEPAY_AMBIENTE"] = v("INFINITEPAY_AMBIENTE").lower()
+    g["INFINITEPAY_HANDLE"] = v("INFINITEPAY_HANDLE").lstrip("$")
+    g["INFINITEPAY_API_KEY"] = v("INFINITEPAY_API_KEY")
+    g["INFINITEPAY_VALIDADE_HORAS"] = _inteiro(v("INFINITEPAY_VALIDADE_HORAS"), 48)
+    g["INFINITEPAY_DESCONTO_PIX"] = min(max(_decimal(v("INFINITEPAY_DESCONTO_PIX"), 0), 0), 50)
+
+
+aplicar()
 
 # As ofertas: quantos kits e o preço de cada pacote (em centavos). São os PADRÕES: o vendedor muda refis, preços e
 # foto pela área do vendedor (servidor/catalogo.py), e o que ele grava vale sobre estes valores.
 OFERTAS = [
-    {"id": "kit1", "titulo": "1 Kit", "kits": 1, "preco_centavos": _inteiro("OFERTA_KIT1_CENTAVOS", 2390), "selo": ""},
-    {"id": "kit2", "titulo": "2 Kits", "kits": 2, "preco_centavos": _inteiro("OFERTA_KIT2_CENTAVOS", 4490),
+    {"id": "kit1", "titulo": "1 Kit", "kits": 1, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT1_CENTAVOS") or "", 2390),
+     "selo": ""},
+    {"id": "kit2", "titulo": "2 Kits", "kits": 2, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT2_CENTAVOS") or "", 4490),
      "selo": "Recomendado"},
-    {"id": "kit3", "titulo": "3 Kits", "kits": 3, "preco_centavos": _inteiro("OFERTA_KIT3_CENTAVOS", 6290),
+    {"id": "kit3", "titulo": "3 Kits", "kits": 3, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT3_CENTAVOS") or "", 6290),
      "selo": "Menor preço por refil"},
 ]
 OFERTA_PADRAO = "kit2"
 
-# ───────── Loggi (frete) ─────────
 
-LOGGI_AMBIENTE = _texto("LOGGI_AMBIENTE", "simulado").lower()  # simulado | staging | producao
-LOGGI_URL = {"staging": "https://stg.api.loggi.com", "producao": "https://api.loggi.com"}.get(LOGGI_AMBIENTE, "")
-LOGGI_CLIENT_ID = _texto("LOGGI_CLIENT_ID")
-LOGGI_CLIENT_SECRET = _texto("LOGGI_CLIENT_SECRET")
-LOGGI_COMPANY_ID = _texto("LOGGI_COMPANY_ID")
-# Os códigos de serviço (SISU) que a Loggi passa na homologação, separados por vírgula.
-LOGGI_SERVICOS = [s.strip() for s in _texto("LOGGI_SERVICOS").split(",") if s.strip()]
-ORIGEM_CEP = "".join(c for c in _texto("LOJA_ORIGEM_CEP", "01310100") if c.isdigit())
-# Quem envia (vai na etiqueta e no envio da Loggi). Rua, bairro e cidade vêm do CEP; os campos abaixo trocam se precisar.
-REMETENTE = {
-    "nome": _texto("LOJA_REMETENTE_NOME"),
-    "documento": "".join(c for c in _texto("LOJA_REMETENTE_DOCUMENTO") if c.isdigit()),  # CPF ou CNPJ
-    "telefone": "".join(c for c in _texto("LOJA_REMETENTE_TELEFONE") if c.isdigit()),
-    "numero": _texto("LOJA_ORIGEM_NUMERO"),
-    "complemento": _texto("LOJA_ORIGEM_COMPLEMENTO"),
-    "rua": _texto("LOJA_ORIGEM_RUA"),
-    "bairro": _texto("LOJA_ORIGEM_BAIRRO"),
-    "instrucoes": _texto("LOJA_ORIGEM_INSTRUCOES", "Remetente da loja"),
-}
-# Como o pacote vai documentado no envio: declaração de conteúdo (sem nota fiscal).
-CONTEUDO_DECLARADO = _texto("LOGGI_DESCRICAO_CONTEUDO", "Kit barbeador com aparelho e refis de lâminas")
-
-# ───────── InfinitePay (pagamento) ─────────
-
-INFINITEPAY_AMBIENTE = _texto("INFINITEPAY_AMBIENTE", "simulado").lower()  # simulado | real
-INFINITEPAY_URL = "https://api.checkout.infinitepay.io"
-INFINITEPAY_HANDLE = _texto("INFINITEPAY_HANDLE").lstrip("$")
-INFINITEPAY_API_KEY = _texto("INFINITEPAY_API_KEY")
-# Por quantas horas o link de pagamento vale (só com a API Key).
-INFINITEPAY_VALIDADE_HORAS = _inteiro("INFINITEPAY_VALIDADE_HORAS", 48)
-
-# ───────── Banco ─────────
-
-DATABASE_URL = _texto("DATABASE_URL")
+def desconto_pix() -> float:
+    """O desconto no Pix que vale de fato: a InfinitePay só aplica com a API Key (no simulado, sempre)."""
+    if INFINITEPAY_AMBIENTE == "simulado" or INFINITEPAY_API_KEY:
+        return INFINITEPAY_DESCONTO_PIX
+    return 0.0
 
 
 def conferir() -> list[str]:
-    """Os problemas de configuração que impedem o modo real (aparecem no log ao subir)."""
+    """Os problemas de configuração que impedem o modo real (aparecem no log ao subir e na aba Integrações)."""
     problemas = []
     if LOGGI_AMBIENTE not in ("simulado", "staging", "producao"):
-        problemas.append("LOGGI_AMBIENTE deve ser simulado, staging ou producao.")
+        problemas.append("Loggi: o ambiente deve ser simulado, staging ou producao.")
     if LOGGI_AMBIENTE != "simulado":
-        for nome, valor in (("LOGGI_CLIENT_ID", LOGGI_CLIENT_ID), ("LOGGI_CLIENT_SECRET", LOGGI_CLIENT_SECRET),
-                            ("LOGGI_COMPANY_ID", LOGGI_COMPANY_ID)):
+        for nome, valor in (("client_id", LOGGI_CLIENT_ID), ("client_secret", LOGGI_CLIENT_SECRET),
+                            ("company_id", LOGGI_COMPANY_ID)):
             if not valor:
-                problemas.append(f"Falta {nome} para a Loggi.")
+                problemas.append(f"Loggi: falta o {nome}.")
         if not LOGGI_SERVICOS:
-            problemas.append("Falta LOGGI_SERVICOS (os códigos de serviço da Loggi).")
+            problemas.append("Loggi: falta o código do serviço (externalServiceId).")
     if len(ORIGEM_CEP) != 8:
-        problemas.append("LOJA_ORIGEM_CEP precisa ter 8 dígitos.")
+        problemas.append("Remetente: o CEP de origem precisa ter 8 dígitos.")
     if LOGGI_AMBIENTE != "simulado":
         if not REMETENTE["nome"] or len(REMETENTE["documento"]) not in (11, 14):
-            problemas.append("Para criar envios na Loggi: LOJA_REMETENTE_NOME e LOJA_REMETENTE_DOCUMENTO (CPF ou CNPJ).")
+            problemas.append("Remetente: para criar envios na Loggi, preencha o nome e o CPF ou CNPJ.")
         if not REMETENTE["numero"]:
-            problemas.append("Para criar envios na Loggi: LOJA_ORIGEM_NUMERO (o número do endereço de origem).")
+            problemas.append("Remetente: para criar envios na Loggi, preencha o número do endereço de origem.")
     if INFINITEPAY_AMBIENTE not in ("simulado", "real"):
-        problemas.append("INFINITEPAY_AMBIENTE deve ser simulado ou real.")
+        problemas.append("InfinitePay: o ambiente deve ser simulado ou real.")
     if INFINITEPAY_AMBIENTE == "real" and not INFINITEPAY_HANDLE:
-        problemas.append("Falta INFINITEPAY_HANDLE (a InfiniteTag, usada também para conferir os pagamentos).")
+        problemas.append("InfinitePay: falta a InfiniteTag (usada também para conferir os pagamentos).")
+    if INFINITEPAY_DESCONTO_PIX and not desconto_pix():
+        problemas.append("InfinitePay: o desconto no Pix só vale com a API Key do Checkout Integrado.")
     return problemas

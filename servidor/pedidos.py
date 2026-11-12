@@ -103,7 +103,7 @@ def criar(dados: dict) -> dict:
         "preco_centavos": oferta["preco_centavos"], "frete_tipo": opcao["tipo"],
         "frete_descricao": f"Frete Loggi {opcao['nome']} (até {opcao['prazo_dias']} dias úteis)",
         "frete_prazo_dias": opcao["prazo_dias"], "frete_centavos": opcao["centavos"],
-        "total_centavos": oferta["preco_centavos"] + opcao["centavos"],
+        "total_centavos": oferta["preco_centavos"] + opcao["centavos"], "desconto_pix": config.desconto_pix() or None,
         "nome": nome, "cpf": cpf, "email": email, "telefone": telefone, "cep": endereco["cep"], "rua": rua, "numero": numero,
         "complemento": complemento or None, "bairro": bairro, "cidade": endereco["cidade"], "uf": endereco["uf"],
     }
@@ -132,18 +132,36 @@ def conferir(order_nsu: str, transaction_nsu: str, slug: str, recibo_url: str | 
     if not resposta.get("paid"):
         return pedido
     valor = int(resposta.get("amount") or 0)
-    if valor != pedido["total_centavos"]:
+    if not valor_confere(pedido, resposta):
         log.warning("Pagamento de %s com valor diferente: %s em vez de %s.", order_nsu, valor, pedido["total_centavos"])
         banco.alterar(order_nsu, {"situacao": "pagamento_divergente", "transaction_nsu": transaction_nsu, "slug": slug},
                       so_se_situacao=("aguardando_pagamento",))
         return banco.buscar(order_nsu)
     seguro = recibo_url if (recibo_url or "").startswith("https://") or config.INFINITEPAY_AMBIENTE == "simulado" else None
-    banco.alterar(order_nsu, {
+    marcou = banco.alterar(order_nsu, {
         "situacao": "pago", "transaction_nsu": transaction_nsu, "slug": slug,
         "forma_pagamento": resposta.get("capture_method"), "valor_pago_centavos": int(resposta.get("paid_amount") or valor),
         "parcelas": int(resposta.get("installments") or 1), "recibo_url": seguro, "pago_em": banco.agora(),
     }, so_se_situacao=("aguardando_pagamento",))
+    # Só quem marcou o pedido como pago dispara o envio: o webhook e a página do cliente conferem ao mesmo tempo.
+    if marcou and config.LOGGI_ENVIO_AUTOMATICO:
+        disparar_envio_automatico(order_nsu)
     return banco.buscar(order_nsu)
+
+
+def total_com_pix(pedido: dict) -> int:
+    """O total com o desconto do Pix que valia quando o pedido foi criado (a InfinitePay arredonda ao centavo)."""
+    return round(pedido["total_centavos"] * (1 - (pedido.get("desconto_pix") or 0) / 100))
+
+
+def valor_confere(pedido: dict, resposta: dict) -> bool:
+    """O valor da InfinitePay bate com o do pedido: o total, ou, pago no Pix com desconto, o total com o desconto."""
+    valor = int(resposta.get("amount") or 0)
+    if valor == pedido["total_centavos"]:
+        return True
+    if pedido.get("desconto_pix") and resposta.get("capture_method") == "pix":
+        return abs(valor - total_com_pix(pedido)) <= 1
+    return False
 
 
 def processar_webhook(aviso: dict) -> None:
@@ -165,6 +183,7 @@ def publico(pedido: dict) -> dict:
         "cidade": pedido["cidade"], "uf": pedido["uf"], "forma_pagamento": pedido["forma_pagamento"],
         "recibo_url": pedido["recibo_url"], "codigo_rastreio": pedido["codigo_rastreio"],
         "link_pagamento": pedido["link_pagamento"] if pedido["situacao"] == "aguardando_pagamento" else None,
+        "valor_pago_centavos": pedido.get("valor_pago_centavos"), "desconto_pix": pedido.get("desconto_pix"),
         "tem_envio_loggi": bool(pedido.get("loggi_key")),
     }
 
@@ -211,10 +230,28 @@ def criar_envio_loggi(order_nsu: str) -> dict:
             envio = loggi.criar_envio(pedido)
         except loggi.ErroFrete as erro:
             raise ErroPedido(str(erro), 502)
-        banco.alterar(order_nsu, {"loggi_key": envio["loggi_key"], "envio_criado_em": banco.agora(),
+        banco.alterar(order_nsu, {"loggi_key": envio["loggi_key"], "envio_criado_em": banco.agora(), "envio_erro": None,
                                   "codigo_rastreio": envio["tracking_code"] or pedido.get("codigo_rastreio")})
         log.info("Envio criado na Loggi para o pedido %s.", order_nsu)
         return banco.buscar(order_nsu)
+
+
+def envio_automatico(order_nsu: str) -> None:
+    """Cria o envio logo depois do pagamento. Se a Loggi recusar, guarda o motivo no pedido (o vendedor cria à mão)."""
+    try:
+        criar_envio_loggi(order_nsu)
+    except ErroPedido as erro:
+        if erro.status != 409 or "já tem envio" not in erro.mensagem:
+            log.warning("Envio automático na Loggi falhou para %s: %s", order_nsu, erro.mensagem)
+            banco.alterar(order_nsu, {"envio_erro": erro.mensagem[:500]})
+    except Exception:  # noqa: BLE001 - nunca derruba a confirmação do pagamento
+        log.exception("Envio automático na Loggi falhou para %s.", order_nsu)
+        banco.alterar(order_nsu, {"envio_erro": "Erro inesperado ao falar com a Loggi. Crie o envio à mão."})
+
+
+def disparar_envio_automatico(order_nsu: str) -> None:
+    """Em segundo plano: o webhook e a página do cliente não esperam a Loggi responder."""
+    threading.Thread(target=envio_automatico, args=(order_nsu,), daemon=True, name=f"envio-{order_nsu[:8]}").start()
 
 
 def etiqueta_loggi(order_nsu: str) -> bytes:

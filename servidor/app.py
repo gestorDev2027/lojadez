@@ -3,7 +3,6 @@
 Rodar: .venv\\Scripts\\python -m uvicorn servidor.app:app --reload --port 8000
 """
 
-import hmac
 import json
 import logging
 import threading
@@ -17,7 +16,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from servidor import banco, catalogo, config, loggi, pedidos, simulador
+from servidor import acesso, banco, catalogo, config, configuracoes, loggi, pedidos, simulador
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -25,6 +24,9 @@ log = logging.getLogger("loja")
 @asynccontextmanager
 async def _vida(_: FastAPI):
     banco.iniciar()
+    configuracoes.recarregar()  # o que foi salvo na aba Configurações (e no Vault) vale sobre o .env
+    if not acesso.existe_administrador():
+        log.warning("Área do vendedor sem administrador: rode .venv\\Scripts\\python -m servidor.admin")
     for problema in config.conferir():
         log.warning("Configuração: %s", problema)
     log.info("Loja %s no ar. Loggi: %s. InfinitePay: %s.", config.LOJA_NOME, config.LOGGI_AMBIENTE, config.INFINITEPAY_AMBIENTE)
@@ -37,6 +39,16 @@ app = FastAPI(title=config.LOJA_NOME, docs_url=None, redoc_url=None, openapi_url
 @app.exception_handler(pedidos.ErroPedido)
 def _erro_pedido(_: Request, erro: pedidos.ErroPedido):
     return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(acesso.ErroAcesso)
+def _erro_acesso(_: Request, erro: acesso.ErroAcesso):
+    return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(configuracoes.ErroConfiguracao)
+def _erro_configuracao(_: Request, erro: configuracoes.ErroConfiguracao):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
 
 
 # ───────── Limite de chamadas por IP (cada cotação chama a Loggi e o ViaCEP) ─────────
@@ -86,7 +98,8 @@ def loja():
     return {"nome": config.LOJA_NOME, "whatsapp": config.LOJA_WHATSAPP,
             "testes": config.LOGGI_AMBIENTE == "simulado" or config.INFINITEPAY_AMBIENTE == "simulado",
             "produto": {k: p[k] for k in ("sku", "ean", "nome", "aparelhos", "refis", "laminas_por_refil")},
-            "foto": catalogo.url_foto(), "ofertas": _ofertas(), "oferta_padrao": catalogo.oferta_padrao()}
+            "foto": catalogo.url_foto(), "ofertas": _ofertas(), "oferta_padrao": catalogo.oferta_padrao(),
+            "desconto_pix": config.desconto_pix()}
 
 
 @app.get("/produto/foto", include_in_schema=False)
@@ -106,6 +119,7 @@ def lp_config():
         "marca": config.LOJA_NOME,
         "produto": {"nome": p["nome"], "aparelhos": p["aparelhos"], "refis": p["refis"], "laminasPorRefil": p["laminas_por_refil"]},
         "pagamentoNaEntrega": False,
+        "descontoPix": config.desconto_pix(),
         "whatsapp": {"numero": config.LOJA_WHATSAPP, "mensagem": "Olá! Tenho interesse no {kit} ({preco})."},
         "checkout": {"repassarParametros": True, "abrirEmNovaAba": False},
         "ofertas": [{"id": o["id"], "titulo": o["titulo"], "quantidade": o["kits"], "preco": o["preco_centavos"] / 100,
@@ -183,14 +197,74 @@ async def webhook_infinitepay(request: Request):
 
 # ───────── Área do vendedor ─────────
 
-def _vendedor(request: Request) -> None:
-    if not config.VENDEDOR_SENHA:
-        raise HTTPException(403, "Área do vendedor desligada: defina VENDEDOR_SENHA.")
-    _limitar(request, "vendedor", 60)
-    enviada = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-    if not hmac.compare_digest(enviada.encode(), config.VENDEDOR_SENHA.encode()):
-        raise HTTPException(401, "Senha errada.")
+def _token(request: Request) -> str:
+    return request.headers.get("authorization", "").removeprefix("Bearer ").strip()
 
+
+def _vendedor(request: Request) -> str:
+    """Confere a sessão e devolve o e-mail de quem entrou."""
+    _limitar(request, "vendedor", 120)
+    email = acesso.sessao(_token(request))
+    if not email:
+        raise HTTPException(401, "Entre de novo na área do vendedor.")
+    return email
+
+
+@app.post("/api/vendedor/entrar")
+async def vendedor_entrar(request: Request):
+    _limitar(request, "entrar", 10)
+    dados = await _json(request)
+    if not acesso.existe_administrador():
+        raise acesso.ErroAcesso("Nenhum administrador cadastrado. Rode no computador: python -m servidor.admin", 403)
+    return acesso.entrar(str(dados.get("email") or ""), str(dados.get("senha") or ""))
+
+
+@app.post("/api/vendedor/sair")
+def vendedor_sair(request: Request):
+    acesso.sair(_token(request))
+    return {"ok": True}
+
+
+@app.get("/api/vendedor/eu")
+def vendedor_eu(request: Request):
+    return {"email": _vendedor(request)}
+
+
+@app.post("/api/vendedor/senha")
+async def vendedor_trocar_senha(request: Request):
+    email = _vendedor(request)
+    _limitar(request, "senha", 10)
+    dados = await _json(request)
+    acesso.trocar_senha(email, str(dados.get("atual") or ""), str(dados.get("nova") or ""))
+    return {"ok": True}  # as sessões foram fechadas: a tela pede para entrar de novo
+
+
+# Configurações: o que hoje fica no .env, editável aqui. Salvar pede a senha de novo (são as chaves de pagamento).
+
+@app.get("/api/vendedor/configuracoes")
+def vendedor_configuracoes(request: Request):
+    _vendedor(request)
+    return configuracoes.estado()
+
+
+def _confirmar_senha(request: Request, email: str, dados: dict) -> None:
+    _limitar(request, "confirmar", 10)
+    acesso.conferir_credenciais(email, str(dados.get("senha") or ""))
+
+
+@app.put("/api/vendedor/configuracoes")
+async def vendedor_salvar_configuracoes(request: Request):
+    email = _vendedor(request)
+    dados = await _json(request)
+    _confirmar_senha(request, email, dados)
+    return configuracoes.salvar(dados.get("valores") or {}, dados.get("apagar_segredos") or [], email)
+
+
+@app.post("/api/vendedor/configuracoes/importar")
+async def vendedor_importar_configuracoes(request: Request):
+    email = _vendedor(request)
+    _confirmar_senha(request, email, await _json(request))
+    return configuracoes.importar_do_ambiente(email)
 
 @app.get("/api/vendedor/pedidos")
 def vendedor_pedidos(request: Request, situacao: str | None = None):
@@ -288,10 +362,12 @@ def vendedor_integracoes(request: Request):
     return {
         "loggi": {"ambiente": config.LOGGI_AMBIENTE, "client_id": tem(config.LOGGI_CLIENT_ID),
                   "client_secret": tem(config.LOGGI_CLIENT_SECRET), "company_id": tem(config.LOGGI_COMPANY_ID),
-                  "servicos": len(config.LOGGI_SERVICOS), "origem_cep": config.ORIGEM_CEP},
+                  "servicos": len(config.LOGGI_SERVICOS), "origem_cep": config.ORIGEM_CEP,
+                  "envio_automatico": config.LOGGI_ENVIO_AUTOMATICO},
         "infinitepay": {"ambiente": config.INFINITEPAY_AMBIENTE, "handle": tem(config.INFINITEPAY_HANDLE),
                         "api_key": tem(config.INFINITEPAY_API_KEY), "site_url": config.SITE_URL,
-                        "webhook": config.SITE_URL.startswith("https://")},
+                        "webhook": config.SITE_URL.startswith("https://"),
+                        "desconto_pix": config.INFINITEPAY_DESCONTO_PIX, "desconto_pix_vale": config.desconto_pix()},
         "problemas": config.conferir(),
     }
 

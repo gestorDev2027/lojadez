@@ -21,6 +21,23 @@ foto do kit. Salvou, a landing page e o checkout já mostram os valores novos. F
 `fotos`) e valem sobre os padrões do `.env`. A aba **Integrações** mostra o que falta configurar na InfinitePay e na Loggi
 (sem mostrar as chaves) e testa uma cotação de frete.
 
+## Entrar na área do vendedor e mudar as configurações
+
+- **Entrar:** `/vendedor`, com e-mail e senha. A sessão vale 12 horas e fica só na aba do navegador. Cinco senhas erradas
+  para o mesmo e-mail bloqueiam por 15 minutos.
+- **Criar o administrador** (uma vez, no seu computador, com o `.env` apontando para o banco certo):
+  `.venv\Scripts\python -m servidor.admin`. Ele pergunta o e-mail e a senha (mínimo 10 caracteres, não aparece na tela) e
+  grava só o hash (scrypt). O mesmo comando troca a senha; `... servidor.admin remover <email>` tira o acesso.
+- **Configurações:** tudo o que ficava no `.env` (Loggi, remetente, InfinitePay, desconto no Pix, WhatsApp, pacote...)
+  muda na aba **Configurações** e vale na hora. Salvar pede a senha de novo. As chaves (client_id e client_secret da Loggi,
+  API Key da InfinitePay) vão para o **Vault do Supabase**, criptografadas, e nunca voltam para a tela. O botão "Levar o
+  .env para o banco" copia de uma vez o que ainda está no `.env`. Cada mudança fica registrada (quem e quando, sem os
+  valores).
+- **Ordem:** o que foi salvo na tela vale sobre o `.env`, que vale sobre o padrão do código. No `.env` e no Render só
+  precisa ficar o `DATABASE_URL`.
+- **Desconto no Pix:** em Configurações → InfinitePay. A InfinitePay aplica o desconto quando o cliente escolhe Pix (só
+  com a API Key). A loja aceita como pago o total, ou, no Pix, o total com o desconto que valia quando o pedido foi feito.
+
 ## Como a compra funciona
 
 1. **Frete:** o cliente digita o CEP. O servidor busca o endereço no ViaCEP e cota na Loggi
@@ -32,16 +49,18 @@ foto do kit. Salvou, a landing page e o checkout já mostram os valores novos. F
 4. **Confirmação:** a InfinitePay avisa o webhook (`/api/webhooks/infinitepay`) e devolve o cliente para `/obrigado`.
    O aviso dela **não é assinado**: em qualquer dos dois casos, o servidor confere em `POST /payment_check` e só marca
    "pago" se o valor bater com o do pedido. Valor diferente vira "Valor divergente" para o vendedor conferir.
-5. **Envio:** em `/vendedor`, o vendedor copia o endereço, despacha e marca como enviado com o código de rastreio, que
-   aparece para o cliente na página do pedido.
+5. **Envio:** em `/vendedor`, o vendedor cria o envio na Loggi (ou ele é criado sozinho quando o pagamento entra, se
+   "Criar o envio sozinho" estiver ligado), baixa a etiqueta e marca como enviado. O rastreio aparece para o cliente na
+   página do pedido.
 
 ## Rodar no computador
 
 ```powershell
 py -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-copy .env.example .env          # e defina VENDEDOR_SENHA
+copy .env.example .env          # basta o DATABASE_URL (vazio: SQLite em dados/)
 cd web; npm install; npm run build; cd ..
+.venv\Scripts\python -m servidor.admin   # cria o seu acesso à área do vendedor
 .venv\Scripts\python -m uvicorn servidor.app:app --reload --port 8000
 ```
 
@@ -96,8 +115,24 @@ Faça o primeiro teste com um pedido pequeno e pago por você.
 
 ## Publicar no Render
 
-O `render.yaml` cria o serviço (Docker) e um Postgres para os pedidos. Defina as variáveis marcadas com `sync: false` no
-painel do Render. Use o plano `starter` ou acima: no free o site dorme, e o webhook pode chegar com ele dormindo.
+O `render.yaml` cria o serviço (Docker) com uma variável só: o `DATABASE_URL` do Supabase (abaixo). O resto vem da aba
+Configurações. Use o plano `starter` ou acima: no free o site dorme, e o webhook pode chegar com ele dormindo.
+
+## Banco no Supabase
+
+Sem `DATABASE_URL`, a loja grava em `dados/loja.db` (SQLite, só no seu computador). Para usar o Supabase:
+
+1. No projeto, **Connect** → **Session pooler** (porta 5432; a conexão Direct não funciona no Render, que não tem IPv6).
+2. Copie a string, troque `[YOUR-PASSWORD]` pela senha do banco e ponha em `DATABASE_URL` (no `.env` e no Render).
+3. Ao subir, a loja cria sozinha o esquema `loja` e as tabelas: `pedidos`, `ajustes` (preços e kits), `fotos`,
+   `configuracoes`, `administradores`, `sessoes` e `auditoria`. As chaves ficam no Vault (`vault.secrets`, nomes `loja:...`).
+4. Crie o seu acesso: `.venv\Scripts\python -m servidor.admin` (com esse `DATABASE_URL` no `.env`).
+5. Entre em `/vendedor` → Configurações → "Levar o .env para o banco". Depois, apague do `.env` tudo menos o `DATABASE_URL`.
+
+A URL e as API keys do Supabase não são usadas. As tabelas ficam fora do esquema `public`, que o Supabase publica na
+API REST, e têm RLS ligado sem políticas: a chave anon, que é pública, não lê os pedidos (CPF, endereço). Não adicione
+o esquema `loja` em "Exposed schemas". O `DATABASE_URL` vira a chave mestra (quem tem ele lê o Vault): só no `.env` e no
+Render, nunca no código nem em mensagens. Teste no Postgres: `TESTE_DATABASE_URL=... pytest testes`.
 
 ## Antes de vender
 
@@ -125,7 +160,7 @@ servidor/pedidos.py      regras: cotar, criar o pedido, conferir o pagamento, de
 servidor/loggi.py        ViaCEP, token OAuth2 e cotação (real ou simulada)
 servidor/infinitepay.py  link de pagamento e payment_check (real ou simulado)
 servidor/simulador.py    a InfinitePay de mentira (só em testes)
-servidor/banco.py        a tabela de pedidos (SQLite local ou Postgres)
+servidor/banco.py        pedidos, ajustes e fotos (SQLite local ou Postgres/Supabase, esquema loja)
 servidor/config.py       as variáveis de ambiente e o produto
 web/public/loja.html     a landing page (modelo estático) e web/public/assets/ (css, js, imagens)
 web/src/paginas/         Checkout (kit, frete e dados), Obrigado e Vendedor

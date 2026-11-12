@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import (JSON, Column, DateTime, Integer, LargeBinary, MetaData, String, Table, Text, create_engine, delete,
+from sqlalchemy import (JSON, Column, DateTime, Float, Integer, LargeBinary, MetaData, String, Table, Text, create_engine, delete,
                         insert, select, update)
 
 from servidor import config
@@ -52,10 +52,13 @@ pedidos = Table(
     Column("enviado_em", DateTime(timezone=True)),
     Column("loggi_key", Text),  # o pacote criado na Loggi
     Column("envio_criado_em", DateTime(timezone=True)),
+    Column("desconto_pix", Float),  # o % de desconto no Pix que valia quando o pedido foi criado
+    Column("envio_erro", Text),  # por que o envio automático na Loggi falhou (o vendedor cria à mão)
 )
 
 # Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
-COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP WITH TIME ZONE"}}
+COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP WITH TIME ZONE", "envio_erro": "TEXT",
+                          "desconto_pix": "DOUBLE PRECISION"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -76,11 +79,63 @@ fotos = Table(
 )
 
 
+# A configuração salva na aba Configurações (vale sobre o .env). Os segredos não ficam aqui: vão para o Vault.
+configuracoes = Table(
+    "configuracoes", metadata,
+    Column("chave", String(60), primary_key=True),
+    Column("valor", Text, nullable=False),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False),
+    Column("atualizado_por", Text),
+)
+
+# Só sem Supabase (SQLite no computador, para testes): os segredos ficam aqui, SEM criptografia.
+segredos_locais = Table(
+    "segredos_locais", metadata,
+    Column("nome", String(80), primary_key=True),
+    Column("valor", Text, nullable=False),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False),
+)
+
+# Quem entra na área do vendedor. A senha fica só como hash (scrypt), nunca em texto.
+administradores = Table(
+    "administradores", metadata,
+    Column("email", String(200), primary_key=True),
+    Column("senha_hash", Text, nullable=False),
+    Column("criado_em", DateTime(timezone=True), nullable=False),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False),
+)
+
+# As sessões abertas: só o hash do token (quem lê o banco não consegue entrar com ele).
+sessoes = Table(
+    "sessoes", metadata,
+    Column("token_hash", String(64), primary_key=True),
+    Column("email", String(200), nullable=False, index=True),
+    Column("criado_em", DateTime(timezone=True), nullable=False),
+    Column("expira_em", DateTime(timezone=True), nullable=False),
+)
+
+# Quem mudou o quê na configuração e quando (sem os valores).
+auditoria = Table(
+    "auditoria", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("quando", DateTime(timezone=True), nullable=False, index=True),
+    Column("email", Text),
+    Column("acao", String(60), nullable=False),
+    Column("detalhe", Text),
+)
+
+
+# No Postgres (Supabase ou Render), as tabelas ficam no esquema "loja", não no "public": o Supabase publica o "public"
+# na API REST, e a chave anon (que é pública) leria os pedidos, com CPF e endereço. O "loja" não é publicado, e ainda
+# assim as tabelas ficam com RLS ligado e sem acesso para os papéis anon e authenticated.
+ESQUEMA = "loja"
+
+
 def _criar_engine():
     url = config.DATABASE_URL
     if url:
         url = url.replace("postgres://", "postgresql+psycopg://", 1).replace("postgresql://", "postgresql+psycopg://", 1)
-        return create_engine(url, pool_pre_ping=True)
+        return create_engine(url, pool_pre_ping=True, execution_options={"schema_translate_map": {None: ESQUEMA}})
     pasta = config.RAIZ / "dados"
     pasta.mkdir(exist_ok=True)
     return create_engine(f"sqlite:///{pasta / 'loja.db'}")
@@ -90,15 +145,39 @@ engine = _criar_engine()
 
 
 def iniciar() -> None:
-    metadata.create_all(engine)
     from sqlalchemy import inspect, text
+
+    postgres = engine.dialect.name == "postgresql"
+    if postgres:
+        with engine.begin() as c:
+            c.execute(text(f"CREATE SCHEMA IF NOT EXISTS {ESQUEMA}"))
+    metadata.create_all(engine)
+    esquema = ESQUEMA if postgres else None
+    prefixo = f"{ESQUEMA}." if postgres else ""
 
     with engine.begin() as c:
         for tabela, colunas in COLUNAS_NOVAS.items():
-            existentes = {col["name"] for col in inspect(c).get_columns(tabela)}
+            existentes = {col["name"] for col in inspect(c).get_columns(tabela, schema=esquema)}
             for nome, tipo in colunas.items():
                 if nome not in existentes:
-                    c.execute(text(f"ALTER TABLE {tabela} ADD COLUMN {nome} {tipo}"))
+                    c.execute(text(f"ALTER TABLE {prefixo}{tabela} ADD COLUMN {nome} {tipo}"))
+        if postgres:
+            # O dono das tabelas (o usuário do DATABASE_URL) passa pelo RLS; os demais, sem política, não leem nada.
+            for tabela in metadata.tables:
+                c.execute(text(f"ALTER TABLE {ESQUEMA}.{tabela} ENABLE ROW LEVEL SECURITY"))
+            # Os papéis da API REST do Supabase não existem num Postgres comum (Render): só revoga se existirem.
+            c.execute(text(f"""
+                DO $$
+                DECLARE papel text;
+                BEGIN
+                  FOREACH papel IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+                    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = papel) THEN
+                      EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA {ESQUEMA} FROM %I', papel);
+                      EXECUTE format('REVOKE ALL ON SCHEMA {ESQUEMA} FROM %I', papel);
+                    END IF;
+                  END LOOP;
+                END $$;
+            """))
 
 
 def agora() -> datetime:
@@ -150,6 +229,21 @@ def gravar_foto(nome: str, tipo: str | None, dados: bytes | None) -> None:
         c.execute(delete(fotos).where(fotos.c.nome == nome))
         if dados:
             c.execute(insert(fotos).values(nome=nome, tipo=tipo, dados=dados, atualizado_em=agora()))
+
+
+def eh_postgres() -> bool:
+    return engine.dialect.name == "postgresql"
+
+
+def registrar(email: str | None, acao: str, detalhe: str = "") -> None:
+    with engine.begin() as c:
+        c.execute(insert(auditoria).values(quando=agora(), email=email, acao=acao, detalhe=detalhe[:1000]))
+
+
+def ultimas_mudancas(limite: int = 20) -> list[dict]:
+    with engine.connect() as c:
+        consulta = select(auditoria).order_by(auditoria.c.quando.desc(), auditoria.c.id.desc()).limit(limite)
+        return [dict(l) for l in c.execute(consulta).mappings().all()]
 
 
 def listar(situacao: str | None = None, limite: int = 200) -> list[dict]:

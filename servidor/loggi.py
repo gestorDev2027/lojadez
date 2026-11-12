@@ -70,6 +70,12 @@ _token: dict = {}
 _trava_token = threading.Lock()
 
 
+def esquecer_token() -> None:
+    """As chaves mudaram (aba Configurações): o próximo pedido pega um token novo."""
+    with _trava_token:
+        _token.clear()
+
+
 def _obter_token(renovar: bool = False) -> str:
     with _trava_token:
         if not renovar and _token.get("valor") and _token.get("vence", 0) > time.time() + 60:

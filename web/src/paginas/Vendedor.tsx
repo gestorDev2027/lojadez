@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { chamar, ErroApi, formatarCep, formatarCpf, formatarTelefone, reais, type PedidoVendedor } from "../api";
 import { AbaIntegracoes, AbaProduto } from "./VendedorAjustes";
+import { AbaConfiguracoes } from "./VendedorConfiguracoes";
 
-// A área do vendedor: os pedidos, com os dados de entrega. A senha (VENDEDOR_SENHA) fica só nesta aba do navegador.
-const CHAVE = "loja-senha-vendedor";
+// A área do vendedor: entra com e-mail e senha; a sessão (um token, vale 12 horas) fica só nesta aba do navegador.
+// As telas usam o token no lugar da antiga senha única (a prop continua se chamando "senha").
+const CHAVE = "loja-sessao-vendedor";
 
 const FILTROS = [
   { valor: "pago", rotulo: "Para enviar" },
@@ -30,7 +32,8 @@ function lerSenha() {
 
 export function PaginaVendedor() {
   const [senha, setSenha] = useState(lerSenha);
-  const [aba, setAba] = useState<"pedidos" | "produto" | "integracoes">("pedidos");
+  const [aba, setAba] = useState<"pedidos" | "produto" | "integracoes" | "configuracoes">("pedidos");
+  const [email, setEmail] = useState("");
   const [filtro, setFiltro] = useState("pago");
   const [lista, setLista] = useState<PedidoVendedor[] | null>(null);
   const [erro, setErro] = useState("");
@@ -50,6 +53,18 @@ export function PaginaVendedor() {
     void carregar();
   }, [carregar]);
 
+  useEffect(() => {
+    if (!senha) return;
+    chamar<{ email: string }>("/api/vendedor/eu", { senha })
+      .then((r) => setEmail(r.email))
+      .catch((e) => e instanceof ErroApi && e.status === 401 && sair());
+  }, [senha]);
+
+  function encerrar() {
+    if (senha) void chamar("/api/vendedor/sair", { senha, corpo: {} }).catch(() => undefined);
+    sair();
+  }
+
   function sair() {
     try {
       sessionStorage.removeItem(CHAVE);
@@ -58,6 +73,7 @@ export function PaginaVendedor() {
     }
     setSenha("");
     setLista(null);
+    setEmail("");
   }
 
   if (!senha)
@@ -79,6 +95,7 @@ export function PaginaVendedor() {
     { id: "pedidos", rotulo: "Pedidos" },
     { id: "produto", rotulo: "Produto e preços" },
     { id: "integracoes", rotulo: "Integrações" },
+    { id: "configuracoes", rotulo: "Configurações" },
   ] as const;
 
   return (
@@ -97,13 +114,14 @@ export function PaginaVendedor() {
             </button>
           ))}
         </nav>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {email && <span className="hidden font-mono text-xs text-suave sm:inline">{email}</span>}
           {aba === "pedidos" && (
             <button type="button" onClick={() => void carregar()} className="rounded-full border border-linha-2 px-4 py-2 text-sm font-medium">
               Atualizar
             </button>
           )}
-          <button type="button" onClick={sair} className="rounded-full px-4 py-2 text-sm font-medium text-suave">
+          <button type="button" onClick={encerrar} className="rounded-full px-4 py-2 text-sm font-medium text-suave">
             Sair
           </button>
         </div>
@@ -113,6 +131,8 @@ export function PaginaVendedor() {
         <AbaProduto senha={senha} />
       ) : aba === "integracoes" ? (
         <AbaIntegracoes senha={senha} />
+      ) : aba === "configuracoes" ? (
+        <AbaConfiguracoes senha={senha} aoSair={sair} />
       ) : (
         <>
       <div role="tablist" aria-label="Filtrar pedidos" className="mt-6 flex gap-2 overflow-x-auto pb-1">
@@ -154,29 +174,47 @@ export function PaginaVendedor() {
   );
 }
 
-function Entrar({ erro, aoEntrar }: { erro: string; aoEntrar: (senha: string) => void }) {
-  const [valor, setValor] = useState("");
+function Entrar({ erro: erroDeFora, aoEntrar }: { erro: string; aoEntrar: (token: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [entrando, setEntrando] = useState(false);
+
+  async function enviar(e: FormEvent) {
+    e.preventDefault();
+    setErro("");
+    setEntrando(true);
+    try {
+      const r = await chamar<{ token: string }>("/api/vendedor/entrar", { corpo: { email, senha } });
+      setSenha("");
+      aoEntrar(r.token);
+    } catch (falha) {
+      setErro((falha as Error).message);
+    } finally {
+      setEntrando(false);
+    }
+  }
+
+  const mensagem = erro || erroDeFora;
   return (
     <section className="mx-auto max-w-sm px-4 py-12">
-      <form
-        className="grid gap-3 rounded-2xl border border-linha bg-cartao p-6"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (valor) aoEntrar(valor);
-        }}
-      >
+      <form className="grid gap-3 rounded-2xl border border-linha bg-cartao p-6" onSubmit={(e) => void enviar(e)}>
         <h1 className="text-xl font-bold">Área do vendedor</h1>
         <label className="grid gap-1.5 text-sm font-medium">
-          Senha
-          <input className="campo" type="password" autoComplete="current-password" value={valor} onChange={(e) => setValor(e.target.value)} />
+          E-mail
+          <input className="campo" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
-        {erro && (
+        <label className="grid gap-1.5 text-sm font-medium">
+          Senha
+          <input className="campo" type="password" autoComplete="current-password" required value={senha} onChange={(e) => setSenha(e.target.value)} />
+        </label>
+        {mensagem && (
           <p role="alert" className="text-sm text-alerta">
-            {erro}
+            {mensagem}
           </p>
         )}
-        <button type="submit" className="btn-laranja px-5 py-3 text-sm">
-          Entrar
+        <button type="submit" disabled={entrando} className="btn-laranja px-5 py-3 text-sm">
+          {entrando ? "Entrando…" : "Entrar"}
         </button>
       </form>
     </section>
@@ -289,6 +327,11 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
               {p.loggi_key ? `Envio criado · rastreio ${p.codigo_rastreio || "—"}` : "Sem envio"}
             </span>
           </p>
+          {!p.loggi_key && p.envio_erro && (
+            <p role="alert" className="rounded-lg bg-amber-400/10 px-3 py-2 text-sm text-amber-300">
+              O envio automático falhou: {p.envio_erro} Confira e crie o envio à mão.
+            </p>
+          )}
           {!p.loggi_key ? (
             <button
               type="button"

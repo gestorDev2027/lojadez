@@ -10,6 +10,7 @@ export type Loja = {
   foto: string;
   ofertas: Oferta[];
   oferta_padrao: string;
+  desconto_pix: number;
 };
 export type Endereco = { cep: string; rua: string; bairro: string; cidade: string; uf: string };
 export type OpcaoFrete = {
@@ -38,6 +39,28 @@ export type PedidoPublico = {
   codigo_rastreio: string | null;
   link_pagamento: string | null;
   tem_envio_loggi: boolean;
+  valor_pago_centavos: number | null;
+  desconto_pix: number | null;
+};
+
+export type CampoConfig = {
+  chave: string;
+  rotulo: string;
+  grupo: string;
+  tipo: string;
+  ajuda: string;
+  opcoes: string[];
+  origem: "banco" | "vault" | "env" | "padrao";
+  valor?: string;
+  configurado?: boolean;
+};
+
+export type EstadoConfig = {
+  grupos: Record<string, string>;
+  campos: CampoConfig[];
+  cofre: "vault" | "local" | "indisponivel";
+  no_env: string[];
+  mudancas: { quando: string | null; email: string | null; acao: string; detalhe: string | null }[];
 };
 
 export type PedidoVendedor = Omit<PedidoPublico, "primeiro_nome" | "situacao"> & {
@@ -59,6 +82,7 @@ export type PedidoVendedor = Omit<PedidoPublico, "primeiro_nome" | "situacao"> &
   frete_prazo_dias: number | null;
   loggi_key: string | null;
   envio_criado_em: string | null;
+  envio_erro: string | null;
 };
 
 export type Rastreio = {

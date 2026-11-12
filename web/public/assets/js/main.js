@@ -71,6 +71,13 @@
   $$('[data-if]').forEach((el) => (flags[el.dataset.if] ? (el.hidden = false) : el.remove()));
   $$('[data-if-not]').forEach((el) => flags[el.dataset.ifNot] && el.remove());
 
+  // Desconto no Pix (aba Configurações): troca os textos marcados com data-pix-texto.
+  const descontoPix = Number(C.descontoPix) || 0;
+  if (descontoPix > 0) {
+    const d = descontoPix.toLocaleString('pt-BR');
+    $$('[data-pix-texto]').forEach((el) => (el.textContent = el.dataset.pixTexto.replace('{d}', d)));
+  }
+
   const badgeText = $('#badgeText');
   if (badgeText) {
     badgeText.textContent = `${P.refis} REFIS ✦ ${P.laminasPorRefil} LÂMINAS ✦ MAIS ECONOMIA ✦ `;

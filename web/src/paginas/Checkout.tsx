@@ -252,6 +252,14 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
                 {reais(oferta.preco_centavos + (opcao?.centavos ?? 0))}
               </dd>
             </div>
+            {loja.desconto_pix > 0 && (
+              <div className="flex justify-between gap-3 rounded-xl bg-ok/10 px-3 py-2 text-ok">
+                <dt>No Pix ({loja.desconto_pix.toLocaleString("pt-BR")}% off)</dt>
+                <dd className="font-bold">
+                  {reais(Math.round((oferta.preco_centavos + (opcao?.centavos ?? 0)) * (1 - loja.desconto_pix / 100)))}
+                </dd>
+              </div>
+            )}
           </dl>
           <div className="grid gap-3 p-4 pt-0">
             {erro && (
@@ -268,7 +276,10 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
               )}
             </button>
             <ul className="grid gap-1 font-mono text-xs text-suave">
-              <li>✓ Pix ou cartão de crédito, na página segura da InfinitePay</li>
+              <li>
+                ✓ Pix{loja.desconto_pix > 0 ? ` com ${loja.desconto_pix.toLocaleString("pt-BR")}% off` : ""} ou cartão de crédito, na página
+                segura da InfinitePay (você escolhe lá)
+              </li>
               <li>✓ Entrega pela Loggi com rastreio</li>
               <li>✓ 7 dias para devolução</li>
             </ul>

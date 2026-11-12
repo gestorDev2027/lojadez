@@ -1,21 +1,26 @@
 """O fluxo da compra com a Loggi e a InfinitePay simuladas (sem rede: o CEP é falso).
 
 Rodar: .venv\\Scripts\\python -m pytest testes -q
+(com TESTE_DATABASE_URL, roda num Postgres de teste em vez do SQLite)
 """
 
 import os
 import tempfile
 from urllib.parse import parse_qs, urlparse
 
-os.environ.update(LOGGI_AMBIENTE="simulado", INFINITEPAY_AMBIENTE="simulado", VENDEDOR_SENHA="senha-de-teste",
-                  DATABASE_URL="", SITE_URL="http://testserver", LOJA_ORIGEM_CEP="01310100")
+os.environ.update(LOGGI_AMBIENTE="simulado", INFINITEPAY_AMBIENTE="simulado", INFINITEPAY_DESCONTO_PIX="0", PRODUTO_PESO_G="300",
+                  PRODUTO_DIMENSOES_CM="32x17x5", LOGGI_ENVIO_AUTOMATICO="nao",
+                  # as chaves do .env de verdade não entram nos testes (vazio no ambiente: o .env não sobrepõe)
+                  LOGGI_CLIENT_ID="", LOGGI_CLIENT_SECRET="", LOGGI_COMPANY_ID="", INFINITEPAY_API_KEY="", INFINITEPAY_HANDLE="",
+                  DATABASE_URL=os.environ.get("TESTE_DATABASE_URL", ""), SITE_URL="http://testserver", LOJA_ORIGEM_CEP="01310100")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from servidor import banco, loggi  # noqa: E402
 
-banco.engine = banco.create_engine(f"sqlite:///{tempfile.mkdtemp()}/teste.db")
+if not os.environ["DATABASE_URL"]:
+    banco.engine = banco.create_engine(f"sqlite:///{tempfile.mkdtemp()}/teste.db")
 
 from servidor.app import app  # noqa: E402
 
@@ -40,10 +45,21 @@ def cliente():
     from servidor import app as modulo
     from servidor import catalogo
 
+    from servidor import acesso, configuracoes
+
     modulo._chamadas.clear()  # o limite por IP vale entre testes também
+    acesso._erros.clear()
     with TestClient(app) as c:  # ao subir, o servidor cria as tabelas
         banco.gravar_ajustes({"refis": None, "laminas_por_refil": None, "ofertas": None})  # volta aos padrões
         banco.gravar_foto("kit", None, None)
+        with banco.engine.begin() as conexao:  # a configuração volta ao .env de teste
+            conexao.execute(banco.configuracoes.delete())
+            conexao.execute(banco.segredos_locais.delete())
+        configuracoes.recarregar()
+        acesso.definir_administrador(ADMIN, SENHA)
+        token = c.post("/api/vendedor/entrar", json={"email": ADMIN, "senha": SENHA}).json()["token"]
+        VENDEDOR.clear()
+        VENDEDOR["Authorization"] = f"Bearer {token}"
         catalogo.limpar_cache()
         yield c
 
@@ -89,7 +105,7 @@ def test_compra_completa(cliente):
     conferido = cliente.post(f"/api/pedidos/{nsu}/conferir", json=parametros).json()
     assert conferido["situacao"] == "pago" and conferido["forma_pagamento"] == "pix"
 
-    vendedor = {"Authorization": "Bearer senha-de-teste"}
+    vendedor = VENDEDOR
     assert cliente.get("/api/vendedor/pedidos", headers={"Authorization": "Bearer errada"}).status_code == 401
     lista = cliente.get("/api/vendedor/pedidos?situacao=pago", headers=vendedor).json()
     assert any(p["order_nsu"] == nsu and p["email"] == "maria@exemplo.com" for p in lista)
@@ -140,7 +156,8 @@ def test_config_da_landing_page(cliente):
     assert '"checkoutUrl": "/checkout?oferta=kit2"' in r.text
     assert '"pagamentoNaEntrega": false' in r.text
 
-VENDEDOR = {"Authorization": "Bearer senha-de-teste"}
+ADMIN, SENHA = "dono@loja.test", "senha-de-teste-longa"
+VENDEDOR: dict = {}
 
 
 def test_vendedor_muda_precos_e_refis_na_hora(cliente):
@@ -186,7 +203,7 @@ def test_vendedor_troca_a_foto(cliente):
 def test_status_das_integracoes_sem_chaves(cliente):
     r = cliente.get("/api/vendedor/integracoes", headers=VENDEDOR).json()
     assert r["infinitepay"]["ambiente"] == "simulado" and r["loggi"]["ambiente"] == "simulado"
-    assert all(isinstance(v, (bool, int, str)) for v in r["infinitepay"].values())
+    assert all(isinstance(v, (bool, int, float, str)) for v in r["infinitepay"].values())
     teste = cliente.post("/api/vendedor/integracoes/loggi/testar", json={"cep": "20040002"}, headers=VENDEDOR).json()
     assert teste["ok"] and len(teste["opcoes"]) == 2
 
@@ -227,6 +244,38 @@ def test_envio_so_de_pedido_pago(cliente):
     assert cliente.post(f"/api/vendedor/pedidos/{r.json()['order_nsu']}/loggi/envio", headers=VENDEDOR).status_code == 409
 
 
+def _envio_automatico_na_hora(monkeypatch):
+    from servidor import config, pedidos
+
+    monkeypatch.setattr(config, "LOGGI_ENVIO_AUTOMATICO", True)
+    monkeypatch.setattr(pedidos, "disparar_envio_automatico", pedidos.envio_automatico)  # sem thread no teste
+    return pedidos
+
+
+def test_envio_automatico_depois_do_pagamento(cliente, monkeypatch):
+    _envio_automatico_na_hora(monkeypatch)
+    nsu = _pedido_pago(cliente)
+    pedido = next(p for p in cliente.get("/api/vendedor/pedidos", headers=VENDEDOR).json() if p["order_nsu"] == nsu)
+    assert pedido["loggi_key"] and pedido["codigo_rastreio"] and not pedido["envio_erro"]
+    # conferir de novo (a página do cliente) não cria outro pacote
+    assert cliente.post(f"/api/pedidos/{nsu}/conferir", json={}).json()["situacao"] == "pago"
+
+
+def test_envio_automatico_que_falha_fica_avisado(cliente, monkeypatch):
+    pedidos = _envio_automatico_na_hora(monkeypatch)
+
+    def recusar(_pedido):
+        raise loggi.ErroFrete("A Loggi recusou o endereço.")
+
+    monkeypatch.setattr(loggi, "criar_envio", recusar)
+    nsu = _pedido_pago(cliente)  # o pagamento é confirmado mesmo assim
+    pedido = next(p for p in cliente.get("/api/vendedor/pedidos", headers=VENDEDOR).json() if p["order_nsu"] == nsu)
+    assert pedido["loggi_key"] is None and "recusou" in pedido["envio_erro"]
+
+    monkeypatch.setattr(loggi, "criar_envio", lambda _p: {"loggi_key": "K1", "tracking_code": "T1"})
+    assert pedidos.criar_envio_loggi(nsu)["envio_erro"] is None  # o envio à mão limpa o aviso
+
+
 def test_corpo_do_envio_real(monkeypatch):
     """O pacote que vai para a Loggi de verdade: formato da documentação (async-shipments)."""
     from servidor import config, loggi
@@ -250,3 +299,116 @@ def test_corpo_do_envio_real(monkeypatch):
     pacote = corpo["packages"][0]
     assert pacote["documentTypes"][0]["contentDeclaration"]["totalValue"] == "44.90"
     assert pacote["weightG"] == 700 and pacote["lengthCm"] + pacote["widthCm"] + pacote["heightCm"] <= 200
+
+
+# ───────── Acesso por e-mail e senha ─────────
+
+def test_entrar_sair_e_senha_errada(cliente):
+    assert cliente.get("/api/vendedor/pedidos").status_code == 401
+    assert cliente.get("/api/vendedor/pedidos", headers={"Authorization": "Bearer inventado"}).status_code == 401
+    assert cliente.post("/api/vendedor/entrar", json={"email": ADMIN, "senha": "errada-errada"}).status_code == 401
+    assert cliente.post("/api/vendedor/entrar", json={"email": "outro@loja.test", "senha": SENHA}).status_code == 401
+    assert cliente.get("/api/vendedor/eu", headers=VENDEDOR).json() == {"email": ADMIN}
+    cliente.post("/api/vendedor/sair", headers=VENDEDOR)
+    assert cliente.get("/api/vendedor/eu", headers=VENDEDOR).status_code == 401
+
+
+def test_bloqueia_depois_de_cinco_erros(cliente):
+    for _ in range(5):
+        assert cliente.post("/api/vendedor/entrar", json={"email": ADMIN, "senha": "chute-errado"}).status_code == 401
+    assert cliente.post("/api/vendedor/entrar", json={"email": ADMIN, "senha": SENHA}).status_code == 429
+
+
+def test_trocar_senha_fecha_as_sessoes(cliente):
+    from servidor import banco as b
+
+    r = cliente.post("/api/vendedor/senha", json={"atual": SENHA, "nova": "curta"}, headers=VENDEDOR)
+    assert r.status_code == 422
+    r = cliente.post("/api/vendedor/senha", json={"atual": SENHA, "nova": "outra-senha-bem-longa"}, headers=VENDEDOR)
+    assert r.status_code == 200
+    assert cliente.get("/api/vendedor/eu", headers=VENDEDOR).status_code == 401
+    assert cliente.post("/api/vendedor/entrar", json={"email": ADMIN, "senha": "outra-senha-bem-longa"}).status_code == 200
+    with b.engine.connect() as c:
+        guardado = c.execute(b.administradores.select()).mappings().first()["senha_hash"]
+    assert guardado.startswith("scrypt$") and "outra-senha" not in guardado
+
+
+# ───────── Configurações (banco e cofre) ─────────
+
+def _campo(estado, chave):
+    return next(c for c in estado["campos"] if c["chave"] == chave)
+
+
+def test_configuracoes_pedem_a_senha_e_valem_na_hora(cliente):
+    from servidor import config
+
+    estado = cliente.get("/api/vendedor/configuracoes", headers=VENDEDOR).json()
+    assert estado["cofre"] == ("vault" if banco.eh_postgres() else "local") and "valor" not in _campo(estado, "LOGGI_CLIENT_SECRET")
+    novos = {"LOJA_ORIGEM_CEP": "20040-002", "LOJA_REMETENTE_DOCUMENTO": "529.982.247-25",
+             "LOGGI_CLIENT_SECRET": "segredo-de-teste"}
+    assert cliente.put("/api/vendedor/configuracoes", json={"valores": novos}, headers=VENDEDOR).status_code == 401
+    r = cliente.put("/api/vendedor/configuracoes", json={"valores": novos, "senha": SENHA}, headers=VENDEDOR)
+    assert r.status_code == 200, r.text
+    assert "segredo-de-teste" not in r.text  # o segredo nunca volta
+    assert _campo(r.json(), "LOGGI_CLIENT_SECRET") == {**_campo(r.json(), "LOGGI_CLIENT_SECRET"), "configurado": True}
+    assert config.ORIGEM_CEP == "20040002" and config.LOGGI_CLIENT_SECRET == "segredo-de-teste"
+    assert "LOGGI_CLIENT_SECRET" in r.json()["mudancas"][0]["detalhe"]
+
+    r = cliente.put("/api/vendedor/configuracoes", headers=VENDEDOR,
+                    json={"valores": {}, "apagar_segredos": ["LOGGI_CLIENT_SECRET"], "senha": SENHA})
+    assert not _campo(r.json(), "LOGGI_CLIENT_SECRET")["configurado"]
+
+
+def test_configuracao_ruim_nao_grava_nada(cliente):
+    from servidor import config
+
+    antes = config.ORIGEM_CEP
+    r = cliente.put("/api/vendedor/configuracoes", headers=VENDEDOR,
+                    json={"valores": {"LOJA_ORIGEM_CEP": "123", "LOGGI_AMBIENTE": "producao"}, "senha": SENHA})
+    assert r.status_code == 422 and "CEP" in r.json()["erro"]
+    assert config.ORIGEM_CEP == antes and config.LOGGI_AMBIENTE == "simulado"
+    for valores in ({"PRODUTO_DIMENSOES_CM": "grande"}, {"SITE_URL": "javascript:alert(1)"}, {"CAMPO_X": "1"},
+                    {"INFINITEPAY_DESCONTO_PIX": "80"}):
+        assert cliente.put("/api/vendedor/configuracoes", headers=VENDEDOR,
+                           json={"valores": valores, "senha": SENHA}).status_code == 422
+
+
+def test_importa_o_env_para_o_banco(cliente):
+    r = cliente.post("/api/vendedor/configuracoes/importar", json={"senha": SENHA}, headers=VENDEDOR)
+    assert r.status_code == 200, r.text
+    assert _campo(r.json(), "LOJA_ORIGEM_CEP")["origem"] == "banco" and not r.json()["no_env"]
+
+
+# ───────── Desconto no Pix ─────────
+
+def test_desconto_no_pix(cliente):
+    from servidor import infinitepay
+
+    r = cliente.put("/api/vendedor/configuracoes", headers=VENDEDOR,
+                    json={"valores": {"INFINITEPAY_DESCONTO_PIX": "5"}, "senha": SENHA})
+    assert r.status_code == 200, r.text
+    assert cliente.get("/api/loja").json()["desconto_pix"] == 5
+    nsu = _pedido_pago(cliente)  # o simulador paga no Pix com o desconto
+    publico = cliente.get(f"/api/pedidos/{nsu}").json()
+    assert publico["desconto_pix"] == 5
+    assert publico["valor_pago_centavos"] == round(publico["total_centavos"] * 0.95)
+
+    pedido = banco.buscar(nsu)
+    corpo = infinitepay.montar_corpo(pedido)
+    assert "options" not in corpo  # sem a API Key, a InfinitePay não aplica opções
+    from servidor import config
+    config.INFINITEPAY_API_KEY = "inchk_teste"
+    try:
+        assert infinitepay.montar_corpo(pedido)["options"]["discounts"] == {"pix": 5}
+    finally:
+        config.INFINITEPAY_API_KEY = ""
+
+
+def test_cartao_nao_ganha_o_desconto_do_pix():
+    from servidor import pedidos as p
+
+    pedido = {"total_centavos": 10000, "desconto_pix": 5}
+    assert p.valor_confere(pedido, {"amount": 10000, "capture_method": "credit_card"})
+    assert p.valor_confere(pedido, {"amount": 9500, "capture_method": "pix"})
+    assert not p.valor_confere(pedido, {"amount": 9500, "capture_method": "credit_card"})
+    assert not p.valor_confere({"total_centavos": 10000, "desconto_pix": None}, {"amount": 9500, "capture_method": "pix"})

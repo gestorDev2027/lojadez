@@ -1,4 +1,6 @@
-# Blueprint do Render: um serviço web (Docker) e um Postgres para os pedidos.
+# Blueprint do Render: um serviço web (Docker). O banco é o Postgres do Supabase (DATABASE_URL, Session pooler).
+# Só o DATABASE_URL fica aqui: o resto (Loggi, InfinitePay, remetente...) muda em /vendedor → Configurações, e as
+# chaves ficam no Vault do Supabase. O acesso ao /vendedor é criado no computador: python -m servidor.admin
 services:
   - type: web
     name: loja-laminas
@@ -8,55 +10,4 @@ services:
     healthCheckPath: /api/loja
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: loja-laminas-banco
-          property: connectionString
-      - key: SITE_URL
-        sync: false # https://seu-dominio.com.br
-      - key: LOJA_NOME
-        sync: false
-      - key: VENDEDOR_SENHA
-        sync: false
-      - key: LOJA_ORIGEM_CEP
-        sync: false
-      - key: LOJA_WHATSAPP
-        sync: false
-      - key: LOJA_PROMO_ATE
-        sync: false
-      - key: EMPRESA_RAZAO_SOCIAL
-        sync: false
-      - key: EMPRESA_CNPJ
-        sync: false
-      - key: EMPRESA_EMAIL
-        sync: false
-      - key: OFERTA_KIT1_CENTAVOS
-        sync: false
-      - key: OFERTA_KIT2_CENTAVOS
-        sync: false
-      - key: OFERTA_KIT3_CENTAVOS
-        sync: false
-      - key: PRODUTO_PESO_G
-        sync: false
-      - key: PRODUTO_DIMENSOES_CM
-        sync: false
-      - key: LOGGI_AMBIENTE
-        value: simulado
-      - key: LOGGI_CLIENT_ID
-        sync: false
-      - key: LOGGI_CLIENT_SECRET
-        sync: false
-      - key: LOGGI_COMPANY_ID
-        sync: false
-      - key: LOGGI_SERVICOS
-        sync: false
-      - key: INFINITEPAY_AMBIENTE
-        value: simulado
-      - key: INFINITEPAY_HANDLE
-        sync: false
-      - key: INFINITEPAY_API_KEY
-        sync: false
-
-databases:
-  - name: loja-laminas-banco
-    plan: basic-256mb
-    region: virginia
+        sync: false # Supabase: Connect > Session pooler (porta 5432), com a senha do banco

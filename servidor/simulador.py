@@ -23,8 +23,11 @@ def pagar(order_nsu: str, forma: str) -> dict:
     if not pedido:
         raise KeyError(order_nsu)
     juros = 0 if forma == "pix" else round(pedido["total_centavos"] * 0.0099)
+    # No Pix com desconto, a InfinitePay cobra o total com o desconto.
+    pago = round(pedido["total_centavos"] * (1 - (pedido.get("desconto_pix") or 0) / 100)) if forma == "pix" else None
     pagamento = {"order_nsu": order_nsu, "transaction_nsu": str(uuid.uuid4()), "slug": uuid.uuid4().hex[:10],
-                 "amount": pedido["total_centavos"], "paid_amount": pedido["total_centavos"] + juros, "installments": 1,
+                 "amount": pago or pedido["total_centavos"], "paid_amount": pago or pedido["total_centavos"] + juros,
+                 "installments": 1,
                  "capture_method": "pix" if forma == "pix" else "credit_card",
                  "receipt_url": f"{config.SITE_URL}/simulador/comprovante/{order_nsu}"}
     _pagamentos[order_nsu] = pagamento
@@ -62,9 +65,11 @@ def pagina(order_nsu: str) -> str:
         return "<p>Pedido não encontrado.</p>"
     e = html.escape
     pago = pedido["situacao"] != "aguardando_pagamento"
+    desconto = pedido.get("desconto_pix") or 0
+    pix = f" · {_reais(round(pedido['total_centavos'] * (1 - desconto / 100)))} ({desconto:g}% off)" if desconto else ""
     botoes = "<p class='aviso'>Este pedido já foi pago ou cancelado.</p>" if pago else f"""
       <form method="post" action="/simulador/pagar/{e(order_nsu)}"><input type="hidden" name="forma" value="pix">
-        <button class="pix">Pagar com Pix</button></form>
+        <button class="pix">Pagar com Pix{pix}</button></form>
       <form method="post" action="/simulador/pagar/{e(order_nsu)}"><input type="hidden" name="forma" value="cartao">
         <button>Pagar com cartão</button></form>
       <a href="/">Desistir e voltar à loja</a>"""

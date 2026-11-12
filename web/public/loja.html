@@ -36,7 +36,7 @@
     <div class="ticker__track" data-marquee="40">
       <div class="ticker__group">
         <span data-if="pagamentoNaEntrega">✦ Pague somente na entrega</span>
-        <span data-if-not="pagamentoNaEntrega">✦ Pix ou cartão de crédito</span>
+        <span data-if-not="pagamentoNaEntrega" data-pix-texto="✦ Pix com {d}% off ou cartão de crédito">✦ Pix ou cartão de crédito</span>
         <span data-if-not="pagamentoNaEntrega">✦ Entrega pela Loggi</span>
         <span>✦ <b data-text="refis"></b> refis de <b data-text="laminasPorRefil"></b> lâminas</span>
         <span>✦ Fita lubrificante em cada refil</span>
@@ -455,7 +455,7 @@
           </details>
           <details class="qa reveal" data-if-not="pagamentoNaEntrega">
             <summary>Quais as formas de pagamento?</summary>
-            <div class="qa__body"><p>Pix ou cartão de crédito, na página segura da InfinitePay. O pedido é confirmado assim que o pagamento é aprovado.</p></div>
+            <div class="qa__body"><p data-pix-texto="Pix (com {d}% de desconto) ou cartão de crédito, na página segura da InfinitePay. O pedido é confirmado assim que o pagamento é aprovado.">Pix ou cartão de crédito, na página segura da InfinitePay. O pedido é confirmado assim que o pagamento é aprovado.</p></div>
           </details>
           <details class="qa reveal">
             <summary>Qual é o prazo de entrega?</summary>

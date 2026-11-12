@@ -175,8 +175,8 @@ export function AbaProduto({ senha }: { senha: string }) {
 }
 
 type Integracoes = {
-  loggi: { ambiente: string; client_id: boolean; client_secret: boolean; company_id: boolean; servicos: number; origem_cep: string };
-  infinitepay: { ambiente: string; handle: boolean; api_key: boolean; site_url: string; webhook: boolean };
+  loggi: { ambiente: string; client_id: boolean; client_secret: boolean; company_id: boolean; servicos: number; origem_cep: string; envio_automatico: boolean };
+  infinitepay: { ambiente: string; handle: boolean; api_key: boolean; site_url: string; webhook: boolean; desconto_pix: number; desconto_pix_vale: number };
   problemas: string[];
 };
 
@@ -211,8 +211,8 @@ export function AbaIntegracoes({ senha }: { senha: string }) {
   return (
     <div className="mt-6 grid gap-5">
       <p className="text-sm text-tinta-2">
-        As chaves ficam nas variáveis de ambiente do servidor (arquivo <code className="font-mono">.env</code> no computador, ou{" "}
-        <em>Environment</em> no Render) e nunca aparecem aqui. Depois de mudar, reinicie o servidor.
+        As chaves e os dados de envio mudam na aba <strong>Configurações</strong> (as chaves ficam no Vault do Supabase e nunca aparecem
+        aqui). O que não foi salvo lá vem do <code className="font-mono">.env</code>.
       </p>
       {dados.problemas.length > 0 && (
         <ul className="grid gap-1 rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-200">
@@ -231,9 +231,14 @@ export function AbaIntegracoes({ senha }: { senha: string }) {
             valor={infinitepay.webhook ? `Ligado em ${infinitepay.site_url}` : "Desligado: o site precisa estar publicado com https"}
             ok={infinitepay.webhook}
           />
+          <Estado
+            rotulo="Desconto no Pix"
+            valor={infinitepay.desconto_pix ? (infinitepay.desconto_pix_vale ? `${infinitepay.desconto_pix}% off` : `${infinitepay.desconto_pix}%: precisa da API Key`) : "Sem desconto"}
+            ok={!infinitepay.desconto_pix || infinitepay.desconto_pix_vale > 0}
+          />
           <p className="mt-3 text-xs text-suave">
-            Para cobrar de verdade: <code className="font-mono">INFINITEPAY_AMBIENTE=real</code> e a InfiniteTag. O primeiro teste é uma
-            compra pequena paga por você.
+            Para cobrar de verdade: em Configurações, InfinitePay no modo real e a InfiniteTag. O primeiro teste é uma compra pequena paga
+            por você.
           </p>
         </Cartao>
 
@@ -243,6 +248,7 @@ export function AbaIntegracoes({ senha }: { senha: string }) {
           <Estado rotulo="Código da empresa (LOGGI_COMPANY_ID)" valor={loggi.company_id ? "Configurado" : "Falta"} ok={loggi.company_id} />
           <Estado rotulo="Códigos de serviço (LOGGI_SERVICOS)" valor={loggi.servicos ? `${loggi.servicos} configurado(s)` : "Falta"} ok={loggi.servicos > 0} />
           <Estado rotulo="CEP de origem" valor={formatarCep(loggi.origem_cep)} ok={loggi.origem_cep.length === 8} />
+          <Estado rotulo="Envio automático após o pagamento (LOGGI_ENVIO_AUTOMATICO)" valor={loggi.envio_automatico ? "Ligado" : "Desligado: crie cada envio à mão"} ok />
           <div className="mt-4 flex gap-2">
             <label className="sr-only" htmlFor="cep-teste">
               CEP para testar
@@ -279,7 +285,7 @@ export function AbaIntegracoes({ senha }: { senha: string }) {
   );
 }
 
-function Cartao({ titulo, children }: { titulo: string; children: ReactNode }) {
+export function Cartao({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
     <section className="rounded-[22px] border border-linha bg-fundo-2/80 p-5">
       <h2 className="mb-4 font-display text-2xl leading-none font-extrabold uppercase">{titulo}</h2>
@@ -288,7 +294,7 @@ function Cartao({ titulo, children }: { titulo: string; children: ReactNode }) {
   );
 }
 
-function Campo({ rotulo, dica, children }: { rotulo: string; dica?: string; children: ReactNode }) {
+export function Campo({ rotulo, dica, children }: { rotulo: string; dica?: string; children: ReactNode }) {
   return (
     <label className="grid gap-1.5 text-sm font-semibold">
       {rotulo}
