@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { chamar, ErroApi, formatarCep, formatarCpf, formatarTelefone, reais, type PedidoVendedor } from "../api";
+import { AbaIntegracoes, AbaProduto } from "./VendedorAjustes";
 
 // A área do vendedor: os pedidos, com os dados de entrega. A senha (VENDEDOR_SENHA) fica só nesta aba do navegador.
 const CHAVE = "loja-senha-vendedor";
@@ -29,6 +30,7 @@ function lerSenha() {
 
 export function PaginaVendedor() {
   const [senha, setSenha] = useState(lerSenha);
+  const [aba, setAba] = useState<"pedidos" | "produto" | "integracoes">("pedidos");
   const [filtro, setFiltro] = useState("pago");
   const [lista, setLista] = useState<PedidoVendedor[] | null>(null);
   const [erro, setErro] = useState("");
@@ -73,21 +75,47 @@ export function PaginaVendedor() {
       />
     );
 
+  const abas = [
+    { id: "pedidos", rotulo: "Pedidos" },
+    { id: "produto", rotulo: "Produto e preços" },
+    { id: "integracoes", rotulo: "Integrações" },
+  ] as const;
+
   return (
     <section className="mx-auto max-w-6xl px-4 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Pedidos</h1>
+        <nav aria-label="Área do vendedor" className="flex gap-1 overflow-x-auto rounded-full border border-linha-2 bg-fundo-2 p-1">
+          {abas.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              aria-current={aba === a.id ? "page" : undefined}
+              onClick={() => setAba(a.id)}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${aba === a.id ? "bg-laranja text-black" : "text-tinta-2 hover:text-tinta"}`}
+            >
+              {a.rotulo}
+            </button>
+          ))}
+        </nav>
         <div className="flex gap-2">
-          <button type="button" onClick={() => void carregar()} className="rounded-full border border-linha px-4 py-2 text-sm font-medium">
-            Atualizar
-          </button>
+          {aba === "pedidos" && (
+            <button type="button" onClick={() => void carregar()} className="rounded-full border border-linha-2 px-4 py-2 text-sm font-medium">
+              Atualizar
+            </button>
+          )}
           <button type="button" onClick={sair} className="rounded-full px-4 py-2 text-sm font-medium text-suave">
             Sair
           </button>
         </div>
       </div>
 
-      <div role="tablist" aria-label="Filtrar pedidos" className="mt-4 flex gap-2 overflow-x-auto pb-1">
+      {aba === "produto" ? (
+        <AbaProduto senha={senha} />
+      ) : aba === "integracoes" ? (
+        <AbaIntegracoes senha={senha} />
+      ) : (
+        <>
+      <div role="tablist" aria-label="Filtrar pedidos" className="mt-6 flex gap-2 overflow-x-auto pb-1">
         {FILTROS.map((f) => (
           <button
             key={f.valor}
@@ -119,6 +147,8 @@ export function PaginaVendedor() {
             <CartaoPedido key={p.order_nsu} pedido={p} senha={senha} aoMudar={() => void carregar()} />
           ))}
         </ul>
+      )}
+        </>
       )}
     </section>
   );

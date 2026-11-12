@@ -1,0 +1,136 @@
+"""O catálogo que o vendedor muda pela área do vendedor, sem mexer no .env nem republicar o site.
+
+Os padrões vêm do .env (servidor/config.py); o que o vendedor grava fica na tabela `ajustes` e vale sobre eles:
+- refis por kit e lâminas por refil;
+- preço e selo de cada oferta (1, 2 e 3 kits) e se ela aparece;
+- a foto do kit (tabela `fotos`), usada na landing page e no checkout.
+"""
+
+import copy
+import threading
+
+from servidor import banco, config
+
+
+class ErroCatalogo(Exception):
+    pass
+
+
+_cache: dict = {}
+_trava = threading.Lock()
+
+FOTO_KIT = "kit"
+TIPOS_FOTO = {"image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG", "image/webp": b"RIFF"}
+FOTO_MAXIMA = 3 * 1024 * 1024
+
+
+def _ajustes() -> dict:
+    with _trava:
+        if "ajustes" not in _cache:
+            _cache["ajustes"] = banco.ler_ajustes()
+        return _cache["ajustes"]
+
+
+def limpar_cache() -> None:
+    with _trava:
+        _cache.clear()
+
+
+def produto() -> dict:
+    p = copy.deepcopy(config.PRODUTO)
+    a = _ajustes()
+    for chave in ("refis", "laminas_por_refil"):
+        if chave in a:
+            p[chave] = int(a[chave])
+    return p
+
+
+def ofertas(so_ativas: bool = True) -> list[dict]:
+    a = _ajustes().get("ofertas") or {}
+    saida = []
+    for padrao in config.OFERTAS:
+        o = {**padrao, "ativa": True, **{k: v for k, v in (a.get(padrao["id"]) or {}).items() if k in ("preco_centavos", "selo", "ativa")}}
+        if o["ativa"] or not so_ativas:
+            saida.append(o)
+    return saida
+
+
+def oferta(oferta_id: str) -> dict | None:
+    return next((o for o in ofertas() if o["id"] == oferta_id), None)
+
+
+def oferta_padrao() -> str:
+    ativas = [o["id"] for o in ofertas()]
+    return config.OFERTA_PADRAO if config.OFERTA_PADRAO in ativas else (ativas[0] if ativas else "")
+
+
+def _inteiro(valor, nome: str, minimo: int, maximo: int) -> int:
+    try:
+        numero = int(valor)
+    except (TypeError, ValueError):
+        raise ErroCatalogo(f"{nome}: use um número inteiro.")
+    if not minimo <= numero <= maximo:
+        raise ErroCatalogo(f"{nome}: de {minimo} a {maximo}.")
+    return numero
+
+
+def salvar(dados: dict) -> dict:
+    """Confere e grava refis, lâminas e ofertas. Devolve o catálogo novo."""
+    novos: dict = {}
+    if "refis" in dados:
+        novos["refis"] = _inteiro(dados["refis"], "Refis por kit", 1, 200)
+    if "laminas_por_refil" in dados:
+        novos["laminas_por_refil"] = _inteiro(dados["laminas_por_refil"], "Lâminas por refil", 1, 10)
+    if "ofertas" in dados:
+        ids = {o["id"] for o in config.OFERTAS}
+        ofertas_novas = {}
+        for oid, valores in (dados["ofertas"] or {}).items():
+            if oid not in ids or not isinstance(valores, dict):
+                raise ErroCatalogo(f"Oferta desconhecida: {oid}.")
+            ofertas_novas[oid] = {
+                "preco_centavos": _inteiro(valores.get("preco_centavos"), f"Preço de {oid}", 100, 10_000_000),
+                "selo": " ".join(str(valores.get("selo") or "").split())[:40],
+                "ativa": bool(valores.get("ativa", True)),
+            }
+        if not any(v["ativa"] for v in ofertas_novas.values()):
+            raise ErroCatalogo("Deixe pelo menos uma oferta ativa.")
+        novos["ofertas"] = ofertas_novas
+    banco.gravar_ajustes(novos)
+    limpar_cache()
+    return resumo()
+
+
+def salvar_foto(tipo: str, dados: bytes) -> None:
+    tipo = (tipo or "").split(";")[0].strip().lower()
+    if tipo not in TIPOS_FOTO or not dados.startswith(TIPOS_FOTO[tipo]):
+        raise ErroCatalogo("Envie uma foto JPG, PNG ou WebP.")
+    if len(dados) > FOTO_MAXIMA:
+        raise ErroCatalogo("A foto tem até 3 MB.")
+    banco.gravar_foto(FOTO_KIT, tipo, dados)
+    limpar_cache()
+
+
+def apagar_foto() -> None:
+    banco.gravar_foto(FOTO_KIT, None, None)
+    limpar_cache()
+
+
+def foto() -> dict | None:
+    """{"tipo", "dados", "versao"} da foto enviada, ou None (usa a padrão)."""
+    with _trava:
+        if "foto" not in _cache:
+            _cache["foto"] = banco.ler_foto(FOTO_KIT) or {}
+        f = _cache["foto"]
+    if not f:
+        return None
+    return {"tipo": f["tipo"], "dados": f["dados"], "versao": int(f["atualizado_em"].timestamp())}
+
+
+def url_foto() -> str:
+    """O endereço da foto do kit, com versão (o navegador busca a nova quando ela muda)."""
+    f = foto()
+    return f"/produto/foto?v={f['versao']}" if f else "/assets/img/kit-foto.jpg"
+
+
+def resumo() -> dict:
+    return {"produto": produto(), "ofertas": ofertas(so_ativas=False), "foto": url_foto(), "foto_enviada": foto() is not None}

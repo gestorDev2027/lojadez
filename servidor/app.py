@@ -17,7 +17,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from servidor import banco, config, loggi, pedidos, simulador
+from servidor import banco, catalogo, config, loggi, pedidos, simulador
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -77,31 +77,40 @@ async def _json(request: Request) -> dict:
 # ───────── A loja ─────────
 
 def _ofertas() -> list[dict]:
-    return [{**o, "descricao": pedidos.descricao_oferta(o)} for o in config.OFERTAS]
+    return [{**o, "descricao": pedidos.descricao_oferta(o)} for o in catalogo.ofertas()]
 
 
 @app.get("/api/loja")
 def loja():
-    p = config.PRODUTO
+    p = catalogo.produto()
     return {"nome": config.LOJA_NOME, "whatsapp": config.LOJA_WHATSAPP,
             "testes": config.LOGGI_AMBIENTE == "simulado" or config.INFINITEPAY_AMBIENTE == "simulado",
             "produto": {k: p[k] for k in ("sku", "ean", "nome", "aparelhos", "refis", "laminas_por_refil")},
-            "ofertas": _ofertas(), "oferta_padrao": config.OFERTA_PADRAO}
+            "foto": catalogo.url_foto(), "ofertas": _ofertas(), "oferta_padrao": catalogo.oferta_padrao()}
+
+
+@app.get("/produto/foto", include_in_schema=False)
+def produto_foto():
+    f = catalogo.foto()
+    if not f:
+        return RedirectResponse("/assets/img/kit-foto.jpg", status_code=302)
+    return Response(f["dados"], media_type=f["tipo"], headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.get("/lp-config.js", include_in_schema=False)
 def lp_config():
-    """A configuração da landing page (web/lp), montada do servidor: os preços valem só daqui."""
-    p = config.PRODUTO
+    """A configuração da landing page (web/public/loja.html), montada do servidor: preços, refis e foto valem só daqui."""
+    p = catalogo.produto()
     dados = {
+        "fotoKit": catalogo.url_foto(),
         "marca": config.LOJA_NOME,
         "produto": {"nome": p["nome"], "aparelhos": p["aparelhos"], "refis": p["refis"], "laminasPorRefil": p["laminas_por_refil"]},
         "pagamentoNaEntrega": False,
         "whatsapp": {"numero": config.LOJA_WHATSAPP, "mensagem": "Olá! Tenho interesse no {kit} ({preco})."},
         "checkout": {"repassarParametros": True, "abrirEmNovaAba": False},
         "ofertas": [{"id": o["id"], "titulo": o["titulo"], "quantidade": o["kits"], "preco": o["preco_centavos"] / 100,
-                     "precoDe": None, "selo": o["selo"], "checkoutUrl": f"/checkout?oferta={o['id']}"} for o in config.OFERTAS],
-        "ofertaPadrao": config.OFERTA_PADRAO,
+                     "precoDe": None, "selo": o["selo"], "checkoutUrl": f"/checkout?oferta={o['id']}"} for o in catalogo.ofertas()],
+        "ofertaPadrao": catalogo.oferta_padrao(),
         "calculadora": {"barbeadasPorSemana": 5, "usosPorRefil": 5},
         "contagem": {"ativo": bool(config.LOJA_PROMO_ATE), "terminaEm": config.LOJA_PROMO_ATE,
                      "titulo": "Preço promocional válido por"},
@@ -206,6 +215,73 @@ def vendedor_cancelar(order_nsu: str, request: Request):
     return banco_para_tela(pedidos.cancelar(_nsu(order_nsu)))
 
 
+# Produto e preços: o que muda aqui vale na hora na landing page e no checkout.
+
+@app.get("/api/vendedor/catalogo")
+def vendedor_catalogo(request: Request):
+    _vendedor(request)
+    return catalogo.resumo()
+
+
+@app.put("/api/vendedor/catalogo")
+async def vendedor_salvar_catalogo(request: Request):
+    _vendedor(request)
+    try:
+        return catalogo.salvar(await _json(request))
+    except catalogo.ErroCatalogo as erro:
+        raise pedidos.ErroPedido(str(erro))
+
+
+@app.put("/api/vendedor/foto")
+async def vendedor_foto(request: Request):
+    _vendedor(request)
+    dados = await request.body()
+    try:
+        catalogo.salvar_foto(request.headers.get("content-type", ""), dados)
+    except catalogo.ErroCatalogo as erro:
+        raise pedidos.ErroPedido(str(erro))
+    return catalogo.resumo()
+
+
+@app.delete("/api/vendedor/foto")
+def vendedor_apagar_foto(request: Request):
+    _vendedor(request)
+    catalogo.apagar_foto()
+    return catalogo.resumo()
+
+
+# Integrações: o que está ligado e o que falta (nunca mostra as chaves).
+
+@app.get("/api/vendedor/integracoes")
+def vendedor_integracoes(request: Request):
+    _vendedor(request)
+    tem = lambda valor: bool(valor)  # noqa: E731
+    return {
+        "loggi": {"ambiente": config.LOGGI_AMBIENTE, "client_id": tem(config.LOGGI_CLIENT_ID),
+                  "client_secret": tem(config.LOGGI_CLIENT_SECRET), "company_id": tem(config.LOGGI_COMPANY_ID),
+                  "servicos": len(config.LOGGI_SERVICOS), "origem_cep": config.ORIGEM_CEP},
+        "infinitepay": {"ambiente": config.INFINITEPAY_AMBIENTE, "handle": tem(config.INFINITEPAY_HANDLE),
+                        "api_key": tem(config.INFINITEPAY_API_KEY), "site_url": config.SITE_URL,
+                        "webhook": config.SITE_URL.startswith("https://")},
+        "problemas": config.conferir(),
+    }
+
+
+@app.post("/api/vendedor/integracoes/loggi/testar")
+async def vendedor_testar_loggi(request: Request):
+    """Uma cotação de verdade (ou simulada) para um CEP: confere credenciais, endereço de origem e serviço."""
+    _vendedor(request)
+    dados = await _json(request)
+    oferta = catalogo.oferta(catalogo.oferta_padrao())
+    inicio = time.monotonic()
+    try:
+        cotacao = loggi.cotar(str(dados.get("cep") or config.ORIGEM_CEP), oferta["kits"], oferta["preco_centavos"])
+    except loggi.ErroFrete as erro:
+        return {"ok": False, "detalhe": str(erro), "ambiente": config.LOGGI_AMBIENTE}
+    return {"ok": True, "ambiente": config.LOGGI_AMBIENTE, "ms": int((time.monotonic() - inicio) * 1000),
+            "opcoes": cotacao["opcoes"], "endereco": cotacao["endereco"]}
+
+
 # ───────── Simulador da InfinitePay (só em testes) ─────────
 
 def _simulador_ligado() -> None:
@@ -265,6 +341,7 @@ def site(caminho: str):
         return FileResponse(_SITE / "index.html")
     arquivo = (_SITE / limpo).resolve()
     if arquivo.is_file() and _SITE.resolve() in arquivo.parents:
-        cache = "public, max-age=31536000, immutable" if limpo.startswith("app-assets/") else "public, max-age=3600"
+        # app-assets/ tem o hash no nome; o resto (a landing page) muda sem mudar de nome: o navegador confere sempre.
+        cache = "public, max-age=31536000, immutable" if limpo.startswith("app-assets/") else "no-cache"
         return FileResponse(arquivo, headers={"Cache-Control": cache})
     raise HTTPException(404)

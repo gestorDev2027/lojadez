@@ -14,6 +14,13 @@ As duas integrações têm um **modo simulado**: dá para rodar e testar o fluxo
   no servidor (`.env`), e cada botão de compra leva a `/checkout?oferta=<kit>`.
 - **App React** (`web/src`): checkout, página do pedido (`/obrigado`) e área do vendedor, no mesmo visual da landing page.
 
+## Mudar refis, preços e foto (sem republicar)
+
+Em `/vendedor` → **Produto e preços**: refis por kit, lâminas por refil, preço e selo de cada oferta (e se ela aparece) e a
+foto do kit. Salvou, a landing page e o checkout já mostram os valores novos. Ficam no banco (tabelas `ajustes` e
+`fotos`) e valem sobre os padrões do `.env`. A aba **Integrações** mostra o que falta configurar na InfinitePay e na Loggi
+(sem mostrar as chaves) e testa uma cotação de frete.
+
 ## Como a compra funciona
 
 1. **Frete:** o cliente digita o CEP. O servidor busca o endereço no ViaCEP e cota na Loggi

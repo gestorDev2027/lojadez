@@ -2,7 +2,8 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, Text, create_engine, insert, select, update
+from sqlalchemy import (JSON, Column, DateTime, Integer, LargeBinary, MetaData, String, Table, Text, create_engine, delete,
+                        insert, select, update)
 
 from servidor import config
 
@@ -52,6 +53,24 @@ pedidos = Table(
 )
 
 
+# Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
+ajustes = Table(
+    "ajustes", metadata,
+    Column("chave", String(60), primary_key=True),
+    Column("valor", JSON, nullable=False),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False),
+)
+
+# Fotos enviadas pelo vendedor (ficam no banco: o disco do Render é apagado a cada publicação).
+fotos = Table(
+    "fotos", metadata,
+    Column("nome", String(40), primary_key=True),
+    Column("tipo", String(40), nullable=False),
+    Column("dados", LargeBinary, nullable=False),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False),
+)
+
+
 def _criar_engine():
     url = config.DATABASE_URL
     if url:
@@ -91,6 +110,33 @@ def alterar(order_nsu: str, valores: dict, *, so_se_situacao: tuple[str, ...] | 
         consulta = consulta.where(pedidos.c.situacao.in_(so_se_situacao))
     with engine.begin() as c:
         return c.execute(consulta.values(**valores)).rowcount > 0
+
+
+def ler_ajustes() -> dict:
+    with engine.connect() as c:
+        return {l.chave: l.valor for l in c.execute(select(ajustes.c.chave, ajustes.c.valor))}
+
+
+def gravar_ajustes(valores: dict) -> None:
+    with engine.begin() as c:
+        for chave, valor in valores.items():
+            c.execute(delete(ajustes).where(ajustes.c.chave == chave))
+            if valor is not None:
+                c.execute(insert(ajustes).values(chave=chave, valor=valor, atualizado_em=agora()))
+
+
+def ler_foto(nome: str) -> dict | None:
+    with engine.connect() as c:
+        linha = c.execute(select(fotos).where(fotos.c.nome == nome)).mappings().first()
+    return dict(linha) if linha else None
+
+
+def gravar_foto(nome: str, tipo: str | None, dados: bytes | None) -> None:
+    """Grava a foto; sem dados, apaga (volta a foto padrão)."""
+    with engine.begin() as c:
+        c.execute(delete(fotos).where(fotos.c.nome == nome))
+        if dados:
+            c.execute(insert(fotos).values(nome=nome, tipo=tipo, dados=dados, atualizado_em=agora()))
 
 
 def listar(situacao: str | None = None, limite: int = 200) -> list[dict]:

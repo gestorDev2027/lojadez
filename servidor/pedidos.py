@@ -7,7 +7,7 @@ import logging
 import re
 import uuid
 
-from servidor import banco, config, infinitepay, loggi
+from servidor import banco, catalogo, config, infinitepay, loggi
 
 log = logging.getLogger("loja.pedidos")
 
@@ -22,14 +22,14 @@ EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,24}$", re.I)
 
 
 def _oferta(oferta_id) -> dict:
-    oferta = config.oferta(str(oferta_id or ""))
+    oferta = catalogo.oferta(str(oferta_id or ""))
     if not oferta:
         raise ErroPedido("Escolha um dos kits.")
     return oferta
 
 
 def descricao_oferta(oferta: dict) -> str:
-    p = config.PRODUTO
+    p = catalogo.produto()
     aparelhos, refis = p["aparelhos"] * oferta["kits"], p["refis"] * oferta["kits"]
     return f"{p['nome']} - {oferta['titulo']} ({aparelhos} {'aparelhos' if aparelhos > 1 else 'aparelho'} + {refis} refis)"
 

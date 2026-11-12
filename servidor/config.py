@@ -55,7 +55,7 @@ PRODUTO = {
     "ean": "7892125080110",
     "nome": _texto("PRODUTO_NOME", "Kit Barbeador 3 Lâminas"),
     "aparelhos": 1,
-    "refis": _inteiro("PRODUTO_REFIS", 22),
+    "refis": _inteiro("PRODUTO_REFIS", 19),
     "laminas_por_refil": 3,
     "peso_g": _inteiro("PRODUTO_PESO_G", 300),
     "comprimento_cm": _comprimento,
@@ -63,20 +63,16 @@ PRODUTO = {
     "altura_cm": _altura,
 }
 
-# As ofertas: quantos kits e o preço de cada pacote (em centavos). O preço vale só daqui: a LP e o checkout leem do
-# servidor, e o pedido é sempre calculado aqui.
+# As ofertas: quantos kits e o preço de cada pacote (em centavos). São os PADRÕES: o vendedor muda refis, preços e
+# foto pela área do vendedor (servidor/catalogo.py), e o que ele grava vale sobre estes valores.
 OFERTAS = [
-    {"id": "kit1", "titulo": "1 Kit", "kits": 1, "preco_centavos": _inteiro("OFERTA_KIT1_CENTAVOS", 2690), "selo": ""},
-    {"id": "kit2", "titulo": "2 Kits", "kits": 2, "preco_centavos": _inteiro("OFERTA_KIT2_CENTAVOS", 4790),
+    {"id": "kit1", "titulo": "1 Kit", "kits": 1, "preco_centavos": _inteiro("OFERTA_KIT1_CENTAVOS", 2390), "selo": ""},
+    {"id": "kit2", "titulo": "2 Kits", "kits": 2, "preco_centavos": _inteiro("OFERTA_KIT2_CENTAVOS", 4490),
      "selo": "Recomendado"},
-    {"id": "kit3", "titulo": "3 Kits", "kits": 3, "preco_centavos": _inteiro("OFERTA_KIT3_CENTAVOS", 6490),
+    {"id": "kit3", "titulo": "3 Kits", "kits": 3, "preco_centavos": _inteiro("OFERTA_KIT3_CENTAVOS", 6290),
      "selo": "Menor preço por refil"},
 ]
 OFERTA_PADRAO = "kit2"
-
-
-def oferta(oferta_id: str) -> dict | None:
-    return next((o for o in OFERTAS if o["id"] == oferta_id), None)
 
 # ───────── Loggi (frete) ─────────
 

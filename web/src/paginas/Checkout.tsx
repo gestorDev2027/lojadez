@@ -234,7 +234,7 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
       <aside className="lg:sticky lg:top-24">
         <div className="overflow-hidden rounded-[22px] border border-linha-2 bg-cartao">
           <div className="flex items-center gap-4 border-b border-linha p-4">
-            <img src="/assets/img/kit-blister.jpg" alt="" className="size-20 rounded-xl object-cover" />
+            <img src={loja.foto} alt="" className="size-20 rounded-xl object-cover" />
             <div>
               <p className="font-display text-2xl leading-none font-extrabold uppercase">{oferta.titulo}</p>
               <p className="mt-1 text-sm text-tinta-2">

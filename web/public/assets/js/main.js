@@ -19,7 +19,13 @@
   /* ------------------------------------------------------------------
      DADOS DERIVADOS DO CONFIG
      ------------------------------------------------------------------ */
-  const P = Object.assign({ nome: 'Kit Barbeador', aparelhos: 1, refis: 22, laminasPorRefil: 3 }, C.produto);
+  const P = Object.assign({ nome: 'Kit Barbeador', aparelhos: 1, refis: 19, laminasPorRefil: 3 }, C.produto);
+  // A foto do kit pode ser trocada pela área do vendedor: o servidor manda o endereço em C.fotoKit.
+  const FOTO_KIT = C.fotoKit || '/assets/img/kit-foto.jpg';
+  $$('[data-foto-kit]').forEach((el) => {
+    if (el.tagName === 'IMG') el.src = FOTO_KIT;
+    if (el.dataset.src) el.dataset.src = FOTO_KIT;
+  });
   const offers = (C.ofertas || []).map((o) => ({ ...o }));
   const base = offers[0] || { id: 'kit1', titulo: '1 Kit', quantidade: 1, preco: 0 };
   offers.forEach((o) => {
@@ -168,7 +174,7 @@
     offerList.innerHTML = offers.map((o, i) => {
       const aparelhos = o.quantidade * P.aparelhos;
       const imgs = Array.from({ length: Math.min(o.quantidade, 3) }, () =>
-        '<img src="assets/img/kit-blister.jpg" alt="" loading="lazy" width="628" height="760">').join('');
+        `<img src="${esc(FOTO_KIT)}" alt="" loading="lazy" width="628" height="760">`).join('');
       return `
         <div class="offer" role="radio" tabindex="0" aria-checked="false" data-id="${esc(o.id)}" style="--rd:${i * 0.12}s">
           ${o.selo ? `<span class="offer__seal">${esc(o.selo)}</span>` : ''}

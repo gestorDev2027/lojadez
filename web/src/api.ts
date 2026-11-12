@@ -7,6 +7,7 @@ export type Loja = {
   whatsapp: string;
   testes: boolean;
   produto: Produto;
+  foto: string;
   ofertas: Oferta[];
   oferta_padrao: string;
 };

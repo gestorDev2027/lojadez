@@ -38,9 +38,13 @@ def cep_falso(monkeypatch):
 @pytest.fixture
 def cliente():
     from servidor import app as modulo
+    from servidor import catalogo
 
     modulo._chamadas.clear()  # o limite por IP vale entre testes também
-    with TestClient(app) as c:
+    with TestClient(app) as c:  # ao subir, o servidor cria as tabelas
+        banco.gravar_ajustes({"refis": None, "laminas_por_refil": None, "ofertas": None})  # volta aos padrões
+        banco.gravar_foto("kit", None, None)
+        catalogo.limpar_cache()
         yield c
 
 
@@ -126,8 +130,8 @@ def test_preco_da_oferta_e_o_do_servidor(cliente):
 
     frete, r = _pedido(cliente)
     pedido = cliente.get(f"/api/pedidos/{r.json()['order_nsu']}").json()
-    assert pedido["preco_centavos"] == config.oferta("kit2")["preco_centavos"]
-    assert pedido["kits"] == 2 and "44 refis" in pedido["produto"]
+    assert pedido["preco_centavos"] == config.OFERTAS[1]["preco_centavos"] == 4490
+    assert pedido["kits"] == 2 and "38 refis" in pedido["produto"]
 
 
 def test_config_da_landing_page(cliente):
@@ -135,3 +139,53 @@ def test_config_da_landing_page(cliente):
     assert r.status_code == 200 and r.text.startswith("window.LP_CONFIG = ")
     assert '"checkoutUrl": "/checkout?oferta=kit2"' in r.text
     assert '"pagamentoNaEntrega": false' in r.text
+
+VENDEDOR = {"Authorization": "Bearer senha-de-teste"}
+
+
+def test_vendedor_muda_precos_e_refis_na_hora(cliente):
+    ofertas = {"kit1": {"preco_centavos": 1990, "selo": "", "ativa": True},
+               "kit2": {"preco_centavos": 3790, "selo": "Mais vendido", "ativa": True},
+               "kit3": {"preco_centavos": 5290, "selo": "", "ativa": False}}
+    assert cliente.put("/api/vendedor/catalogo", json={"refis": 19, "ofertas": ofertas}).status_code == 401
+    r = cliente.put("/api/vendedor/catalogo", json={"refis": 20, "laminas_por_refil": 3, "ofertas": ofertas}, headers=VENDEDOR)
+    assert r.status_code == 200, r.text
+
+    loja = cliente.get("/api/loja").json()
+    assert loja["produto"]["refis"] == 20
+    assert [o["id"] for o in loja["ofertas"]] == ["kit1", "kit2"]  # o kit3 foi desligado
+    assert loja["ofertas"][1]["preco_centavos"] == 3790 and loja["ofertas"][1]["selo"] == "Mais vendido"
+    assert '"preco": 37.9' in cliente.get("/lp-config.js").text
+
+    _, pedido = _pedido(cliente)
+    assert cliente.get(f"/api/pedidos/{pedido.json()['order_nsu']}").json()["preco_centavos"] == 3790
+    assert cliente.post("/api/frete", json={"cep": "20040002", "oferta": "kit3"}).status_code == 422
+
+
+def test_vendedor_nao_salva_valores_ruins(cliente):
+    sem_ativa = {k: {"preco_centavos": 2000, "ativa": False} for k in ("kit1", "kit2", "kit3")}
+    assert cliente.put("/api/vendedor/catalogo", json={"ofertas": sem_ativa}, headers=VENDEDOR).status_code == 422
+    assert cliente.put("/api/vendedor/catalogo", json={"refis": 0}, headers=VENDEDOR).status_code == 422
+    barato = {"kit1": {"preco_centavos": 5, "ativa": True}}
+    assert cliente.put("/api/vendedor/catalogo", json={"ofertas": barato}, headers=VENDEDOR).status_code == 422
+
+
+def test_vendedor_troca_a_foto(cliente):
+    assert cliente.get("/produto/foto", follow_redirects=False).status_code == 302  # sem foto: a padrão
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 100
+    falsa = cliente.put("/api/vendedor/foto", content=b"nao e imagem", headers={**VENDEDOR, "content-type": "image/png"})
+    assert falsa.status_code == 422
+    r = cliente.put("/api/vendedor/foto", content=png, headers={**VENDEDOR, "content-type": "image/png"})
+    assert r.status_code == 200 and r.json()["foto"].startswith("/produto/foto?v=")
+    foto = cliente.get("/produto/foto")
+    assert foto.status_code == 200 and foto.content == png
+    assert r.json()["foto"] in cliente.get("/lp-config.js").text
+    assert cliente.delete("/api/vendedor/foto", headers=VENDEDOR).json()["foto"] == "/assets/img/kit-foto.jpg"
+
+
+def test_status_das_integracoes_sem_chaves(cliente):
+    r = cliente.get("/api/vendedor/integracoes", headers=VENDEDOR).json()
+    assert r["infinitepay"]["ambiente"] == "simulado" and r["loggi"]["ambiente"] == "simulado"
+    assert all(isinstance(v, (bool, int, str)) for v in r["infinitepay"].values())
+    teste = cliente.post("/api/vendedor/integracoes/loggi/testar", json={"cep": "20040002"}, headers=VENDEDOR).json()
+    assert teste["ok"] and len(teste["opcoes"]) == 2
