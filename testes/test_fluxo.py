@@ -1,0 +1,119 @@
+"""O fluxo da compra com a Loggi e a InfinitePay simuladas (sem rede: o CEP é falso).
+
+Rodar: .venv\\Scripts\\python -m pytest testes -q
+"""
+
+import os
+import tempfile
+from urllib.parse import parse_qs, urlparse
+
+os.environ.update(LOGGI_AMBIENTE="simulado", INFINITEPAY_AMBIENTE="simulado", VENDEDOR_SENHA="senha-de-teste",
+                  DATABASE_URL="", SITE_URL="http://testserver", LOJA_ORIGEM_CEP="01310100")
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from servidor import banco, loggi  # noqa: E402
+
+banco.engine = banco.create_engine(f"sqlite:///{tempfile.mkdtemp()}/teste.db")
+
+from servidor.app import app  # noqa: E402
+
+ENDERECOS = {
+    "01310100": {"cep": "01310100", "rua": "Avenida Paulista", "bairro": "Bela Vista", "cidade": "São Paulo", "uf": "SP"},
+    "20040002": {"cep": "20040002", "rua": "Rua da Assembleia", "bairro": "Centro", "cidade": "Rio de Janeiro", "uf": "RJ"},
+}
+
+
+@pytest.fixture(autouse=True)
+def cep_falso(monkeypatch):
+    def achar(cep):
+        cep = loggi.limpar_cep(cep)
+        if cep not in ENDERECOS:
+            raise loggi.ErroFrete("CEP não encontrado.")
+        return ENDERECOS[cep]
+    monkeypatch.setattr(loggi, "endereco_do_cep", achar)
+
+
+@pytest.fixture
+def cliente():
+    from servidor import app as modulo
+
+    modulo._chamadas.clear()  # o limite por IP vale entre testes também
+    with TestClient(app) as c:
+        yield c
+
+
+def _pedido(cliente, **mudar):
+    frete = cliente.post("/api/frete", json={"cep": "20040-002", "quantidade": 2}).json()
+    dados = {"quantidade": 2, "cep": "20040002", "frete_tipo": frete["opcoes"][0]["tipo"], "nome": "Maria Souza",
+             "email": "maria@exemplo.com", "telefone": "(21) 99999-8888", "numero": "10", "rua": "", "bairro": "", **mudar}
+    return frete, cliente.post("/api/pedidos", json=dados)
+
+
+def test_frete_tem_duas_opcoes_com_total(cliente):
+    r = cliente.post("/api/frete", json={"cep": "20040-002", "quantidade": 2})
+    assert r.status_code == 200
+    corpo = r.json()
+    assert [o["nome"] for o in corpo["opcoes"]] == ["Econômico", "Expresso"]
+    assert corpo["opcoes"][0]["total_centavos"] == corpo["produto_centavos"] + corpo["opcoes"][0]["centavos"]
+
+
+def test_frete_recusa_cep_e_quantidade_invalidos(cliente):
+    assert cliente.post("/api/frete", json={"cep": "123", "quantidade": 1}).status_code == 422
+    assert cliente.post("/api/frete", json={"cep": "20040002", "quantidade": 99}).status_code == 422
+
+
+def test_compra_completa(cliente):
+    frete, r = _pedido(cliente)
+    assert r.status_code == 200, r.text
+    nsu, link = r.json()["order_nsu"], r.json()["link_pagamento"]
+    assert link.endswith(f"/simulador/pagamento/{nsu}")
+
+    pedido = cliente.get(f"/api/pedidos/{nsu}").json()
+    assert pedido["situacao"] == "aguardando_pagamento"
+    assert pedido["total_centavos"] == frete["opcoes"][0]["total_centavos"]
+    assert "email" not in pedido and "telefone" not in pedido
+
+    volta = cliente.post(f"/simulador/pagar/{nsu}", content="forma=pix",
+                         headers={"content-type": "application/x-www-form-urlencoded"}, follow_redirects=False)
+    assert volta.status_code == 303
+    parametros = {k: v[0] for k, v in parse_qs(urlparse(volta.headers["location"]).query).items()}
+    assert parametros["order_nsu"] == nsu
+    assert cliente.get(f"/api/pedidos/{nsu}").json()["situacao"] == "pago"  # pelo webhook
+
+    conferido = cliente.post(f"/api/pedidos/{nsu}/conferir", json=parametros).json()
+    assert conferido["situacao"] == "pago" and conferido["forma_pagamento"] == "pix"
+
+    vendedor = {"Authorization": "Bearer senha-de-teste"}
+    assert cliente.get("/api/vendedor/pedidos", headers={"Authorization": "Bearer errada"}).status_code == 401
+    lista = cliente.get("/api/vendedor/pedidos?situacao=pago", headers=vendedor).json()
+    assert any(p["order_nsu"] == nsu and p["email"] == "maria@exemplo.com" for p in lista)
+    enviado = cliente.post(f"/api/vendedor/pedidos/{nsu}/enviado", json={"codigo_rastreio": "LGI123"}, headers=vendedor)
+    assert enviado.json()["situacao"] == "enviado"
+
+
+def test_webhook_falso_nao_marca_pago(cliente):
+    _, r = _pedido(cliente)
+    nsu = r.json()["order_nsu"]
+    falso = {"order_nsu": nsu, "transaction_nsu": "inventado", "invoice_slug": "inventado", "amount": 1}
+    assert cliente.post("/api/webhooks/infinitepay", json=falso).status_code == 200
+    assert cliente.get(f"/api/pedidos/{nsu}").json()["situacao"] == "aguardando_pagamento"
+
+
+def test_preco_do_navegador_e_ignorado(cliente):
+    frete, r = _pedido(cliente, preco_unitario_centavos=1, total_centavos=1, frete_centavos=0)
+    assert r.status_code == 200
+    pedido = cliente.get(f"/api/pedidos/{r.json()['order_nsu']}").json()
+    assert pedido["total_centavos"] == frete["opcoes"][0]["total_centavos"]
+
+
+def test_frete_inexistente_pede_nova_cotacao(cliente):
+    _, r = _pedido(cliente, frete_tipo="FRETE_INVENTADO")
+    assert r.status_code == 409
+
+
+def test_dados_do_comprador_conferidos(cliente):
+    assert _pedido(cliente, nome="Maria")[1].status_code == 422
+    assert _pedido(cliente, email="sem-arroba")[1].status_code == 422
+    assert _pedido(cliente, telefone="123")[1].status_code == 422

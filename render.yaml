@@ -1,0 +1,48 @@
+# Blueprint do Render: um serviço web (Docker) e um Postgres para os pedidos.
+services:
+  - type: web
+    name: loja-laminas
+    runtime: docker
+    plan: starter # o plano free dorme sem acesso: o webhook da InfinitePay pode chegar com o site dormindo
+    region: virginia
+    healthCheckPath: /api/loja
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: loja-laminas-banco
+          property: connectionString
+      - key: SITE_URL
+        sync: false # https://seu-dominio.com.br
+      - key: LOJA_NOME
+        sync: false
+      - key: VENDEDOR_SENHA
+        sync: false
+      - key: LOJA_ORIGEM_CEP
+        sync: false
+      - key: PRODUTO_PRECO_CENTAVOS
+        sync: false
+      - key: PRODUTO_PESO_G
+        sync: false
+      - key: PRODUTO_DIMENSOES_CM
+        sync: false
+      - key: LOGGI_AMBIENTE
+        value: simulado
+      - key: LOGGI_CLIENT_ID
+        sync: false
+      - key: LOGGI_CLIENT_SECRET
+        sync: false
+      - key: LOGGI_COMPANY_ID
+        sync: false
+      - key: LOGGI_SERVICOS
+        sync: false
+      - key: INFINITEPAY_AMBIENTE
+        value: simulado
+      - key: INFINITEPAY_HANDLE
+        sync: false
+      - key: INFINITEPAY_API_KEY
+        sync: false
+
+databases:
+  - name: loja-laminas-banco
+    plan: basic-256mb
+    region: virginia

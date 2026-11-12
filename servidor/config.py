@@ -1,0 +1,103 @@
+"""Configuração da loja: tudo vem das variáveis de ambiente (arquivo .env no desenvolvimento).
+
+Nenhuma chave fica no código. Os valores do produto abaixo são PROVISÓRIOS: confira preço, peso e medidas da embalagem
+antes de vender (a cotação da Loggi depende deles).
+"""
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+RAIZ = Path(__file__).resolve().parent.parent
+load_dotenv(RAIZ / ".env")
+
+
+def _texto(nome: str, padrao: str = "") -> str:
+    return (os.getenv(nome) or padrao).strip()
+
+
+def _inteiro(nome: str, padrao: int) -> int:
+    try:
+        return int(_texto(nome) or padrao)
+    except ValueError:
+        return padrao
+
+
+def _dimensoes(nome: str, padrao: str) -> tuple[int, int, int]:
+    partes = [p for p in _texto(nome, padrao).lower().replace(" ", "").split("x") if p]
+    try:
+        c, l, a = (int(p) for p in partes)
+        return c, l, a
+    except ValueError:
+        c, l, a = (int(p) for p in padrao.split("x"))
+        return c, l, a
+
+
+# ───────── A loja ─────────
+
+LOJA_NOME = _texto("LOJA_NOME", "Barba Feita")
+# Endereço público do site, sem a barra final. É para cá que a InfinitePay manda o cliente de volta e o webhook.
+SITE_URL = _texto("SITE_URL", "http://localhost:8000").rstrip("/")
+VENDEDOR_SENHA = _texto("VENDEDOR_SENHA")  # vazia: a área do vendedor fica fechada
+QUANTIDADE_MAXIMA = _inteiro("LOJA_QUANTIDADE_MAXIMA", 10)
+
+# ───────── O produto (valores provisórios: confira) ─────────
+
+_comprimento, _largura, _altura = _dimensoes("PRODUTO_DIMENSOES_CM", "26x15x4")
+PRODUTO = {
+    "sku": "MADE-BB006",
+    "ean": "7892125080110",
+    "nome": _texto("PRODUTO_NOME", "Kit Lâminas de Barbear MADE basics"),
+    "resumo": _texto("PRODUTO_RESUMO", "Aparelho com cabo e cargas de reposição com lâminas múltiplas e tira lubrificante."),
+    "preco_centavos": _inteiro("PRODUTO_PRECO_CENTAVOS", 3990),
+    "peso_g": _inteiro("PRODUTO_PESO_G", 200),  # de uma unidade, já embalada
+    "comprimento_cm": _comprimento,
+    "largura_cm": _largura,
+    "altura_cm": _altura,
+}
+
+# ───────── Loggi (frete) ─────────
+
+LOGGI_AMBIENTE = _texto("LOGGI_AMBIENTE", "simulado").lower()  # simulado | staging | producao
+LOGGI_URL = {"staging": "https://stg.api.loggi.com", "producao": "https://api.loggi.com"}.get(LOGGI_AMBIENTE, "")
+LOGGI_CLIENT_ID = _texto("LOGGI_CLIENT_ID")
+LOGGI_CLIENT_SECRET = _texto("LOGGI_CLIENT_SECRET")
+LOGGI_COMPANY_ID = _texto("LOGGI_COMPANY_ID")
+# Os códigos de serviço (SISU) que a Loggi passa na homologação, separados por vírgula.
+LOGGI_SERVICOS = [s.strip() for s in _texto("LOGGI_SERVICOS").split(",") if s.strip()]
+ORIGEM_CEP = "".join(c for c in _texto("LOJA_ORIGEM_CEP", "01310100") if c.isdigit())
+
+# ───────── InfinitePay (pagamento) ─────────
+
+INFINITEPAY_AMBIENTE = _texto("INFINITEPAY_AMBIENTE", "simulado").lower()  # simulado | real
+INFINITEPAY_URL = "https://api.checkout.infinitepay.io"
+INFINITEPAY_HANDLE = _texto("INFINITEPAY_HANDLE").lstrip("$")
+INFINITEPAY_API_KEY = _texto("INFINITEPAY_API_KEY")
+# Por quantas horas o link de pagamento vale (só com a API Key).
+INFINITEPAY_VALIDADE_HORAS = _inteiro("INFINITEPAY_VALIDADE_HORAS", 48)
+
+# ───────── Banco ─────────
+
+DATABASE_URL = _texto("DATABASE_URL")
+
+
+def conferir() -> list[str]:
+    """Os problemas de configuração que impedem o modo real (aparecem no log ao subir)."""
+    problemas = []
+    if LOGGI_AMBIENTE not in ("simulado", "staging", "producao"):
+        problemas.append("LOGGI_AMBIENTE deve ser simulado, staging ou producao.")
+    if LOGGI_AMBIENTE != "simulado":
+        for nome, valor in (("LOGGI_CLIENT_ID", LOGGI_CLIENT_ID), ("LOGGI_CLIENT_SECRET", LOGGI_CLIENT_SECRET),
+                            ("LOGGI_COMPANY_ID", LOGGI_COMPANY_ID)):
+            if not valor:
+                problemas.append(f"Falta {nome} para a Loggi.")
+        if not LOGGI_SERVICOS:
+            problemas.append("Falta LOGGI_SERVICOS (os códigos de serviço da Loggi).")
+    if len(ORIGEM_CEP) != 8:
+        problemas.append("LOJA_ORIGEM_CEP precisa ter 8 dígitos.")
+    if INFINITEPAY_AMBIENTE not in ("simulado", "real"):
+        problemas.append("INFINITEPAY_AMBIENTE deve ser simulado ou real.")
+    if INFINITEPAY_AMBIENTE == "real" and not INFINITEPAY_HANDLE:
+        problemas.append("Falta INFINITEPAY_HANDLE (a InfiniteTag, usada também para conferir os pagamentos).")
+    return problemas

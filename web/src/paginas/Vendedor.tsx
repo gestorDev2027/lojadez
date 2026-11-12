@@ -1,0 +1,268 @@
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { chamar, ErroApi, formatarCep, formatarTelefone, reais, type PedidoVendedor } from "../api";
+
+// A área do vendedor: os pedidos, com os dados de entrega. A senha (VENDEDOR_SENHA) fica só nesta aba do navegador.
+const CHAVE = "loja-senha-vendedor";
+
+const FILTROS = [
+  { valor: "pago", rotulo: "Para enviar" },
+  { valor: "aguardando_pagamento", rotulo: "Aguardando pagamento" },
+  { valor: "enviado", rotulo: "Enviados" },
+  { valor: "", rotulo: "Todos" },
+];
+
+const SITUACOES: Record<string, { rotulo: string; cor: string }> = {
+  pago: { rotulo: "Pago", cor: "bg-green-100 text-green-800" },
+  aguardando_pagamento: { rotulo: "Aguardando pagamento", cor: "bg-amber-100 text-amber-900" },
+  enviado: { rotulo: "Enviado", cor: "bg-sky-100 text-sky-900" },
+  cancelado: { rotulo: "Cancelado", cor: "bg-zinc-200 text-zinc-700" },
+  pagamento_divergente: { rotulo: "Valor divergente", cor: "bg-red-100 text-red-800" },
+};
+
+function lerSenha() {
+  try {
+    return sessionStorage.getItem(CHAVE) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function PaginaVendedor() {
+  const [senha, setSenha] = useState(lerSenha);
+  const [filtro, setFiltro] = useState("pago");
+  const [lista, setLista] = useState<PedidoVendedor[] | null>(null);
+  const [erro, setErro] = useState("");
+
+  const carregar = useCallback(async () => {
+    if (!senha) return;
+    setErro("");
+    try {
+      setLista(await chamar<PedidoVendedor[]>(`/api/vendedor/pedidos${filtro ? `?situacao=${filtro}` : ""}`, { senha }));
+    } catch (e) {
+      if (e instanceof ErroApi && e.status === 401) sair();
+      setErro((e as Error).message);
+    }
+  }, [senha, filtro]);
+
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  function sair() {
+    try {
+      sessionStorage.removeItem(CHAVE);
+    } catch {
+      /* sem armazenamento: só esquece na memória */
+    }
+    setSenha("");
+    setLista(null);
+  }
+
+  if (!senha)
+    return (
+      <Entrar
+        erro={erro}
+        aoEntrar={(s) => {
+          try {
+            sessionStorage.setItem(CHAVE, s);
+          } catch {
+            /* segue só na memória */
+          }
+          setSenha(s);
+        }}
+      />
+    );
+
+  return (
+    <section className="mx-auto max-w-6xl px-4 py-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Pedidos</h1>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => void carregar()} className="rounded-full border border-linha px-4 py-2 text-sm font-medium">
+            Atualizar
+          </button>
+          <button type="button" onClick={sair} className="rounded-full px-4 py-2 text-sm font-medium text-suave">
+            Sair
+          </button>
+        </div>
+      </div>
+
+      <div role="tablist" aria-label="Filtrar pedidos" className="mt-4 flex gap-2 overflow-x-auto pb-1">
+        {FILTROS.map((f) => (
+          <button
+            key={f.valor}
+            role="tab"
+            aria-selected={filtro === f.valor}
+            type="button"
+            onClick={() => setFiltro(f.valor)}
+            className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
+              filtro === f.valor ? "bg-escuro text-fundo" : "border border-linha bg-cartao"
+            }`}
+          >
+            {f.rotulo}
+          </button>
+        ))}
+      </div>
+
+      {erro && (
+        <p role="alert" className="mt-4 text-alerta">
+          {erro}
+        </p>
+      )}
+      {lista === null ? (
+        <p className="mt-6 text-suave">Carregando…</p>
+      ) : lista.length === 0 ? (
+        <p className="mt-6 rounded-2xl border border-dashed border-linha p-8 text-center text-suave">Nenhum pedido aqui.</p>
+      ) : (
+        <ul className="mt-4 grid gap-3 lg:grid-cols-2">
+          {lista.map((p) => (
+            <CartaoPedido key={p.order_nsu} pedido={p} senha={senha} aoMudar={() => void carregar()} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function Entrar({ erro, aoEntrar }: { erro: string; aoEntrar: (senha: string) => void }) {
+  const [valor, setValor] = useState("");
+  return (
+    <section className="mx-auto max-w-sm px-4 py-12">
+      <form
+        className="grid gap-3 rounded-2xl border border-linha bg-cartao p-6"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valor) aoEntrar(valor);
+        }}
+      >
+        <h1 className="text-xl font-bold">Área do vendedor</h1>
+        <label className="grid gap-1.5 text-sm font-medium">
+          Senha
+          <input className="campo" type="password" autoComplete="current-password" value={valor} onChange={(e) => setValor(e.target.value)} />
+        </label>
+        {erro && (
+          <p role="alert" className="text-sm text-alerta">
+            {erro}
+          </p>
+        )}
+        <button type="submit" className="rounded-full bg-escuro px-5 py-3 font-semibold text-fundo">
+          Entrar
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senha: string; aoMudar: () => void }) {
+  const [codigo, setCodigo] = useState("");
+  const [erro, setErro] = useState("");
+  const [copiado, setCopiado] = useState(false);
+  const situacao = SITUACOES[p.situacao] ?? { rotulo: p.situacao, cor: "bg-zinc-200" };
+  const endereco = [
+    p.nome,
+    `${p.rua}, ${p.numero}${p.complemento ? ` - ${p.complemento}` : ""}`,
+    `${p.bairro} - ${p.cidade}/${p.uf}`,
+    `CEP ${formatarCep(p.cep)}`,
+  ];
+
+  async function acao(caminho: string, corpo?: unknown) {
+    setErro("");
+    try {
+      await chamar(`/api/vendedor/pedidos/${p.order_nsu}/${caminho}`, { metodo: "POST", corpo, senha });
+      aoMudar();
+    } catch (e) {
+      setErro((e as Error).message);
+    }
+  }
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(endereco.join("\n"));
+      setCopiado(true);
+      window.setTimeout(() => setCopiado(false), 2000);
+    } catch {
+      setErro("Não deu para copiar: selecione o texto.");
+    }
+  }
+
+  return (
+    <li className="grid gap-3 rounded-2xl border border-linha bg-cartao p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${situacao.cor}`}>{situacao.rotulo}</span>
+        <span className="text-xs text-suave">{new Date(p.criado_em).toLocaleString("pt-BR")}</span>
+      </div>
+      <div className="flex flex-wrap justify-between gap-2">
+        <div>
+          <p className="font-semibold">
+            {p.quantidade} × {p.produto}
+          </p>
+          <p className="text-sm text-suave">{p.frete_descricao}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-lg font-bold">{reais(p.total_centavos)}</p>
+          {p.forma_pagamento && (
+            <p className="text-xs text-suave">
+              {p.forma_pagamento === "pix" ? "Pix" : `Cartão${p.parcelas && p.parcelas > 1 ? ` em ${p.parcelas}x` : ""}`}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="rounded-xl bg-fundo p-3 text-sm">
+        <address className="not-italic">
+          {endereco.map((l) => (
+            <span key={l} className="block">
+              {l}
+            </span>
+          ))}
+        </address>
+        <p className="mt-2 text-suave">
+          {p.email} · {formatarTelefone(p.telefone)}
+        </p>
+        <button type="button" onClick={() => void copiar()} className="mt-2 text-sm font-medium text-salvia-forte">
+          {copiado ? "Endereço copiado" : "Copiar endereço"}
+        </button>
+      </div>
+      {p.codigo_rastreio && <p className="text-sm">Rastreio: {p.codigo_rastreio}</p>}
+      {p.situacao === "pago" && (
+        <form
+          className="flex gap-2"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            void acao("enviado", { codigo_rastreio: codigo });
+          }}
+        >
+          <label className="sr-only" htmlFor={`rastreio-${p.order_nsu}`}>
+            Código de rastreio
+          </label>
+          <input
+            id={`rastreio-${p.order_nsu}`}
+            className="campo"
+            placeholder="Código de rastreio da Loggi"
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+          />
+          <button type="submit" className="shrink-0 rounded-xl bg-escuro px-4 text-sm font-semibold text-fundo">
+            Marcar enviado
+          </button>
+        </form>
+      )}
+      {(p.situacao === "aguardando_pagamento" || p.situacao === "pagamento_divergente") && (
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm("Cancelar este pedido?")) void acao("cancelar");
+          }}
+          className="justify-self-start text-sm font-medium text-alerta"
+        >
+          Cancelar pedido
+        </button>
+      )}
+      {erro && (
+        <p role="alert" className="text-sm text-alerta">
+          {erro}
+        </p>
+      )}
+      <p className="text-xs text-suave">Pedido {p.order_nsu}</p>
+    </li>
+  );
+}
