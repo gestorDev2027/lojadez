@@ -16,7 +16,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from servidor import acesso, banco, catalogo, config, configuracoes, loggi, pedidos, produtos, simulador
+from servidor import acesso, banco, catalogo, config, configuracoes, loggi, painel, pedidos, produtos, simulador
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -44,6 +44,11 @@ def _erro_pedido(_: Request, erro: pedidos.ErroPedido):
 @app.exception_handler(acesso.ErroAcesso)
 def _erro_acesso(_: Request, erro: acesso.ErroAcesso):
     return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(painel.ErroPainel)
+def _erro_painel(_: Request, erro: painel.ErroPainel):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
 
 
 @app.exception_handler(produtos.ErroProduto)
@@ -310,6 +315,14 @@ async def vendedor_importar_configuracoes(request: Request):
     email = _vendedor(request)
     _confirmar_senha(request, email, await _json(request))
     return configuracoes.importar_do_ambiente(email)
+
+@app.get("/api/vendedor/painel")
+def vendedor_painel(request: Request, de: str | None = None, ate: str | None = None, visao: str = "vendas",
+                    produto: str | None = None, quantidade: int | None = None):
+    """A visão geral: indicadores do período e os recortes (produto → quantidade → afiliado)."""
+    _vendedor(request)
+    return painel.visao_geral(de, ate, visao, produto, quantidade)
+
 
 @app.get("/api/vendedor/pedidos")
 def vendedor_pedidos(request: Request, situacao: str | None = None):

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { chamar, ErroApi, formatarCep, formatarCpf, formatarTelefone, reais, type PedidoVendedor } from "../api";
+import { rotuloPagamento, Selo, VisaoGeral } from "./VendedorPainel";
 import { AbaIntegracoes, AbaProduto } from "./VendedorAjustes";
 import { AbaConfiguracoes } from "./VendedorConfiguracoes";
 import { AbaProdutos } from "./VendedorProdutos";
@@ -31,28 +32,34 @@ function lerSenha() {
   }
 }
 
+type Aba = "visao" | "pedidos" | "produto" | "produtos" | "integracoes" | "configuracoes";
+
+const MENU: { id: Aba | "afiliados" | "cupons" | "financeiro"; rotulo: string; icone: string; breve?: boolean }[] = [
+  { id: "visao", rotulo: "Visão geral", icone: "M4 13h6V4H4zM14 20h6V11h-6zM4 20h6v-3H4zM14 7h6V4h-6z" },
+  { id: "pedidos", rotulo: "Pedidos", icone: "M6 3h12l2 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7zM4 7h16M9 11h6" },
+  { id: "produto", rotulo: "Kit de lâminas", icone: "M4 7l8-4 8 4v10l-8 4-8-4zM4 7l8 4 8-4M12 11v10" },
+  { id: "produtos", rotulo: "Produtos", icone: "M3 9h18l-2 11H5zM8 9V6a4 4 0 0 1 8 0v3" },
+  { id: "afiliados", rotulo: "Afiliados", icone: "M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0", breve: true },
+  { id: "cupons", rotulo: "Cupons", icone: "M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 0 0-4V4H3zM10 4v16", breve: true },
+  { id: "financeiro", rotulo: "Financeiro", icone: "M4 19V5M4 19h16M8 15l4-4 3 3 5-6", breve: true },
+  { id: "integracoes", rotulo: "Integrações", icone: "M9 7V3M15 7V3M7 7h10v5a5 5 0 0 1-10 0zM12 17v4" },
+  { id: "configuracoes", rotulo: "Configurações", icone: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z" },
+];
+
+function Icone({ d }: { d: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={d} />
+    </svg>
+  );
+}
+
 export function PaginaVendedor() {
   const [senha, setSenha] = useState(lerSenha);
-  const [aba, setAba] = useState<"pedidos" | "produto" | "produtos" | "integracoes" | "configuracoes">("pedidos");
+  const [aba, setAba] = useState<Aba>("visao");
   const [email, setEmail] = useState("");
-  const [filtro, setFiltro] = useState("pago");
-  const [lista, setLista] = useState<PedidoVendedor[] | null>(null);
+  const [pedidoAberto, setPedidoAberto] = useState<string | null>(null);
   const [erro, setErro] = useState("");
-
-  const carregar = useCallback(async () => {
-    if (!senha) return;
-    setErro("");
-    try {
-      setLista(await chamar<PedidoVendedor[]>(`/api/vendedor/pedidos${filtro ? `?situacao=${filtro}` : ""}`, { senha }));
-    } catch (e) {
-      if (e instanceof ErroApi && e.status === 401) sair();
-      setErro((e as Error).message);
-    }
-  }, [senha, filtro]);
-
-  useEffect(() => {
-    void carregar();
-  }, [carregar]);
 
   useEffect(() => {
     if (!senha) return;
@@ -73,8 +80,8 @@ export function PaginaVendedor() {
       /* sem armazenamento: só esquece na memória */
     }
     setSenha("");
-    setLista(null);
     setEmail("");
+    setErro("");
   }
 
   if (!senha)
@@ -92,89 +99,259 @@ export function PaginaVendedor() {
       />
     );
 
-  const abas = [
-    { id: "pedidos", rotulo: "Pedidos" },
-    { id: "produto", rotulo: "Kit de lâminas" },
-    { id: "produtos", rotulo: "Produtos" },
-    { id: "integracoes", rotulo: "Integrações" },
-    { id: "configuracoes", rotulo: "Configurações" },
-  ] as const;
-
   return (
-    <section className="mx-auto max-w-6xl px-4 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <nav aria-label="Área do vendedor" className="flex gap-1 overflow-x-auto rounded-full border border-linha-2 bg-fundo-2 p-1">
-          {abas.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              aria-current={aba === a.id ? "page" : undefined}
-              onClick={() => setAba(a.id)}
-              className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${aba === a.id ? "bg-laranja text-black" : "text-tinta-2 hover:text-tinta"}`}
-            >
-              {a.rotulo}
+    <div className="mx-auto grid max-w-[1500px] grid-cols-[minmax(0,1fr)] gap-0 lg:grid-cols-[236px_minmax(0,1fr)]">
+      {/* Menu lateral (no celular, uma faixa que rola) */}
+      <aside className="min-w-0 border-b border-linha lg:sticky lg:top-[61px] lg:h-[calc(100dvh-61px)] lg:border-r lg:border-b-0">
+        <div className="flex h-full flex-col gap-4 p-3 lg:p-4">
+          <p className="hidden px-2 font-mono text-[11px] font-bold tracking-[.16em] text-suave uppercase lg:block">Gestão da loja</p>
+          <nav aria-label="Área do vendedor" className="flex gap-1 overflow-x-auto [scrollbar-width:none] lg:flex-col lg:overflow-visible">
+            {MENU.map((m) => {
+              const ativo = aba === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  disabled={m.breve}
+                  aria-current={ativo ? "page" : undefined}
+                  onClick={() => !m.breve && setAba(m.id as Aba)}
+                  className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+                    ativo
+                      ? "bg-laranja text-black shadow-[0_8px_24px_-12px_rgba(255,106,19,.8)]"
+                      : m.breve
+                        ? "cursor-default text-suave/70"
+                        : "text-tinta-2 hover:bg-white/[.05] hover:text-tinta"
+                  }`}
+                >
+                  <Icone d={m.icone} />
+                  <span className="whitespace-nowrap">{m.rotulo}</span>
+                  {m.breve && <span className="ml-auto rounded-full bg-white/[.06] px-2 py-0.5 font-mono text-[10px] text-suave">em breve</span>}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="mt-auto hidden border-t border-linha pt-4 lg:block">
+            {email && <p className="truncate px-2 font-mono text-xs text-suave" title={email}>{email}</p>}
+            <button type="button" onClick={encerrar} className="mt-2 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-tinta-2 hover:bg-white/[.05]">
+              Sair
             </button>
-          ))}
-        </nav>
-        <div className="flex items-center gap-2">
-          {email && <span className="hidden font-mono text-xs text-suave sm:inline">{email}</span>}
-          {aba === "pedidos" && (
-            <button type="button" onClick={() => void carregar()} className="rounded-full border border-linha-2 px-4 py-2 text-sm font-medium">
-              Atualizar
-            </button>
-          )}
-          <button type="button" onClick={encerrar} className="rounded-full px-4 py-2 text-sm font-medium text-suave">
+          </div>
+        </div>
+      </aside>
+
+      <section className="min-w-0 px-4 py-6 lg:px-8">
+        <div className="mb-4 flex items-center justify-end gap-3 lg:hidden">
+          {email && <span className="truncate font-mono text-xs text-suave">{email}</span>}
+          <button type="button" onClick={encerrar} className="rounded-full px-3 py-1.5 text-sm text-suave">
             Sair
           </button>
         </div>
+        {aba === "visao" ? (
+          <VisaoGeral
+            senha={senha}
+            aoAbrirPedido={(nsu) => {
+              setPedidoAberto(nsu);
+              setAba("pedidos");
+            }}
+          />
+        ) : aba === "pedidos" ? (
+          <AbaPedidos senha={senha} aberto={pedidoAberto} aoAbrir={setPedidoAberto} aoSair={sair} />
+        ) : aba === "produto" ? (
+          <AbaProduto senha={senha} />
+        ) : aba === "produtos" ? (
+          <AbaProdutos senha={senha} />
+        ) : aba === "integracoes" ? (
+          <AbaIntegracoes senha={senha} />
+        ) : (
+          <AbaConfiguracoes senha={senha} aoSair={sair} />
+        )}
+      </section>
+    </div>
+  );
+}
+
+// Os pedidos em tabela: filtros, busca e, ao clicar numa linha, o pedido completo num painel ao lado.
+function AbaPedidos({
+  senha,
+  aberto,
+  aoAbrir,
+  aoSair,
+}: {
+  senha: string;
+  aberto: string | null;
+  aoAbrir: (nsu: string | null) => void;
+  aoSair: () => void;
+}) {
+  const [filtro, setFiltro] = useState(aberto ? "" : "pago");
+  const [busca, setBusca] = useState("");
+  const [lista, setLista] = useState<PedidoVendedor[] | null>(null);
+  const [erro, setErro] = useState("");
+  const sairRef = useRef(aoSair);
+  sairRef.current = aoSair;
+
+  const carregar = useCallback(async () => {
+    setErro("");
+    try {
+      setLista(await chamar<PedidoVendedor[]>(`/api/vendedor/pedidos${filtro ? `?situacao=${filtro}` : ""}`, { senha }));
+    } catch (e) {
+      if (e instanceof ErroApi && e.status === 401) sairRef.current();
+      setErro((e as Error).message);
+    }
+  }, [senha, filtro]);
+
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  const termo = busca.trim().toLowerCase();
+  const digitos = termo.replace(/\D/g, "");
+  const visiveis = (lista ?? []).filter(
+    (p) =>
+      !termo ||
+      p.nome.toLowerCase().includes(termo) ||
+      p.email.toLowerCase().includes(termo) ||
+      p.order_nsu.startsWith(termo) ||
+      p.produto.toLowerCase().includes(termo) ||
+      (digitos.length >= 4 && (p.cpf.includes(digitos) || p.telefone.includes(digitos))),
+  );
+  const selecionado = (lista ?? []).find((p) => p.order_nsu === aberto) ?? null;
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold md:text-3xl">Pedidos</h1>
+          <p className="mt-1 text-sm text-suave">Clique num pedido para ver o endereço, criar o envio na Loggi e marcar como enviado.</p>
+        </div>
+        <button type="button" onClick={() => void carregar()} className="rounded-xl border border-linha-2 bg-fundo-2 px-4 py-2 text-sm font-semibold hover:border-laranja">
+          Atualizar
+        </button>
       </div>
 
-      {aba === "produto" ? (
-        <AbaProduto senha={senha} />
-      ) : aba === "produtos" ? (
-        <AbaProdutos senha={senha} />
-      ) : aba === "integracoes" ? (
-        <AbaIntegracoes senha={senha} />
-      ) : aba === "configuracoes" ? (
-        <AbaConfiguracoes senha={senha} aoSair={sair} />
-      ) : (
-        <>
-      <div role="tablist" aria-label="Filtrar pedidos" className="mt-6 flex gap-2 overflow-x-auto pb-1">
-        {FILTROS.map((f) => (
-          <button
-            key={f.valor}
-            role="tab"
-            aria-selected={filtro === f.valor}
-            type="button"
-            onClick={() => setFiltro(f.valor)}
-            className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
-              filtro === f.valor ? "bg-laranja text-black font-bold" : "border border-linha bg-cartao"
-            }`}
-          >
-            {f.rotulo}
-          </button>
-        ))}
-      </div>
-
-      {erro && (
-        <p role="alert" className="mt-4 text-alerta">
-          {erro}
-        </p>
-      )}
-      {lista === null ? (
-        <p className="mt-6 text-suave">Carregando…</p>
-      ) : lista.length === 0 ? (
-        <p className="mt-6 rounded-2xl border border-dashed border-linha p-8 text-center text-suave">Nenhum pedido aqui.</p>
-      ) : (
-        <ul className="mt-4 grid gap-3 lg:grid-cols-2">
-          {lista.map((p) => (
-            <CartaoPedido key={p.order_nsu} pedido={p} senha={senha} aoMudar={() => void carregar()} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div role="tablist" aria-label="Filtrar pedidos" className="flex gap-1 overflow-x-auto rounded-xl border border-linha-2 bg-fundo-2 p-1">
+          {FILTROS.map((f) => (
+            <button
+              key={f.valor}
+              role="tab"
+              aria-selected={filtro === f.valor}
+              type="button"
+              onClick={() => setFiltro(f.valor)}
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold ${filtro === f.valor ? "bg-laranja text-black" : "text-tinta-2 hover:text-tinta"}`}
+            >
+              {f.rotulo}
+            </button>
           ))}
-        </ul>
+        </div>
+        <label className="relative min-w-0 flex-1 basis-60 sm:max-w-sm">
+          <span className="sr-only">Buscar pedido</span>
+          <input
+            className="campo pl-10"
+            placeholder="Buscar por nome, e-mail, CPF ou produto"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+          <svg viewBox="0 0 24 24" className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-suave" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3.5-3.5" />
+          </svg>
+        </label>
+      </div>
+
+      {erro && <p role="alert" className="text-alerta">{erro}</p>}
+      <section className="rounded-2xl border border-linha bg-fundo-2/90 p-2 sm:p-4">
+        {lista === null ? (
+          <p className="p-6 text-center text-suave">Carregando…</p>
+        ) : visiveis.length === 0 ? (
+          <p className="p-8 text-center text-suave">{termo ? "Nenhum pedido com essa busca." : "Nenhum pedido aqui."}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-sm">
+              <thead>
+                <tr className="text-left font-mono text-[11px] tracking-[.12em] text-suave uppercase">
+                  <th className="px-2 py-2 font-semibold">Data</th>
+                  <th className="px-2 py-2 font-semibold">Cliente</th>
+                  <th className="px-2 py-2 font-semibold">Produto</th>
+                  <th className="px-2 py-2 font-semibold">Pagamento</th>
+                  <th className="px-2 py-2 text-right font-semibold">Valor</th>
+                  <th className="px-2 py-2 font-semibold">Situação</th>
+                  <th className="px-2 py-2 font-semibold">Envio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visiveis.map((p) => (
+                  <tr
+                    key={p.order_nsu}
+                    onClick={() => aoAbrir(p.order_nsu)}
+                    aria-selected={p.order_nsu === aberto}
+                    className={`cursor-pointer border-t border-linha ${p.order_nsu === aberto ? "bg-laranja/10" : "hover:bg-white/[.03]"}`}
+                  >
+                    <td className="px-2 py-3 font-mono text-xs text-tinta-2">
+                      {new Date(p.criado_em).toLocaleDateString("pt-BR")}
+                      <span className="block text-suave">{new Date(p.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                    </td>
+                    <td className="px-2 py-3">
+                      <span className="block font-semibold">{p.nome}</span>
+                      <span className="text-xs text-suave">
+                        {p.cidade}/{p.uf}
+                      </span>
+                    </td>
+                    <td className="max-w-[320px] px-2 py-3 text-tinta-2">
+                      <span className="line-clamp-2">{p.produto}</span>
+                      {p.frete_centavos === 0 && <span className="font-mono text-[10px] font-bold text-ok">FRETE GRÁTIS</span>}
+                    </td>
+                    <td className="px-2 py-3 text-tinta-2">
+                      {rotuloPagamento(p.forma_pagamento)}
+                      {p.parcelas && p.parcelas > 1 ? ` ${p.parcelas}x` : ""}
+                    </td>
+                    <td className="px-2 py-3 text-right font-mono font-bold">{reais(p.total_centavos)}</td>
+                    <td className="px-2 py-3">
+                      <Selo situacao={p.situacao} />
+                    </td>
+                    <td className="px-2 py-3 text-xs text-tinta-2">
+                      {p.codigo_rastreio ? (
+                        <span className="font-mono">{p.codigo_rastreio}</span>
+                      ) : p.situacao === "pago" ? (
+                        <span className="text-amber-300">{p.envio_erro ? "Envio falhou" : "Criar envio"}</span>
+                      ) : (
+                        <span className="text-suave">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* O pedido aberto, num painel à direita */}
+      {aberto && (
+        <div className="fixed inset-0 z-40 flex justify-end bg-black/50 backdrop-blur-[2px]" onClick={() => aoAbrir(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Pedido"
+            className="h-full w-full max-w-[540px] overflow-y-auto border-l border-linha-2 bg-fundo p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <p className="font-mono text-[11px] font-bold tracking-[.14em] text-suave uppercase">Pedido</p>
+              <button type="button" onClick={() => aoAbrir(null)} className="rounded-xl border border-linha-2 px-3 py-1.5 text-sm font-semibold" autoFocus>
+                Fechar
+              </button>
+            </div>
+            {selecionado ? (
+              <ul>
+                <CartaoPedido pedido={selecionado} senha={senha} aoMudar={() => void carregar()} />
+              </ul>
+            ) : (
+              <p className="text-suave">{lista === null ? "Carregando…" : "Pedido fora deste filtro. Escolha “Todos”."}</p>
+            )}
+          </div>
+        </div>
       )}
-        </>
-      )}
-    </section>
+    </div>
   );
 }
 
