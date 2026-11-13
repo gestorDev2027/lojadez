@@ -56,10 +56,12 @@ def montar_corpo(pedido: dict) -> dict:
            if pedido["frete_centavos"] > 0 else []),  # frete grátis: a loja paga a Loggi, o comprador não vê a linha
         "order_nsu": pedido["order_nsu"],
         "redirect_url": f"{config.SITE_URL}/obrigado",
+        # Os dados vão preenchidos: a tela de contato da InfinitePay sempre aparece, mas o cliente só confere.
         "customer": {"name": pedido["nome"], "phone_number": _telefone(pedido["telefone"]),
                      **({"email": pedido["email"]} if pedido.get("email") else {})},
         "address": {"cep": pedido["cep"], "street": pedido["rua"], "neighborhood": pedido["bairro"],
-                    "number": pedido["numero"], "complement": pedido.get("complemento") or ""},
+                    "number": pedido["numero"], "complement": pedido.get("complemento") or "",
+                    "city": pedido.get("cidade") or "", "state": pedido.get("uf") or ""},
     }
     if config.INFINITEPAY_HANDLE:
         corpo["handle"] = config.INFINITEPAY_HANDLE
@@ -68,7 +70,9 @@ def montar_corpo(pedido: dict) -> dict:
         corpo["webhook_url"] = f"{config.SITE_URL}/api/webhooks/infinitepay"
     if config.INFINITEPAY_API_KEY:
         validade = banco.agora() + timedelta(hours=config.INFINITEPAY_VALIDADE_HORAS)
-        corpo["options"] = {"single_payment": True, "payment_methods_enabled": ["credit_card", "pix"],
+        # require_delivery_address: false tira a etapa "Entrega" da InfinitePay (o endereço já veio do nosso checkout).
+        corpo["options"] = {"single_payment": True, "require_delivery_address": False,
+                            "payment_methods_enabled": ["credit_card", "pix"],
                             "valid_until": validade.strftime("%Y-%m-%dT%H:%M:%S.000Z")}
         if pedido.get("desconto_pix"):  # a InfinitePay mostra e aplica o desconto quando o cliente escolhe Pix
             corpo["options"]["discounts"] = {"pix": pedido["desconto_pix"]}

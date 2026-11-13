@@ -38,7 +38,7 @@ def test_link_curto_conta_e_leva_ao_destino(cliente):
     banco.alterar(nsu, {"campanha_codigo": None})
     frete = cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit3"}).json()
     dados = {"oferta": "kit3", "cep": "20040002", "frete_tipo": frete["opcoes"][0]["tipo"], "nome": "Maria Souza",
-             "cpf": "529.982.247-25", "telefone": "(21) 99999-8888", "numero": "10", "ref": "joao", "campanha": whats["codigo"]}
+             "cpf": "529.982.247-25", "email": "maria@exemplo.com", "telefone": "(21) 99999-8888", "numero": "10", "ref": "joao", "campanha": whats["codigo"]}
     novo = cliente.post("/api/pedidos", json=dados).json()["order_nsu"]
     assert banco.buscar(novo)["campanha_codigo"] == whats["codigo"]
     cliente.post(f"/simulador/pagar/{novo}", content="forma=pix",

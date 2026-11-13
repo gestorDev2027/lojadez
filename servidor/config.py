@@ -40,6 +40,7 @@ GRUPOS = {
     "remetente": "Remetente (quem envia)",
     "infinitepay": "InfinitePay",
     "afiliados": "Afiliados",
+    "financeiro": "Financeiro (taxas da InfinitePay)",
     "ia": "IA (Google Gemini)",
     "rastreamento": "Rastreamento (opcional)",
 }
@@ -94,6 +95,13 @@ CAMPOS: tuple[Campo, ...] = (
     Campo("AFILIADOS_DIAS_LIBERACAO", "Dias para liberar a comissão", "afiliados", "inteiro", "7",
           "A comissão fica “a liberar” por estes dias depois do pagamento (o prazo de devolução); depois fica disponível "
           "para repassar.", minimo=0, maximo=90),
+    Campo("FINANCEIRO_TAXA_PIX", "Taxa do Pix (%)", "financeiro", "decimal", "0",
+          "O que a InfinitePay desconta de cada venda no Pix (veja no app, em Taxas). 0: sem taxa.", minimo=0, maximo=20),
+    Campo("FINANCEIRO_TAXA_CARTAO", "Taxa do cartão à vista (%)", "financeiro", "decimal", "0",
+          "O que a InfinitePay desconta de cada venda no crédito à vista.", minimo=0, maximo=20),
+    Campo("FINANCEIRO_TAXA_PARCELADO", "Taxa do cartão parcelado (%)", "financeiro", "decimal", "0",
+          "O que a loja paga quando a venda é parcelada. Se o cliente paga os juros, use a mesma taxa do à vista.",
+          minimo=0, maximo=30),
     Campo("GEMINI_API_KEY", "Chave da API do Gemini", "ia", "segredo",
           ajuda="Do Google AI Studio. Liga as sugestões de texto e a edição de foto no cadastro de produtos."),
     Campo("GEMINI_MODELO_TEXTO", "Modelo de texto", "ia", padrao="gemini-3.8-flash"),
@@ -198,6 +206,9 @@ def aplicar(sobrepor: dict | None = None) -> None:
     g["INFINITEPAY_DESCONTO_PIX"] = min(max(_decimal(v("INFINITEPAY_DESCONTO_PIX"), 0), 0), 50)
 
     g["AFILIADOS_DIAS_LIBERACAO"] = _inteiro(v("AFILIADOS_DIAS_LIBERACAO"), 7)
+    g["FINANCEIRO_TAXA_PIX"] = min(max(_decimal(v("FINANCEIRO_TAXA_PIX"), 0), 0), 20)
+    g["FINANCEIRO_TAXA_CARTAO"] = min(max(_decimal(v("FINANCEIRO_TAXA_CARTAO"), 0), 0), 20)
+    g["FINANCEIRO_TAXA_PARCELADO"] = min(max(_decimal(v("FINANCEIRO_TAXA_PARCELADO"), 0), 0), 30)
     g["GEMINI_API_KEY"] = v("GEMINI_API_KEY")
     g["GEMINI_MODELO_TEXTO"] = v("GEMINI_MODELO_TEXTO") or "gemini-3.8-flash"
     g["GEMINI_MODELO_IMAGEM"] = v("GEMINI_MODELO_IMAGEM") or "gemini-nano-banana-2.1"
