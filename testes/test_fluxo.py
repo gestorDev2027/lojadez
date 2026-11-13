@@ -451,6 +451,8 @@ def test_desconto_no_pix(cliente):
     pedido = banco.buscar(nsu)
     corpo = infinitepay.montar_corpo(pedido)
     assert "options" not in corpo  # sem a API Key, a InfinitePay não aplica opções
+    # A InfinitePay exige "items" (com "itens" ela responde 400: param is missing ... items)
+    assert [i["price"] for i in corpo["items"]] == [pedido["preco_centavos"], pedido["frete_centavos"]]
     from servidor import config
     config.INFINITEPAY_API_KEY = "inchk_teste"
     try:
