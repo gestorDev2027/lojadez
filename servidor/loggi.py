@@ -57,9 +57,9 @@ def endereco_do_cep(cep: str) -> dict:
 
 # ───────── O pacote ─────────
 
-def pacote(kits: int, valor_centavos: int) -> dict:
-    """Uma caixa com os kits empilhados (altura × kits) e 100 g de embalagem."""
-    p = config.PRODUTO
+def pacote(kits: int, valor_centavos: int, medidas: dict | None = None) -> dict:
+    """Uma caixa com as unidades empilhadas (altura × quantidade) e 100 g de embalagem. Sem medidas: as do kit de lâminas."""
+    p = medidas or config.PRODUTO
     return {"peso_g": p["peso_g"] * kits + 100, "comprimento_cm": p["comprimento_cm"], "largura_cm": p["largura_cm"],
             "altura_cm": min(p["altura_cm"] * kits, 100), "valor_centavos": valor_centavos}
 
@@ -171,10 +171,10 @@ def _cotar_simulado(destino: dict, caixa: dict) -> list[dict]:
     ]
 
 
-def cotar(cep: str, kits: int, valor_centavos: int) -> dict:
-    """As opções de frete para o CEP e os kits. Devolve o endereço achado e as opções (mais barata primeiro)."""
+def cotar(cep: str, kits: int, valor_centavos: int, medidas: dict | None = None) -> dict:
+    """As opções de frete para o CEP e a quantidade. Devolve o endereço achado e as opções (mais barata primeiro)."""
     destino = endereco_do_cep(cep)
-    caixa = pacote(kits, valor_centavos)
+    caixa = pacote(kits, valor_centavos, medidas)
     opcoes = _cotar_simulado(destino, caixa) if config.LOGGI_AMBIENTE == "simulado" else _cotar_loggi(destino, caixa)
     if not opcoes:
         raise ErroFrete("A Loggi não entrega neste CEP.")
@@ -216,8 +216,21 @@ def remetente() -> dict:
     return dados
 
 
+def _do_produto(pedido: dict) -> tuple[dict | None, str]:
+    """As medidas da caixa e o conteúdo declarado: do produto do catálogo, ou (sem produto_id) os do kit de lâminas."""
+    if pedido.get("produto_id"):
+        from servidor import produtos  # aqui, para não importar em ciclo
+
+        produto = produtos.buscar(pedido["produto_id"])
+        if produto:
+            unidade = produto["unidade"] if pedido["kits"] == 1 else produto["unidade_plural"]
+            return produtos.medidas(produto), f"{produto['nome']} ({pedido['kits']} {unidade})"
+    return None, f"{config.CONTEUDO_DECLARADO} ({pedido['kits']} kit{'s' if pedido['kits'] > 1 else ''})"
+
+
 def corpo_envio(pedido: dict) -> dict:
-    caixa = pacote(pedido["kits"], pedido["preco_centavos"])
+    medidas, conteudo = _do_produto(pedido)
+    caixa = pacote(pedido["kits"], pedido["preco_centavos"], medidas)
     destinatario = {
         "name": pedido["nome"][:128], "federalTaxId": pedido["cpf"], "email": pedido["email"][:300],
         "phoneNumber": pedido["telefone"][:16],
@@ -238,7 +251,7 @@ def corpo_envio(pedido: dict) -> dict:
             "heightCm": caixa["altura_cm"],
             "documentTypes": [{"contentDeclaration": {
                 "totalValue": f"{pedido['preco_centavos'] / 100:.2f}",
-                "description": f"{config.CONTEUDO_DECLARADO} ({pedido['kits']} kit{'s' if pedido['kits'] > 1 else ''})"[:200],
+                "description": conteudo[:200],
             }}],
         }],
     }

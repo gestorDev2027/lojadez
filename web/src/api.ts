@@ -25,25 +25,103 @@ export type Loja = {
 // "Monte o seu kit": de `minimo` a `maximo` kits, cada um por preco_kit_centavos (o servidor recalcula).
 export type Montar = { ativo: boolean; minimo: number; maximo: number; preco_kit_centavos: number };
 
-/** A oferta de N kits do "monte o seu" (id "kitN"), igual à que o servidor monta. */
-export function ofertaMontada(loja: Loja, kits: number): Oferta {
-  const limite = loja.frete_gratis_a_partir;
+// O produto que o checkout vende: o kit de lâminas (produto null) ou um produto do catálogo (/p/<slug>).
+export type Vitrine = {
+  produto: string | null;
+  nome: string;
+  foto: string;
+  prefixo: string; // o id das ofertas: "kit3" no kit, "q3" nos produtos
+  plural: string; // "Kits", "Potes": o título do "monte o seu" ("5 Potes")
+  etapa: string; // "Escolha o kit"
+  rotulo: string; // a linha do preço no resumo
+  ofertas: Oferta[];
+  montar: Montar;
+  frete_gratis_a_partir: number;
+  oferta_padrao: string;
+  detalhe: (n: number) => string; // "2 aparelhos + 38 refis"
+  resumo: (n: number) => string; // a linha embaixo do título no resumo
+  porUnidade: (n: number, centavos: number) => string; // "R$ 1,13 por refil"
+};
+
+export type ProdutoPublico = {
+  id: string;
+  nome: string;
+  chamada: string;
+  descricao: string;
+  foto: string;
+  unidade: string;
+  unidade_plural: string;
+  conteudo: string;
+  ofertas: Oferta[];
+  montar: Montar;
+  frete_gratis_a_partir: number;
+  oferta_padrao: string;
+};
+
+export type ItemVitrine = { id: string; nome: string; chamada: string; foto: string; url: string; a_partir_de_centavos: number };
+
+export function vitrineDoKit(loja: Loja): Vitrine {
+  const p = loja.produto;
+  const detalhe = (n: number) => `${n * p.aparelhos} ${n * p.aparelhos > 1 ? "aparelhos" : "aparelho"} + ${n * p.refis} refis`;
   return {
-    id: `kit${kits}`,
-    titulo: `${kits} Kits`,
-    kits,
-    preco_centavos: kits * loja.montar.preco_kit_centavos,
-    selo: "",
-    descricao: "",
-    frete_gratis: limite > 0 && kits >= limite,
+    produto: null,
+    nome: p.nome,
+    foto: loja.foto,
+    prefixo: "kit",
+    plural: "Kits",
+    etapa: "Escolha o kit",
+    rotulo: "Kit",
+    ofertas: loja.ofertas,
+    montar: loja.montar,
+    frete_gratis_a_partir: loja.frete_gratis_a_partir,
+    oferta_padrao: loja.oferta_padrao,
+    detalhe,
+    resumo: (n) => `${detalhe(n)} de ${p.laminas_por_refil} lâminas`,
+    porUnidade: (n, centavos) => `${reais(Math.round(centavos / (n * p.refis)))} por refil`,
   };
 }
 
-/** O kit montado que está na URL (?oferta=kit6), se valer. */
-export function kitsMontadosDaUrl(loja: Loja, id: string | null): number | null {
-  const kits = Number((id ?? "").replace(/^kit/, ""));
-  const m = loja.montar;
-  return m.ativo && /^kit\d+$/.test(id ?? "") && kits >= m.minimo && kits <= m.maximo ? kits : null;
+export function vitrineDoProduto(p: ProdutoPublico): Vitrine {
+  const nomeUnidade = (n: number) => (n === 1 ? p.unidade : p.unidade_plural);
+  return {
+    produto: p.id,
+    nome: p.nome,
+    foto: p.foto,
+    prefixo: "q",
+    plural: p.unidade_plural.charAt(0).toUpperCase() + p.unidade_plural.slice(1),
+    etapa: "Escolha a quantidade",
+    rotulo: "Produto",
+    ofertas: p.ofertas,
+    montar: p.montar,
+    frete_gratis_a_partir: p.frete_gratis_a_partir,
+    oferta_padrao: p.oferta_padrao,
+    detalhe: (n) => (p.conteudo ? (n === 1 ? p.conteudo : `${n} × ${p.conteudo}`) : `${n} ${nomeUnidade(n)}`),
+    resumo: (n) => `${p.nome}${p.conteudo ? ` · ${n} × ${p.conteudo}` : ""}`,
+    porUnidade: (n, centavos) => `${reais(Math.round(centavos / n))} por ${p.unidade}`,
+  };
+}
+
+/** A oferta de N unidades do "monte o seu" (id "kitN" ou "qN"), igual à que o servidor monta. */
+export function ofertaMontada(v: Vitrine, n: number): Oferta {
+  const limite = v.frete_gratis_a_partir;
+  return {
+    id: `${v.prefixo}${n}`,
+    titulo: `${n} ${v.plural}`,
+    kits: n,
+    preco_centavos: n * v.montar.preco_kit_centavos,
+    selo: "",
+    descricao: "",
+    frete_gratis: limite > 0 && n >= limite,
+  };
+}
+
+/** A quantidade montada que está na URL (?oferta=kit6 ou q6), se valer. */
+export function kitsMontadosDaUrl(v: Vitrine, id: string | null): number | null {
+  const texto = id ?? "";
+  if (!texto.startsWith(v.prefixo)) return null;
+  const n = Number(texto.slice(v.prefixo.length));
+  const m = v.montar;
+  return m.ativo && /^\d+$/.test(texto.slice(v.prefixo.length)) && n >= m.minimo && n <= m.maximo ? n : null;
 }
 export type Endereco = { cep: string; rua: string; bairro: string; cidade: string; uf: string };
 export type OpcaoFrete = {
