@@ -106,18 +106,23 @@ def test_cupom_de_frete_e_de_afiliado(cliente):
     assert d["descontos_centavos"] == 674 and d["vendas_com_cupom"] == 1
 
 
-def test_email_opcional(cliente):
+def test_email_obrigatorio_e_dados_preenchidos_na_infinitepay(cliente, monkeypatch):
+    """A InfinitePay sempre mostra a tela de contato: o e-mail vai junto para ela já vir preenchida."""
     _limpar_cupons()
     _, r = _pedido(cliente, "kit1", email="")
-    assert r.status_code == 200, r.text
-    p = banco.buscar(r.json()["order_nsu"])
-    assert p["email"] == ""
-    from servidor import infinitepay, loggi
-
-    assert "email" not in infinitepay.montar_corpo(p)["customer"]
-    assert loggi.corpo_envio(p)["shipTo"]["email"] == ""
+    assert r.status_code == 422
     _, r = _pedido(cliente, "kit1", email="sem-arroba")
     assert r.status_code == 422
+    _, r = _pedido(cliente, "kit1")
+    assert r.status_code == 200, r.text
+    p = banco.buscar(r.json()["order_nsu"])
+    from servidor import config, infinitepay
+
+    monkeypatch.setattr(config, "INFINITEPAY_API_KEY", "inchk_teste")
+    corpo = infinitepay.montar_corpo(p)
+    assert corpo["customer"]["email"] == "maria@exemplo.com" and corpo["customer"]["phone_number"].startswith("+55")
+    assert corpo["address"]["city"] and corpo["address"]["state"]
+    assert corpo["options"]["require_delivery_address"] is False  # sem a etapa "Entrega" da InfinitePay
 
 
 def test_envio_ja_cancelado_na_loggi(cliente, monkeypatch):

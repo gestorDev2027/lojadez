@@ -16,7 +16,8 @@ import {
   type Vitrine,
 } from "../api";
 
-// O checkout: 1) o kit, 2) entrega e contato (o CEP calcula o frete sozinho; nome, celular e CPF numa linha). O servidor recalcula preço e frete na hora de
+// O checkout: 1) o kit, 2) entrega e contato (o CEP calcula o frete sozinho; nome, e-mail, celular e CPF vão
+// preenchidos para a InfinitePay, que sempre mostra a tela de contato). O servidor recalcula preço e frete na hora de
 // criar o pedido e devolve o link de pagamento da InfinitePay.
 export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitrine }) {
   const daUrl = new URLSearchParams(window.location.search).get("oferta");
@@ -34,7 +35,6 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
   const [dados, setDados] = useState({ nome: "", cpf: "", email: "", telefone: "", rua: "", numero: "", complemento: "", bairro: "", ...lembrados.dados });
   const [lembrar, setLembrar] = useState(true);
   const [temLembrados, setTemLembrados] = useState(Boolean(lembrados.dados?.nome));
-  const [mostrarEmail, setMostrarEmail] = useState(Boolean(lembrados.dados?.email));
   const [tocados, setTocados] = useState<Record<string, boolean>>({});
   const [alterarRua, setAlterarRua] = useState(false);
   const [cupomTexto, setCupomTexto] = useState("");
@@ -134,9 +134,9 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
       campoCep?.focus({ preventScroll: true });
       return;
     }
-    const problema = erroDoCampo("cpf", dados.cpf) || erroDoCampo("telefone", dados.telefone);
+    const problema = erroDoCampo("email", dados.email) || erroDoCampo("telefone", dados.telefone) || erroDoCampo("cpf", dados.cpf);
     if (problema) {
-      setTocados({ cpf: true, telefone: true });
+      setTocados({ cpf: true, telefone: true, email: true });
       setErro(problema);
       return;
     }
@@ -318,9 +318,21 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
               </div>
             )}
 
-            <div className="grid gap-3 border-t border-linha pt-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="grid gap-3 border-t border-linha pt-4 sm:grid-cols-2">
               <Campo rotulo="Nome de quem recebe">
                 <input className="campo" required autoComplete="name" value={dados.nome} onChange={mudar("nome")} />
+              </Campo>
+              <Campo rotulo="E-mail" erro={tocados.email ? erroDoCampo("email", dados.email) : ""}>
+                <input
+                  className="campo"
+                  required
+                  type="email"
+                  autoComplete="email"
+                  placeholder="voce@email.com"
+                  value={dados.email}
+                  onChange={mudar("email")}
+                  onBlur={() => setTocados((t) => ({ ...t, email: true }))}
+                />
               </Campo>
               <Campo rotulo="Celular" erro={tocados.telefone ? erroDoCampo("telefone", dados.telefone) : ""}>
                 <input
@@ -351,17 +363,9 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                 />
               </Campo>
             </div>
-            <p className="-mt-2 text-xs text-suave">O celular é para o rastreio; o CPF, a Loggi pede de quem recebe.</p>
-
-            {mostrarEmail ? (
-              <Campo rotulo="E-mail para o comprovante (opcional)">
-                <input className="campo" type="email" autoComplete="email" value={dados.email} onChange={mudar("email")} />
-              </Campo>
-            ) : (
-              <button type="button" onClick={() => setMostrarEmail(true)} className="justify-self-start text-sm text-laranja-2 underline-offset-4 hover:underline">
-                + Receber o comprovante por e-mail
-              </button>
-            )}
+            <p className="-mt-2 text-xs text-suave">
+              Já vão preenchidos na página de pagamento da InfinitePay: lá você só confere. O CPF, a Loggi pede de quem recebe.
+            </p>
 
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-tinta-2">
               <label className="flex items-center gap-2">
@@ -380,7 +384,6 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                         guardarCliente(null);
                         setTemLembrados(false);
                         setLembrar(false);
-                        setMostrarEmail(false);
                         setDados((d) => ({ ...d, nome: "", cpf: "", email: "", telefone: "", numero: "", complemento: "" }));
                       }}
                     >
@@ -651,7 +654,8 @@ function cpfValido(cpf: string) {
   return true;
 }
 
-function erroDoCampo(campo: "cpf" | "telefone", valor: string) {
+function erroDoCampo(campo: "cpf" | "telefone" | "email", valor: string) {
+  if (campo === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valor.trim()) ? "" : "Digite um e-mail válido.";
   const d = valor.replace(/\D/g, "");
   if (campo === "cpf") return cpfValido(valor) ? "" : d.length < 11 ? "Faltam números no CPF." : "Esse CPF não confere. Veja se digitou certo.";
   return d.length >= 10 ? "" : "Digite o celular com DDD.";
