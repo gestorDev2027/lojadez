@@ -3,7 +3,7 @@
 
 Conta como venda o pedido pago ou enviado. As datas são as do Brasil (UTC−3, sem horário de verão).
 A receita líquida desconta o frete que a loja paga à Loggi (inclusive o dos fretes grátis) e as comissões dos afiliados;
-as taxas da InfinitePay entram no financeiro (próxima etapa).
+as taxas da InfinitePay e o custo dos produtos ficam no Financeiro (servidor/financeiro.py).
 """
 
 from datetime import date, datetime, time, timedelta, timezone
