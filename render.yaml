@@ -8,6 +8,7 @@ services:
     plan: starter # o plano free dorme sem acesso: o webhook da InfinitePay pode chegar com o site dormindo
     region: virginia
     healthCheckPath: /api/loja
+    autoDeploy: true # cada merge na main publica de novo
     envVars:
       - key: DATABASE_URL
         sync: false # Supabase: Connect > Session pooler (porta 5432), com a senha do banco

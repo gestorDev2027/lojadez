@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 
-from servidor import afiliados, banco, catalogo, cupons, pedidos as regras, produtos
+from servidor import afiliados, banco, catalogo, cupons, pedidos as regras, produtos, repasses
 
 FUSO = timezone(timedelta(hours=-3))
 VENDIDOS = ("pago", "enviado")
@@ -303,5 +303,6 @@ def ficha_afiliado(afiliado_id: int, de: str | None = None, ate: str | None = No
         "cupons": [{"codigo": c["codigo"], "descricao": cupons.descricao(c), "ativo": c["ativo"]}
                    for c in cupons.listar() if c.get("afiliado_id") == afiliado_id],
         "campanhas": [afiliados.campanha_para_vendedor(c, _vendidos_do(afiliado_id)) for c in afiliados.campanhas(afiliado_id)],
+        "saldo": repasses.saldo_afiliado(afiliado_id),
         "destinos": afiliados.DESTINOS,
     }

@@ -126,3 +126,19 @@ body {
     radial-gradient(1200px 500px at 85% -10%, rgb(255 106 19 / 0.14), transparent 60%),
     radial-gradient(800px 400px at -10% 110%, rgb(255 106 19 / 0.08), transparent 60%);
 }
+
+/* Comprovante de repasse: na impressão, só ele aparece */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .comprovante,
+  .comprovante * {
+    visibility: visible;
+  }
+  .comprovante {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+  }
+}

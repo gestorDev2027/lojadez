@@ -70,6 +70,7 @@ pedidos = Table(
     Column("cupom_codigo", String(30)),
     Column("desconto_cupom_centavos", Integer),
     Column("campanha_codigo", String(12)),  # o link de campanha do afiliado que trouxe a venda
+    Column("repasse_id", Integer),  # o repasse em que a comissão deste pedido foi paga ao afiliado
 )
 
 # Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
@@ -80,8 +81,9 @@ COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP 
                           "reembolso_motivo": "TEXT", "reembolso_centavos": "INTEGER",
                           "reembolso_pedido_em": "TIMESTAMP WITH TIME ZONE", "reembolsado_em": "TIMESTAMP WITH TIME ZONE",
                           "cupom_codigo": "VARCHAR(30)", "desconto_cupom_centavos": "INTEGER",
-                          "campanha_codigo": "VARCHAR(12)"},
-                 "produtos": {"destaque": "BOOLEAN", "categoria": "VARCHAR(40)", "selo": "VARCHAR(40)"}}
+                          "campanha_codigo": "VARCHAR(12)", "repasse_id": "INTEGER"},
+                 "produtos": {"destaque": "BOOLEAN", "categoria": "VARCHAR(40)", "selo": "VARCHAR(40)"},
+                 "afiliados": {"comissoes_produto": "JSON"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -106,6 +108,7 @@ afiliados = Table(
     Column("comissao_pct", Float, nullable=False),
     Column("todos_produtos", Boolean, nullable=False, default=True),
     Column("produtos", JSON, nullable=False),  # ids liberados quando não são todos ("kit-laminas", "pomada-...")
+    Column("comissoes_produto", JSON),  # {"pomada-...": 15}: a comissão daquele produto (sem ele, a geral)
     Column("ativo", Boolean, nullable=False, default=True),
     Column("observacoes", Text),
     Column("criado_em", DateTime(timezone=True), nullable=False),
@@ -146,6 +149,20 @@ campanhas = Table(
     Column("cliques", Integer, nullable=False, default=0),
     Column("ativo", Boolean, nullable=False, default=True),
     Column("criado_em", DateTime(timezone=True), nullable=False),
+)
+
+# Repasses: o pagamento das comissões a um afiliado (feito por Pix fora da loja; aqui fica o registro).
+repasses = Table(
+    "repasses", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("afiliado_id", Integer, nullable=False, index=True),
+    Column("valor_centavos", Integer, nullable=False),
+    Column("pedidos", JSON, nullable=False),  # os order_nsu cujas comissões entraram
+    Column("pago_em", String(10), nullable=False),  # AAAA-MM-DD (o dia do Pix)
+    Column("chave_pix", Text),  # a chave usada (fica no registro mesmo se o afiliado trocar depois)
+    Column("observacao", Text),
+    Column("criado_em", DateTime(timezone=True), nullable=False),
+    Column("criado_por", Text),
 )
 
 # Visitas pelos links de afiliado, por dia (só a contagem: nada do visitante).
