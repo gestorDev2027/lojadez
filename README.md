@@ -25,7 +25,10 @@ foto do kit. Salvou, a landing page e o checkout já mostram os valores novos. F
 
 - **Entrar:** `/vendedor`, com e-mail e senha. A sessão vale 12 horas e fica só na aba do navegador. Cinco senhas erradas
   para o mesmo e-mail bloqueiam por 15 minutos.
-- **Primeiro acesso** (uma vez): enquanto não há nenhum acesso, a loja mostra no terminal (no Render, em **Logs**)
+- **Acesso fixo no `.env`** (opcional): `LOJA_ADMIN_EMAIL` e `LOJA_ADMIN_SENHA` (mínimo 10 caracteres). Ao ligar, a
+  loja cria esse acesso ou acerta a senha dele no banco (só o hash). A senha dele só muda no `.env` (ou no Render):
+  troque e religue a loja; as sessões abertas caem.
+- **Primeiro acesso** (sem o acesso fixo, uma vez): enquanto não há nenhum acesso, a loja mostra no terminal (no Render, em **Logs**)
   um código de 8 números ao ligar. Abra `/vendedor`, digite o código, o seu e-mail e a senha (mínimo 10 caracteres) e
   pronto: a loja grava só o hash (scrypt) e a tela de primeiro acesso some. O código vale uma vez; cinco erros trocam o
   código (o novo aparece no terminal). Pelo terminal também dá: `.venv\Scripts\python -m servidor.admin` (cria ou troca
