@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { chamar, formatarCpf, formatarTelefone, reais } from "../api";
+import QRCode from "qrcode";
+import { chamar, formatarCpf, formatarTelefone, reais, type Loja, type ProdutoPublico } from "../api";
 import { Tabela, type ColunaTabela } from "./Tabela";
 import { Campo } from "./VendedorAjustes";
 import { Cartao, Coluna, Selo, SeletorPeriodo, periodoInicial, rotuloPagamento, type Periodo } from "./VendedorPainel";
@@ -57,6 +58,25 @@ type Ficha = {
   vendas: Venda[];
   vendas_total: number;
   cupons: { codigo: string; descricao: string; ativo: boolean }[];
+  campanhas: Campanha[];
+  destinos: Record<string, string>;
+};
+type Campanha = {
+  id: number;
+  codigo: string;
+  nome: string;
+  destino: string;
+  destino_rotulo: string;
+  produto_id: string | null;
+  produto_nome: string | null;
+  oferta: string | null;
+  url: string;
+  cliques: number;
+  ativo: boolean;
+  pedidos: number;
+  vendas_centavos: number;
+  comissao_centavos: number;
+  conversao_pct: number | null;
 };
 type ProdutoOpcao = { id: string; nome: string };
 
@@ -301,13 +321,14 @@ function FichaAfiliado({
   const [ficha, setFicha] = useState<Ficha | null>(null);
   const [erro, setErro] = useState("");
   const [copiado, setCopiado] = useState("");
+  const [versao, setVersao] = useState(0);
 
   useEffect(() => {
     setErro("");
     chamar<Ficha>(`/api/vendedor/afiliados/${id}?${new URLSearchParams(periodo)}`, { senha })
       .then(setFicha)
       .catch((e: Error) => setErro(e.message));
-  }, [senha, id, periodo]);
+  }, [senha, id, periodo, versao]);
 
   async function copiar(texto: string) {
     try {
@@ -435,6 +456,8 @@ function FichaAfiliado({
         arquivo={`vendas-${a.codigo}`}
         vazio="Nenhuma venda no período."
       />
+
+      <LinksDeCampanha senha={senha} afiliado={a} campanhas={ficha.campanhas} aoMudar={() => setVersao((n) => n + 1)} />
 
       <section className="grid gap-1 rounded-2xl border border-linha bg-fundo-2/90 p-4 text-sm">
         <p className="font-mono text-[11px] font-bold tracking-[.14em] text-suave uppercase">Contato e documento</p>
@@ -596,5 +619,212 @@ function EditorAfiliado({
         </button>
       </div>
     </form>
+  );
+}
+
+// ───────── Links de campanha (link curto e QR Code) ─────────
+
+type DestinoOpcao = { produto: string; nome: string; ofertas: { id: string; titulo: string }[] };
+
+function LinksDeCampanha({
+  senha,
+  afiliado,
+  campanhas,
+  aoMudar,
+}: {
+  senha: string;
+  afiliado: Afiliado;
+  campanhas: Campanha[];
+  aoMudar: () => void;
+}) {
+  const [opcoes, setOpcoes] = useState<DestinoOpcao[]>([]);
+  const [nome, setNome] = useState("");
+  const [destino, setDestino] = useState("principal");
+  const [produto, setProduto] = useState("");
+  const [oferta, setOferta] = useState("");
+  const [criando, setCriando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [qr, setQr] = useState<Campanha | null>(null);
+  const [copiado, setCopiado] = useState("");
+
+  // Os produtos que o afiliado pode divulgar, com as ofertas (para o link direto no checkout).
+  useEffect(() => {
+    const liberado = (id: string) => afiliado.todos_produtos || afiliado.produtos.includes(id);
+    Promise.all([
+      chamar<Loja>("/api/loja"),
+      chamar<{ id: string }[]>("/api/produtos").then((lista) =>
+        Promise.all(lista.filter((p) => p.id !== "kit-laminas").map((p) => chamar<ProdutoPublico>(`/api/produtos/${p.id}`))),
+      ),
+    ])
+      .then(([loja, lista]) => {
+        const itens: DestinoOpcao[] = [
+          { produto: "kit-laminas", nome: loja.produto.nome, ofertas: loja.ofertas.map((o) => ({ id: o.id, titulo: o.titulo })) },
+          ...lista.map((p) => ({ produto: p.id, nome: p.nome, ofertas: p.ofertas.map((o) => ({ id: o.id, titulo: o.titulo })) })),
+        ].filter((i) => liberado(i.produto));
+        setOpcoes(itens);
+        if (itens[0]) {
+          setProduto(itens[0].produto);
+          setOferta(itens[0].ofertas[0]?.id ?? "");
+        }
+      })
+      .catch(() => undefined);
+  }, [afiliado]);
+
+  const escolhido = opcoes.find((o) => o.produto === produto);
+
+  async function criar(e: FormEvent) {
+    e.preventDefault();
+    setErro("");
+    setCriando(true);
+    try {
+      const nova = await chamar<Campanha>(`/api/vendedor/afiliados/${afiliado.id}/campanhas`, {
+        senha,
+        corpo: { nome, destino, produto_id: destino === "principal" ? null : produto, oferta: destino === "checkout" ? oferta : null },
+      });
+      setNome("");
+      setQr(nova);
+      aoMudar();
+    } catch (falha) {
+      setErro((falha as Error).message);
+    } finally {
+      setCriando(false);
+    }
+  }
+
+  async function alternar(c: Campanha) {
+    try {
+      await chamar(`/api/vendedor/campanhas/${c.id}`, { metodo: "PUT", senha, corpo: { ativo: !c.ativo } });
+      aoMudar();
+    } catch (falha) {
+      setErro((falha as Error).message);
+    }
+  }
+
+  async function copiar(texto: string) {
+    await navigator.clipboard.writeText(texto).catch(() => undefined);
+    setCopiado(texto);
+    window.setTimeout(() => setCopiado(""), 2000);
+  }
+
+  return (
+    <section className="grid gap-4 rounded-2xl border border-linha bg-fundo-2/90 p-4">
+      <h2 className="flex items-center gap-2 font-mono text-[11px] font-bold tracking-[.14em] text-tinta-2 uppercase">
+        <span className="grid size-6 place-items-center rounded-full bg-laranja font-sans text-xs text-black">4</span>
+        Links de campanha (com QR Code)
+      </h2>
+      <form onSubmit={criar} className="grid gap-3 rounded-xl border border-linha-2 p-3 md:grid-cols-[1.2fr_1fr_1fr_1fr_auto] md:items-end">
+        <Campo rotulo="Nome da campanha">
+          <input className="campo py-2" required maxLength={60} placeholder="ex.: Instagram, WhatsApp" value={nome} onChange={(e) => setNome(e.target.value)} />
+        </Campo>
+        <Campo rotulo="Leva para">
+          <select className="campo py-2" value={destino} onChange={(e) => setDestino(e.target.value)}>
+            <option value="principal">Página principal</option>
+            <option value="produto">Página do produto</option>
+            <option value="checkout">Direto no checkout</option>
+          </select>
+        </Campo>
+        <Campo rotulo="Produto">
+          <select
+            className="campo py-2"
+            disabled={destino === "principal"}
+            value={produto}
+            onChange={(e) => {
+              setProduto(e.target.value);
+              setOferta(opcoes.find((o) => o.produto === e.target.value)?.ofertas[0]?.id ?? "");
+            }}
+          >
+            {opcoes.map((o) => (
+              <option key={o.produto} value={o.produto}>
+                {o.nome}
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <Campo rotulo="Oferta">
+          <select className="campo py-2" disabled={destino !== "checkout"} value={oferta} onChange={(e) => setOferta(e.target.value)}>
+            {(escolhido?.ofertas ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.titulo}
+              </option>
+            ))}
+          </select>
+        </Campo>
+        <button type="submit" disabled={criando} className="btn-laranja px-5 py-2.5 text-sm">
+          {criando ? "Criando…" : "Criar link"}
+        </button>
+      </form>
+      {erro && <p role="alert" className="text-sm text-alerta">{erro}</p>}
+
+      {campanhas.length === 0 ? (
+        <p className="text-sm text-suave">Nenhum link de campanha ainda. Crie um para cada lugar onde o afiliado divulga e compare os resultados.</p>
+      ) : (
+        <ul className="grid gap-2">
+          {campanhas.map((c) => (
+            <li key={c.id} className={`grid gap-2 rounded-xl border border-linha-2 p-3 md:grid-cols-[1.4fr_1fr_auto] md:items-center ${c.ativo ? "" : "opacity-55"}`}>
+              <div className="min-w-0">
+                <p className="font-semibold">
+                  {c.nome} <span className="font-normal text-suave">· {c.destino_rotulo}{c.produto_nome ? ` · ${c.produto_nome}` : ""}</span>
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <code className="truncate rounded-lg bg-fundo px-2 py-1 font-mono text-xs text-tinta-2">{c.url}</code>
+                  <button type="button" onClick={() => void copiar(c.url)} className="rounded-lg border border-laranja/60 px-2.5 py-1 text-xs font-bold text-laranja-2">
+                    {copiado === c.url ? "Copiado" : "Copiar"}
+                  </button>
+                  <button type="button" onClick={() => setQr(c)} className="rounded-lg border border-linha-2 px-2.5 py-1 text-xs font-bold">
+                    QR Code
+                  </button>
+                </div>
+              </div>
+              <p className="font-mono text-xs text-tinta-2">
+                {c.cliques} cliques · {c.pedidos} vendas · {reais(c.vendas_centavos)}
+                <span className="block text-suave">
+                  conversão {c.conversao_pct === null ? "—" : `${c.conversao_pct.toLocaleString("pt-BR")}%`} · comissão {reais(c.comissao_centavos)}
+                </span>
+              </p>
+              <button type="button" onClick={() => void alternar(c)} className="justify-self-start rounded-full border border-linha-2 px-3 py-1 text-xs md:justify-self-end">
+                {c.ativo ? "Desligar" : "Ligar"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-xs text-suave">
+        O link curto conta o clique, marca o visitante para o afiliado por 30 dias e guarda a campanha na venda. Desligado, ele leva só à página
+        principal, sem comissão.
+      </p>
+      {qr && <JanelaQr campanha={qr} afiliado={afiliado} aoFechar={() => setQr(null)} />}
+    </section>
+  );
+}
+
+function JanelaQr({ campanha, afiliado, aoFechar }: { campanha: Campanha; afiliado: Afiliado; aoFechar: () => void }) {
+  const [imagem, setImagem] = useState("");
+  useEffect(() => {
+    QRCode.toDataURL(campanha.url, { width: 640, margin: 2, errorCorrectionLevel: "M", color: { dark: "#0a0a0b", light: "#ffffff" } })
+      .then(setImagem)
+      .catch(() => setImagem(""));
+  }, [campanha.url]);
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={aoFechar}>
+      <div role="dialog" aria-modal="true" aria-label="QR Code" className="grid w-full max-w-sm gap-3 rounded-2xl border border-linha-2 bg-fundo p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="font-bold">
+          {afiliado.nome} · {campanha.nome}
+        </p>
+        {imagem ? <img src={imagem} alt={`QR Code de ${campanha.url}`} className="w-full rounded-xl bg-white" /> : <p className="text-suave">Gerando…</p>}
+        <code className="truncate rounded-lg bg-fundo-2 px-2 py-1.5 text-center font-mono text-xs">{campanha.url}</code>
+        <div className="flex gap-2">
+          <a
+            href={imagem}
+            download={`qr-${afiliado.codigo}-${campanha.codigo}.png`}
+            className={`btn-laranja flex-1 px-4 py-2.5 text-center text-sm ${imagem ? "" : "pointer-events-none opacity-40"}`}
+          >
+            Baixar PNG
+          </a>
+          <button type="button" onClick={aoFechar} className="rounded-full border border-linha-2 px-4 py-2 text-sm" autoFocus>
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

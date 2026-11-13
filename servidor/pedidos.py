@@ -102,7 +102,7 @@ def validar_cupom(codigo, oferta_id, produto_id=None) -> dict:
             "desconto_centavos": aplicado["desconto_centavos"], "frete_gratis": aplicado["frete_gratis"]}
 
 
-def _do_afiliado(ref, oferta: dict, cupom: dict | None = None) -> dict:
+def _do_afiliado(ref, oferta: dict, cupom: dict | None = None, campanha=None) -> dict:
     """O afiliado que trouxe a venda e a comissão fixada agora (sobre os produtos com o desconto do cupom).
     O cupom de um afiliado vale sobre o link (quem digitou o cupom dele veio por ele)."""
     afiliado = None
@@ -111,10 +111,18 @@ def _do_afiliado(ref, oferta: dict, cupom: dict | None = None) -> dict:
         afiliado = do_cupom if do_cupom and afiliados.pode_vender(do_cupom, oferta["produto_id"]) else None
     afiliado = afiliado or afiliados.atribuir(str(ref or "")[:40], oferta["produto_id"])
     if not afiliado:
-        return {"afiliado_id": None, "afiliado_codigo": None, "comissao_pct": None, "comissao_centavos": None}
+        return {"afiliado_id": None, "afiliado_codigo": None, "comissao_pct": None, "comissao_centavos": None,
+                "campanha_codigo": None}
     return {"afiliado_id": afiliado["id"], "afiliado_codigo": afiliado["codigo"],
             "comissao_pct": float(afiliado["comissao_pct"]),
-            "comissao_centavos": afiliados.comissao(afiliado, oferta["preco_centavos"] - (cupom or {}).get("desconto_centavos", 0))}
+            "comissao_centavos": afiliados.comissao(afiliado, oferta["preco_centavos"] - (cupom or {}).get("desconto_centavos", 0)),
+            "campanha_codigo": _campanha_do(afiliado, campanha)}
+
+
+def _campanha_do(afiliado: dict, codigo) -> str | None:
+    """A campanha do link curto, se for deste afiliado (senão a venda fica sem campanha)."""
+    campanha = afiliados.buscar_campanha(str(codigo or "")) if codigo else None
+    return campanha["codigo"] if campanha and campanha["afiliado_id"] == afiliado["id"] else None
 
 
 def cotar_frete(cep: str, oferta_id, produto_id=None, cupom=None) -> dict:
@@ -162,7 +170,7 @@ def criar(dados: dict) -> dict:
         "order_nsu": str(uuid.uuid4()), "criado_em": banco.agora(), "situacao": "aguardando_pagamento",
         "sku": oferta["sku"], "oferta": oferta["id"], "produto": oferta["descricao"], "kits": oferta["kits"],
         "produto_id": oferta["produto_id"],
-        **_do_afiliado(dados.get("ref"), oferta, cupom),
+        **_do_afiliado(dados.get("ref"), oferta, cupom, dados.get("campanha")),
         "cupom_codigo": cupom["cupom"]["codigo"] if cupom else None, "desconto_cupom_centavos": desconto or None,
         "preco_centavos": oferta["preco_centavos"], "frete_tipo": opcao["tipo"],
         "frete_descricao": f"Frete {'grátis ' if opcao['gratis'] else ''}Loggi {opcao['nome']} (até {opcao['prazo_dias']} dias úteis)",

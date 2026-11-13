@@ -275,12 +275,16 @@ export const formatarTelefone = (tel: string) => {
 const CHAVE_REF = "loja-ref";
 const DIAS_REF = 30;
 
-/** Guarda o ?ref= da URL (se houver) e conta o clique uma vez por sessão. */
+/** Guarda o ?ref= da URL (e a campanha ?cp=, se houver) e conta o clique uma vez por sessão.
+ * Vindo do link curto (/l/...), o clique já foi contado no servidor (rc=1). */
 export function guardarRefDaUrl() {
-  const codigo = (new URLSearchParams(window.location.search).get("ref") ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
+  const busca = new URLSearchParams(window.location.search);
+  const codigo = (busca.get("ref") ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
   if (codigo.length < 2) return;
+  const campanha = (busca.get("cp") ?? "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || null;
   try {
-    localStorage.setItem(CHAVE_REF, JSON.stringify({ codigo, ate: Date.now() + DIAS_REF * 86_400_000 }));
+    localStorage.setItem(CHAVE_REF, JSON.stringify({ codigo, campanha, ate: Date.now() + DIAS_REF * 86_400_000 }));
+    if (busca.get("rc") === "1") return;
     const marca = `loja-ref-clique-${codigo}`;
     if (sessionStorage.getItem(marca)) return;
     sessionStorage.setItem(marca, "1");
@@ -290,6 +294,18 @@ export function guardarRefDaUrl() {
   void fetch("/api/afiliados/clique", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: codigo }) }).catch(
     () => undefined,
   );
+}
+
+/** A campanha (link curto) guardada junto com o afiliado, se ainda valer. */
+export function campanhaGuardada(): string | null {
+  const daUrl = new URLSearchParams(window.location.search).get("cp");
+  if (daUrl) return daUrl.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || null;
+  try {
+    const salvo = JSON.parse(localStorage.getItem(CHAVE_REF) ?? "null") as { campanha?: string | null; ate: number } | null;
+    return salvo && salvo.ate > Date.now() ? (salvo.campanha ?? null) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** O código do afiliado guardado, se ainda valer (ou o ?ref= da URL atual). */

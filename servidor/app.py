@@ -216,6 +216,14 @@ async def validar_cupom(request: Request):
     return pedidos.validar_cupom(dados.get("cupom"), dados.get("oferta"), dados.get("produto"))
 
 
+@app.get("/l/{codigo}", include_in_schema=False)
+def link_de_campanha(codigo: str, request: Request):
+    """O link curto de uma campanha de afiliado: conta o clique e leva ao destino com ?ref= (e a campanha)."""
+    _limitar(request, "clique", 60)
+    destino, _ = afiliados.visitar_campanha(codigo, datetime.now(painel.FUSO).date().isoformat())
+    return RedirectResponse(destino, status_code=302)
+
+
 @app.post("/api/afiliados/clique")
 async def clique_de_afiliado(request: Request):
     """Conta uma visita pelo link de um afiliado (só a contagem do dia: nada do visitante)."""
@@ -411,6 +419,20 @@ async def vendedor_criar_afiliado(request: Request):
 async def vendedor_salvar_afiliado(afiliado_id: int, request: Request):
     email = _vendedor(request)
     return afiliados.para_vendedor(afiliados.salvar(await _json(request), afiliado_id, email))
+
+
+@app.post("/api/vendedor/afiliados/{afiliado_id}/campanhas")
+async def vendedor_criar_campanha(afiliado_id: int, request: Request):
+    email = _vendedor(request)
+    campanha = afiliados.criar_campanha(afiliado_id, await _json(request), email)
+    return afiliados.campanha_para_vendedor(campanha, [])
+
+
+@app.put("/api/vendedor/campanhas/{campanha_id}")
+async def vendedor_mudar_campanha(campanha_id: int, request: Request):
+    _vendedor(request)
+    dados = await _json(request)
+    return afiliados.campanha_para_vendedor(afiliados.mudar_campanha(campanha_id, bool(dados.get("ativo"))), _vendidos())
 
 
 @app.get("/api/vendedor/afiliados/{afiliado_id}")
