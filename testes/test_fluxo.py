@@ -52,7 +52,9 @@ def cliente():
     acesso._erros.clear()
     with TestClient(app) as c:  # ao subir, o servidor cria as tabelas
         banco.gravar_ajustes({"refis": None, "laminas_por_refil": None, "ofertas": None, "montar": None,
-                              "frete_gratis_a_partir": None})  # volta aos padrões
+                              "frete_gratis_a_partir": None, "nome": None, "chamada": None, "descricao": None,
+                              "peso_g": None, "comprimento_cm": None, "largura_cm": None,
+                              "altura_cm": None})  # volta aos padrões
         banco.gravar_foto("kit", None, None)
         with banco.engine.begin() as conexao:  # a configuração volta ao .env de teste
             conexao.execute(banco.configuracoes.delete())

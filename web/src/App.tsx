@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { chamar, vitrineDoKit, type Loja } from "./api";
+import { chamar, guardarRefDaUrl, vitrineDoKit, type Loja } from "./api";
 import { PaginaCheckout } from "./paginas/Checkout";
 import { PaginaObrigado } from "./paginas/Obrigado";
 import { CheckoutDoProduto, PaginaProduto, PaginaVitrine } from "./paginas/Produto";
@@ -14,6 +14,10 @@ export function App() {
   const caminho = window.location.pathname.replace(/\/+$/, "") || "/";
   const produtoDoCheckout = new URLSearchParams(window.location.search).get("produto");
   const slugDaPagina = caminho.startsWith("/p/") ? decodeURIComponent(caminho.slice(3)) : "";
+
+  useEffect(() => {
+    if (caminho !== "/vendedor") guardarRefDaUrl(); // quem chegou pelo link de um afiliado
+  }, [caminho]);
 
   useEffect(() => {
     chamar<Loja>("/api/loja")

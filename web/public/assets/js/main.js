@@ -26,6 +26,18 @@
     if (el.tagName === 'IMG') el.src = FOTO_KIT;
     if (el.dataset.src) el.dataset.src = FOTO_KIT;
   });
+  // Afiliados: quem chega por ?ref= fica marcado por 30 dias neste navegador (vale o último link); o checkout manda o código.
+  (function guardarRef() {
+    const codigo = (new URLSearchParams(location.search).get('ref') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
+    if (codigo.length < 2) return;
+    try {
+      localStorage.setItem('loja-ref', JSON.stringify({ codigo, ate: Date.now() + 30 * 86400000 }));
+      if (sessionStorage.getItem('loja-ref-clique-' + codigo)) return;
+      sessionStorage.setItem('loja-ref-clique-' + codigo, '1');
+    } catch (err) { /* sem armazenamento: o ?ref= segue pela URL do checkout */ }
+    fetch('/api/afiliados/clique', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: codigo }) }).catch(() => {});
+  })();
+
   const offers = (C.ofertas || []).map((o) => ({ ...o }));
   const base = offers[0] || { id: 'kit1', titulo: '1 Kit', quantidade: 1, preco: 0 };
   offers.forEach((o) => {

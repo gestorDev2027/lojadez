@@ -38,13 +38,28 @@ def limpar_cache() -> None:
         _cache.clear()
 
 
+TEXTOS_KIT = {"nome": 80, "chamada": 140, "descricao": 4000}
+MEDIDAS_KIT = {"peso_g": ("Peso de 1 kit embalado (g)", 1, 30000), "comprimento_cm": ("Comprimento (cm)", 1, 100),
+               "largura_cm": ("Largura (cm)", 1, 100), "altura_cm": ("Altura (cm)", 1, 100)}
+
+
 def produto() -> dict:
+    """O kit de lâminas: os padrões (config) com o que o vendedor mudou (nome, textos, refis, medidas)."""
     p = copy.deepcopy(config.PRODUTO)
+    p.update(chamada="", descricao="")
     a = _ajustes()
-    for chave in ("refis", "laminas_por_refil"):
+    for chave in ("refis", "laminas_por_refil", *MEDIDAS_KIT):
         if chave in a:
             p[chave] = int(a[chave])
+    for chave in TEXTOS_KIT:
+        if a.get(chave):
+            p[chave] = str(a[chave])
     return p
+
+
+def medidas() -> dict:
+    p = produto()
+    return {k: int(p[k]) for k in MEDIDAS_KIT}
 
 
 def ofertas(so_ativas: bool = True) -> list[dict]:
@@ -115,6 +130,17 @@ def salvar(dados: dict) -> dict:
         novos["refis"] = _inteiro(dados["refis"], "Refis por kit", 1, 200)
     if "laminas_por_refil" in dados:
         novos["laminas_por_refil"] = _inteiro(dados["laminas_por_refil"], "Lâminas por refil", 1, 10)
+    for chave, maximo in TEXTOS_KIT.items():
+        if chave in dados:
+            valor = str(dados[chave] or "").strip() if chave == "descricao" else " ".join(str(dados[chave] or "").split())
+            if chave == "nome" and 0 < len(valor) < 3:  # vazio: volta ao nome padrão
+                raise ErroCatalogo("Nome do kit: pelo menos 3 letras.")
+            if len(valor) > maximo:
+                raise ErroCatalogo(f"{chave.capitalize()} do kit: até {maximo} caracteres.")
+            novos[chave] = valor or None
+    for chave, (rotulo, minimo, maximo) in MEDIDAS_KIT.items():
+        if chave in dados:
+            novos[chave] = _inteiro(dados[chave], rotulo, minimo, maximo)
     if "ofertas" in dados:
         ids = {o["id"] for o in config.OFERTAS}
         ofertas_novas = {}

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { chamar, reais } from "../api";
+import { Tabela, type ColunaTabela } from "./Tabela";
 import { Campo, Cartao } from "./VendedorAjustes";
 
 // A aba "Produtos": os produtos novos (pomada, óleo, balm...). Cada um ganha a página /p/<endereço> e o checkout próprio.
@@ -130,6 +131,54 @@ function paraEnviar(f: Formulario) {
   };
 }
 
+const menorPreco = (p: ProdutoVendedor) => Math.min(...p.ofertas.map((o) => o.preco_centavos));
+const COLUNAS_PRODUTOS: ColunaTabela<ProdutoVendedor>[] = [
+  {
+    id: "produto",
+    rotulo: "Produto",
+    valor: (p) => `${p.nome} ${p.chamada ?? ""} ${p.sku ?? ""}`,
+    render: (p) => (
+      <span className="flex items-center gap-3">
+        <img src={p.foto} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
+        <span className="min-w-0">
+          <span className="block font-semibold">{p.nome}</span>
+          {p.chamada && <span className="line-clamp-1 text-xs text-suave">{p.chamada}</span>}
+        </span>
+      </span>
+    ),
+  },
+  { id: "sku", rotulo: "SKU", valor: (p) => p.sku ?? "", render: (p) => <span className="font-mono text-xs text-tinta-2">{p.sku ?? "—"}</span> },
+  {
+    id: "url",
+    rotulo: "Página",
+    valor: (p) => p.url,
+    render: (p) => (
+      <a href={p.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="font-mono text-xs text-laranja-2 hover:underline">
+        {p.url}
+      </a>
+    ),
+  },
+  {
+    id: "preco",
+    rotulo: "A partir de",
+    direita: true,
+    valor: (p) => menorPreco(p) / 100,
+    render: (p) => <span className="font-mono font-bold">{reais(menorPreco(p))}</span>,
+  },
+  { id: "ofertas", rotulo: "Ofertas", valor: (p) => p.ofertas.map((o) => o.quantidade).join(", ") + (p.montar.ativo ? ` + monte o seu até ${p.montar.maximo}` : "") },
+  { id: "ordem", rotulo: "Ordem", direita: true, valor: (p) => p.ordem },
+  {
+    id: "situacao",
+    rotulo: "Situação",
+    valor: (p) => (p.ativo ? "À venda" : "Fora de venda"),
+    render: (p) => (
+      <span className={`inline-block rounded-full px-2.5 py-0.5 font-mono text-[11px] font-bold ${p.ativo ? "bg-ok/15 text-ok" : "bg-white/10 text-suave"}`}>
+        {p.ativo ? "À venda" : "Fora de venda"}
+      </span>
+    ),
+  },
+];
+
 export function AbaProdutos({ senha }: { senha: string }) {
   const [lista, setLista] = useState<ProdutoVendedor[] | null>(null);
   const [editando, setEditando] = useState<ProdutoVendedor | "novo" | null>(null);
@@ -196,31 +245,16 @@ export function AbaProdutos({ senha }: { senha: string }) {
           Nenhum produto ainda. Clique em “Novo produto”.
         </p>
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2">
-          {lista.map((p) => (
-            <li key={p.slug} className={`flex gap-4 rounded-2xl border bg-cartao p-4 ${p.ativo ? "border-linha" : "border-linha opacity-60"}`}>
-              <img src={p.foto} alt="" className="size-20 shrink-0 rounded-xl object-cover" />
-              <div className="grid min-w-0 flex-1 content-start gap-1">
-                <p className="font-bold">
-                  {p.nome} {!p.ativo && <span className="ml-1 font-mono text-xs text-amber-300">INATIVO</span>}
-                </p>
-                <p className="font-mono text-xs text-suave">
-                  {p.url} · a partir de {reais(Math.min(...p.ofertas.map((o) => o.preco_centavos)))}
-                </p>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => setEditando(p)} className="rounded-full border border-linha-2 px-3 py-1 text-sm font-bold">
-                    Editar
-                  </button>
-                  {p.ativo && (
-                    <a href={p.url} target="_blank" rel="noreferrer" className="rounded-full px-3 py-1 text-sm text-suave hover:text-laranja-2">
-                      Ver a página
-                    </a>
-                  )}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <Tabela
+          linhas={lista}
+          colunas={COLUNAS_PRODUTOS}
+          chave={(p) => p.slug}
+          aoClicar={(p) => setEditando(p)}
+          ordemInicial={{ coluna: "ordem", desc: false }}
+          buscaDica="Buscar por nome, SKU, endereço ou chamada"
+          arquivo="produtos"
+          larguraMinima={760}
+        />
       )}
     </div>
   );
@@ -265,6 +299,23 @@ function EditorProduto({
     } catch (falha) {
       setErro((falha as Error).message);
     } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function excluir() {
+    if (!produto) return;
+    const ok = window.confirm(
+      `Excluir “${produto.nome}”? A página /p/${produto.slug} sai do ar e o produto some da loja. Os pedidos antigos continuam no painel. Não dá para desfazer.`,
+    );
+    if (!ok) return;
+    setErro("");
+    setSalvando(true);
+    try {
+      await chamar(`/api/vendedor/produtos/${produto.slug}`, { metodo: "DELETE", senha });
+      aoVoltar(`“${produto.nome}” foi excluído.`);
+    } catch (falha) {
+      setErro((falha as Error).message);
       setSalvando(false);
     }
   }
@@ -459,6 +510,16 @@ function EditorProduto({
           <button type="button" onClick={() => aoVoltar()} className="rounded-full border border-linha-2 px-5 py-3 text-sm font-bold">
             Cancelar
           </button>
+          {produto && (
+            <button
+              type="button"
+              disabled={salvando}
+              onClick={() => void excluir()}
+              className="ml-auto rounded-full border border-red-400/40 px-5 py-3 text-sm font-bold text-red-300 hover:bg-red-400/10"
+            >
+              Excluir produto
+            </button>
+          )}
         </div>
       </div>
 
@@ -489,7 +550,7 @@ function EditorProduto({
 
 // ───────── IA (Gemini) ─────────
 
-type EstadoIA = { disponivel: boolean; estilos: { id: string; rotulo: string }[] };
+export type EstadoIA = { disponivel: boolean; estilos: { id: string; rotulo: string }[] };
 type Textos = { nome: string; chamada: string; descricao: string };
 
 function Faisca() {
@@ -505,7 +566,11 @@ function SemIA({ ia }: { ia: EstadoIA | null }) {
   return <p className="text-xs text-suave">A IA está desligada: ponha a chave do Gemini em Configurações → IA.</p>;
 }
 
-function SugestaoDeTextos({
+// Servem ao editor dos produtos e ao do kit de lâminas (por isso os tipos são só o que elas usam).
+type InfoTextos = { nome: string; unidade: string; conteudo: string; chamada: string; descricao: string };
+type FotoDoProduto = { slug: string; foto: string; foto_enviada: boolean };
+
+export function SugestaoDeTextos({
   senha,
   ia,
   produto,
@@ -514,9 +579,9 @@ function SugestaoDeTextos({
 }: {
   senha: string;
   ia: EstadoIA | null;
-  produto: ProdutoVendedor | null;
-  formulario: Formulario;
-  aoUsar: (campos: Partial<Formulario>) => void;
+  produto: Pick<FotoDoProduto, "slug" | "foto_enviada"> | null;
+  formulario: InfoTextos;
+  aoUsar: (campos: Partial<Textos>) => void;
 }) {
   const [aberto, setAberto] = useState(false);
   const [destaque, setDestaque] = useState("");
@@ -619,7 +684,7 @@ function SugestaoDeTextos({
   );
 }
 
-function EdicaoDeFoto({
+export function EdicaoDeFoto({
   senha,
   ia,
   produto,
@@ -627,7 +692,7 @@ function EdicaoDeFoto({
 }: {
   senha: string;
   ia: EstadoIA | null;
-  produto: ProdutoVendedor;
+  produto: FotoDoProduto;
   aoUsar: (foto: Blob) => Promise<void>;
 }) {
   const [estilo, setEstilo] = useState("estudio");

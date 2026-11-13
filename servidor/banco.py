@@ -14,7 +14,7 @@ pedidos = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("order_nsu", String(36), nullable=False, unique=True, index=True),
     Column("criado_em", DateTime(timezone=True), nullable=False),
-    # aguardando_pagamento → pago → enviado; ou cancelado
+    # aguardando_pagamento → pago → enviado; ou cancelado; pago/enviado → reembolso_pendente → reembolsado
     Column("situacao", String(30), nullable=False, default="aguardando_pagamento"),
     Column("sku", String(40), nullable=False),
     Column("oferta", String(20), nullable=False),
@@ -56,12 +56,25 @@ pedidos = Table(
     Column("desconto_pix", Float),  # o % de desconto no Pix que valia quando o pedido foi criado
     Column("envio_erro", Text),  # por que o envio automático na Loggi falhou (o vendedor cria à mão)
     Column("produto_id", String(60)),  # o produto do catálogo (vazio: o kit de lâminas da landing page)
+    # o afiliado que trouxe a venda (pelo link ?ref=) e a comissão dele, fixada quando o pedido foi criado
+    Column("afiliado_id", Integer),
+    Column("afiliado_codigo", String(30)),
+    Column("comissao_pct", Float),
+    Column("comissao_centavos", Integer),
+    # cancelamento de pedido pago: o estorno é feito na InfinitePay; aqui fica o motivo, o valor e quando
+    Column("reembolso_motivo", Text),
+    Column("reembolso_centavos", Integer),
+    Column("reembolso_pedido_em", DateTime(timezone=True)),
+    Column("reembolsado_em", DateTime(timezone=True)),
 )
 
 # Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
 COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP WITH TIME ZONE", "envio_erro": "TEXT",
                           "desconto_pix": "DOUBLE PRECISION", "frete_custo_centavos": "INTEGER",
-                          "produto_id": "VARCHAR(60)"}}
+                          "produto_id": "VARCHAR(60)", "afiliado_id": "INTEGER", "afiliado_codigo": "VARCHAR(30)",
+                          "comissao_pct": "DOUBLE PRECISION", "comissao_centavos": "INTEGER",
+                          "reembolso_motivo": "TEXT", "reembolso_centavos": "INTEGER",
+                          "reembolso_pedido_em": "TIMESTAMP WITH TIME ZONE", "reembolsado_em": "TIMESTAMP WITH TIME ZONE"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -73,6 +86,34 @@ ajustes = Table(
 )
 
 # Fotos enviadas pelo vendedor (ficam no banco: o disco do Render é apagado a cada publicação).
+# Os afiliados: cada um tem um código (o ?ref= dos links), a comissão e os produtos que pode divulgar.
+afiliados = Table(
+    "afiliados", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("codigo", String(30), nullable=False, unique=True, index=True),
+    Column("nome", Text, nullable=False),
+    Column("documento", String(14)),  # CPF ou CNPJ, só números
+    Column("email", Text),
+    Column("telefone", String(20)),
+    Column("chave_pix", Text),  # para o vendedor pagar a comissão (fora da loja)
+    Column("comissao_pct", Float, nullable=False),
+    Column("todos_produtos", Boolean, nullable=False, default=True),
+    Column("produtos", JSON, nullable=False),  # ids liberados quando não são todos ("kit-laminas", "pomada-...")
+    Column("ativo", Boolean, nullable=False, default=True),
+    Column("observacoes", Text),
+    Column("criado_em", DateTime(timezone=True), nullable=False),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False),
+)
+
+# Visitas pelos links de afiliado, por dia (só a contagem: nada do visitante).
+afiliado_cliques = Table(
+    "afiliado_cliques", metadata,
+    Column("afiliado_id", Integer, primary_key=True),
+    Column("dia", String(10), primary_key=True),  # AAAA-MM-DD (horário do Brasil)
+    Column("cliques", Integer, nullable=False, default=0),
+)
+
+
 # Os produtos do catálogo, além do kit de lâminas (que tem a landing page própria e fica em `ajustes`).
 produtos = Table(
     "produtos", metadata,
@@ -274,7 +315,7 @@ def ultimas_mudancas(limite: int = 20) -> list[dict]:
         return [dict(l) for l in c.execute(consulta).mappings().all()]
 
 
-def listar(situacao: str | None = None, limite: int = 200) -> list[dict]:
+def listar(situacao: str | None = None, limite: int = 5000) -> list[dict]:
     consulta = select(pedidos).order_by(pedidos.c.criado_em.desc()).limit(limite)
     if situacao:
         consulta = consulta.where(pedidos.c.situacao == situacao)

@@ -137,7 +137,7 @@ export type Cotacao = { endereco: Endereco; opcoes: OpcaoFrete[]; produto_centav
 
 export type PedidoPublico = {
   order_nsu: string;
-  situacao: "aguardando_pagamento" | "pago" | "enviado" | "cancelado" | "pagamento_divergente";
+  situacao: "aguardando_pagamento" | "pago" | "enviado" | "cancelado" | "pagamento_divergente" | "reembolso_pendente" | "reembolsado";
   primeiro_nome: string;
   produto: string;
   kits: number;
@@ -197,6 +197,13 @@ export type PedidoVendedor = Omit<PedidoPublico, "primeiro_nome" | "situacao"> &
   envio_criado_em: string | null;
   envio_erro: string | null;
   frete_custo_centavos: number | null; // o que a Loggi cobra da loja
+  transaction_nsu: string | null;
+  afiliado_codigo: string | null;
+  comissao_centavos: number | null;
+  reembolso_motivo: string | null;
+  reembolso_centavos: number | null;
+  reembolso_pedido_em: string | null;
+  reembolsado_em: string | null;
 };
 
 export type Rastreio = {
@@ -262,3 +269,37 @@ export const formatarTelefone = (tel: string) => {
   if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 };
+
+// ───────── Afiliados: o ?ref= do link fica guardado neste navegador por 30 dias (vale o último link) ─────────
+
+const CHAVE_REF = "loja-ref";
+const DIAS_REF = 30;
+
+/** Guarda o ?ref= da URL (se houver) e conta o clique uma vez por sessão. */
+export function guardarRefDaUrl() {
+  const codigo = (new URLSearchParams(window.location.search).get("ref") ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
+  if (codigo.length < 2) return;
+  try {
+    localStorage.setItem(CHAVE_REF, JSON.stringify({ codigo, ate: Date.now() + DIAS_REF * 86_400_000 }));
+    const marca = `loja-ref-clique-${codigo}`;
+    if (sessionStorage.getItem(marca)) return;
+    sessionStorage.setItem(marca, "1");
+  } catch {
+    /* sem armazenamento: o ref vale só nesta página */
+  }
+  void fetch("/api/afiliados/clique", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: codigo }) }).catch(
+    () => undefined,
+  );
+}
+
+/** O código do afiliado guardado, se ainda valer (ou o ?ref= da URL atual). */
+export function refGuardado(): string | null {
+  const daUrl = new URLSearchParams(window.location.search).get("ref");
+  if (daUrl) return daUrl.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30) || null;
+  try {
+    const salvo = JSON.parse(localStorage.getItem(CHAVE_REF) ?? "null") as { codigo: string; ate: number } | null;
+    return salvo && salvo.ate > Date.now() ? salvo.codigo : null;
+  } catch {
+    return null;
+  }
+}

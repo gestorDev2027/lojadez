@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { chamar, formatarCep, reais, type OpcaoFrete } from "../api";
+import { EdicaoDeFoto, SugestaoDeTextos, type EstadoIA } from "./VendedorProdutos";
 
 // As abas "Produto e preços" e "Integrações" da área do vendedor. O que muda aqui vale na hora na loja.
 
@@ -12,7 +13,18 @@ type OfertaAjuste = {
   ativa: boolean;
 };
 type Catalogo = {
-  produto: { refis: number; laminas_por_refil: number; aparelhos: number; nome: string };
+  produto: {
+    refis: number;
+    laminas_por_refil: number;
+    aparelhos: number;
+    nome: string;
+    chamada: string;
+    descricao: string;
+    peso_g: number;
+    comprimento_cm: number;
+    largura_cm: number;
+    altura_cm: number;
+  };
   ofertas: OfertaAjuste[];
   foto: string;
   foto_enviada: boolean;
@@ -36,6 +48,9 @@ export function AbaProduto({ senha }: { senha: string }) {
   const [montarMaximo, setMontarMaximo] = useState("");
   const [montarPreco, setMontarPreco] = useState("");
   const [freteGratis, setFreteGratis] = useState("");
+  const [textos, setTextos] = useState({ nome: "", chamada: "", descricao: "" });
+  const [medidas, setMedidas] = useState({ peso_g: "", comprimento_cm: "", largura_cm: "", altura_cm: "" });
+  const [ia, setIa] = useState<EstadoIA | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
@@ -43,12 +58,25 @@ export function AbaProduto({ senha }: { senha: string }) {
     setCatalogo(c);
     setRefis(String(c.produto.refis));
     setLaminas(String(c.produto.laminas_por_refil));
+    setTextos({ nome: c.produto.nome, chamada: c.produto.chamada ?? "", descricao: c.produto.descricao ?? "" });
+    setMedidas({
+      peso_g: String(c.produto.peso_g),
+      comprimento_cm: String(c.produto.comprimento_cm),
+      largura_cm: String(c.produto.largura_cm),
+      altura_cm: String(c.produto.altura_cm),
+    });
     setOfertas(c.ofertas.map((o) => ({ ...o, preco: paraReais(o.preco_centavos) })));
     setMontarAtivo(c.montar.ativo);
     setMontarMaximo(String(c.montar.maximo));
     setMontarPreco(paraReais(c.montar.preco_kit_centavos));
     setFreteGratis(String(c.frete_gratis_a_partir));
   }
+
+  useEffect(() => {
+    chamar<EstadoIA>("/api/vendedor/ia", { senha })
+      .then(setIa)
+      .catch(() => setIa({ disponivel: false, estilos: [] }));
+  }, [senha]);
 
   useEffect(() => {
     chamar<Catalogo>("/api/vendedor/catalogo", { senha })
@@ -76,6 +104,11 @@ export function AbaProduto({ senha }: { senha: string }) {
         corpo: {
           refis: Number(refis),
           laminas_por_refil: Number(laminas),
+          ...textos,
+          peso_g: Number(medidas.peso_g),
+          comprimento_cm: Number(medidas.comprimento_cm),
+          largura_cm: Number(medidas.largura_cm),
+          altura_cm: Number(medidas.altura_cm),
           ofertas: Object.fromEntries(
             ofertas.map((o) => [o.id, { preco_centavos: paraCentavos(o.preco), selo: o.selo, ativa: o.ativa }]),
           ),
@@ -95,7 +128,10 @@ export function AbaProduto({ senha }: { senha: string }) {
   async function enviarFoto(e: ChangeEvent<HTMLInputElement>) {
     const arquivo = e.target.files?.[0];
     e.target.value = "";
-    if (!arquivo) return;
+    if (arquivo) await subirFoto(arquivo);
+  }
+
+  async function subirFoto(arquivo: Blob) {
     setAviso(null);
     try {
       const r = await fetch("/api/vendedor/foto", {
@@ -127,6 +163,36 @@ export function AbaProduto({ senha }: { senha: string }) {
   return (
     <form onSubmit={salvar} className="mt-6 grid gap-5 lg:grid-cols-[1fr_320px] lg:items-start">
       <div className="grid gap-5">
+        <Cartao titulo="Nome e textos">
+          <div className="grid gap-4">
+            <Campo rotulo="Nome" dica="Aparece no checkout, nos pedidos, na vitrine e para a Loggi.">
+              <input className="campo" required minLength={3} maxLength={80} value={textos.nome} onChange={(e) => setTextos((t) => ({ ...t, nome: e.target.value }))} />
+            </Campo>
+            <Campo rotulo="Chamada (opcional)" dica="A frase curta do kit na vitrine (/produtos).">
+              <input className="campo" maxLength={140} value={textos.chamada} onChange={(e) => setTextos((t) => ({ ...t, chamada: e.target.value }))} />
+            </Campo>
+            <Campo rotulo="Descrição (opcional)" dica="Texto do kit para a vitrine e as próximas páginas. A landing page continua com os textos dela.">
+              <textarea
+                className="campo min-h-28"
+                maxLength={4000}
+                value={textos.descricao}
+                onChange={(e) => setTextos((t) => ({ ...t, descricao: e.target.value }))}
+              />
+            </Campo>
+            <SugestaoDeTextos
+              senha={senha}
+              ia={ia}
+              produto={{ slug: "kit-laminas", foto_enviada: true }}
+              formulario={{
+                ...textos,
+                unidade: "kit",
+                conteudo: `${catalogo.produto.aparelhos} aparelho + ${refis} refis de ${laminas} lâminas`,
+              }}
+              aoUsar={(campos) => setTextos((t) => ({ ...t, ...campos }))}
+            />
+          </div>
+        </Cartao>
+
         <Cartao titulo="O kit">
           <div className="grid gap-4 sm:grid-cols-2">
             <Campo rotulo="Refis por kit" dica="Aparece no selo, nas ofertas e no simulador de rendimento.">
@@ -136,6 +202,30 @@ export function AbaProduto({ senha }: { senha: string }) {
               <input className="campo font-mono" inputMode="numeric" value={laminas} onChange={(e) => setLaminas(e.target.value.replace(/\D/g, ""))} />
             </Campo>
           </div>
+        </Cartao>
+
+        <Cartao titulo="Embalagem de 1 kit (para a Loggi)">
+          <div className="grid gap-4 sm:grid-cols-4">
+            {(
+              [
+                ["peso_g", "Peso (g)"],
+                ["comprimento_cm", "Comprimento (cm)"],
+                ["largura_cm", "Largura (cm)"],
+                ["altura_cm", "Altura (cm)"],
+              ] as const
+            ).map(([chave, rotulo]) => (
+              <Campo key={chave} rotulo={rotulo}>
+                <input
+                  className="campo font-mono"
+                  inputMode="numeric"
+                  required
+                  value={medidas[chave]}
+                  onChange={(e) => setMedidas((m) => ({ ...m, [chave]: e.target.value.replace(/\D/g, "") }))}
+                />
+              </Campo>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-suave">Vários kits vão empilhados na mesma caixa (altura × quantidade).</p>
         </Cartao>
 
         <Cartao titulo="Ofertas e preços">
@@ -245,6 +335,12 @@ export function AbaProduto({ senha }: { senha: string }) {
               Voltar à foto padrão
             </button>
           )}
+          <EdicaoDeFoto
+            senha={senha}
+            ia={ia}
+            produto={{ slug: "kit-laminas", foto: catalogo.foto, foto_enviada: true }}
+            aoUsar={(blob) => subirFoto(blob)}
+          />
         </div>
       </Cartao>
     </form>

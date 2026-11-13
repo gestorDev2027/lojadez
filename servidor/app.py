@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 import base64
 
-from servidor import acesso, banco, catalogo, config, configuracoes, ia, loggi, painel, pedidos, produtos, simulador
+from servidor import (acesso, afiliados, banco, catalogo, config, configuracoes, ia, loggi, painel, pedidos, produtos,
+                      simulador)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -46,6 +47,11 @@ def _erro_pedido(_: Request, erro: pedidos.ErroPedido):
 @app.exception_handler(acesso.ErroAcesso)
 def _erro_acesso(_: Request, erro: acesso.ErroAcesso):
     return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(afiliados.ErroAfiliado)
+def _erro_afiliado(_: Request, erro: afiliados.ErroAfiliado):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
 
 
 @app.exception_handler(ia.ErroIA)
@@ -197,6 +203,16 @@ async def frete(request: Request):
     return pedidos.cotar_frete(str(dados.get("cep") or ""), dados.get("oferta"), dados.get("produto"))
 
 
+@app.post("/api/afiliados/clique")
+async def clique_de_afiliado(request: Request):
+    """Conta uma visita pelo link de um afiliado (só a contagem do dia: nada do visitante)."""
+    _limitar(request, "clique", 30)
+    dados = await _json(request)
+    dia = datetime.now(painel.FUSO).date().isoformat()
+    return {"ok": afiliados.registrar_clique(str(dados.get("ref") or "")[:40], dia),
+            "dias": afiliados.DIAS_ATRIBUICAO}
+
+
 @app.post("/api/pedidos")
 async def criar_pedido(request: Request):
     _limitar(request, "pedido", 6)
@@ -327,10 +343,39 @@ async def vendedor_importar_configuracoes(request: Request):
 
 @app.get("/api/vendedor/painel")
 def vendedor_painel(request: Request, de: str | None = None, ate: str | None = None, visao: str = "vendas",
-                    produto: str | None = None, quantidade: int | None = None):
+                    produto: str | None = None, quantidade: int | None = None, afiliado: str | None = None):
     """A visão geral: indicadores do período e os recortes (produto → quantidade → afiliado)."""
     _vendedor(request)
-    return painel.visao_geral(de, ate, visao, produto, quantidade)
+    return painel.visao_geral(de, ate, visao, produto, quantidade, afiliado)
+
+
+# Afiliados: cadastro, links e desempenho.
+
+@app.get("/api/vendedor/afiliados")
+def vendedor_afiliados(request: Request, de: str | None = None, ate: str | None = None):
+    _vendedor(request)
+    return painel.resumo_afiliados(de, ate)
+
+
+@app.post("/api/vendedor/afiliados")
+async def vendedor_criar_afiliado(request: Request):
+    email = _vendedor(request)
+    return afiliados.para_vendedor(afiliados.salvar(await _json(request), None, email))
+
+
+@app.put("/api/vendedor/afiliados/{afiliado_id}")
+async def vendedor_salvar_afiliado(afiliado_id: int, request: Request):
+    email = _vendedor(request)
+    return afiliados.para_vendedor(afiliados.salvar(await _json(request), afiliado_id, email))
+
+
+@app.get("/api/vendedor/afiliados/{afiliado_id}")
+def vendedor_ficha_afiliado(afiliado_id: int, request: Request, de: str | None = None, ate: str | None = None):
+    _vendedor(request)
+    ficha = painel.ficha_afiliado(afiliado_id, de, ate)
+    if not ficha:
+        raise HTTPException(404, "Afiliado não encontrado.")
+    return ficha
 
 
 @app.get("/api/vendedor/pedidos")
@@ -363,6 +408,23 @@ def vendedor_cancelar(order_nsu: str, request: Request):
 
 
 # Envio pela Loggi: cria o pacote (de verdade, fora do modo simulado), baixa a etiqueta e cancela.
+
+@app.post("/api/vendedor/pedidos/{order_nsu}/reembolso")
+async def vendedor_pedir_reembolso(order_nsu: str, request: Request):
+    """Cancela um pedido pago: o estorno é feito na InfinitePay; a loja guarda o motivo e cancela o envio na Loggi."""
+    email = _vendedor(request)
+    dados = await _json(request)
+    pedido = pedidos.pedir_reembolso(_nsu(order_nsu), str(dados.get("motivo") or ""), str(dados.get("detalhe") or ""),
+                                     dados.get("valor_centavos"), email)
+    return {**banco_para_tela({k: v for k, v in pedido.items() if k != "aviso_loggi"}), "aviso_loggi": pedido["aviso_loggi"]}
+
+
+@app.post("/api/vendedor/pedidos/{order_nsu}/reembolsado")
+async def vendedor_confirmar_reembolso(order_nsu: str, request: Request):
+    email = _vendedor(request)
+    dados = await _json(request)
+    return banco_para_tela(pedidos.confirmar_reembolso(_nsu(order_nsu), dados.get("valor_centavos"), email))
+
 
 @app.post("/api/vendedor/pedidos/{order_nsu}/loggi/envio")
 def vendedor_criar_envio(order_nsu: str, request: Request):
@@ -440,6 +502,13 @@ async def vendedor_salvar_produto(slug: str, request: Request):
     return produtos.para_vendedor(produtos.salvar(await _json(request), slug, email))
 
 
+@app.delete("/api/vendedor/produtos/{slug}")
+def vendedor_excluir_produto(slug: str, request: Request):
+    email = _vendedor(request)
+    produtos.excluir(slug, email)
+    return {"ok": True}
+
+
 @app.put("/api/vendedor/produtos/{slug}/foto")
 async def vendedor_foto_produto(slug: str, request: Request):
     _vendedor(request)
@@ -469,8 +538,16 @@ async def vendedor_ia_textos(request: Request):
     _vendedor(request)
     _limitar(request, "ia", 12)
     dados = await _json(request)
-    foto = produtos.foto(str(dados.get("produto") or "")) if dados.get("produto") and dados.get("usar_foto", True) else None
+    foto = _foto_para_ia(str(dados.get("produto") or "")) if dados.get("usar_foto", True) else None
     return ia.sugerir_textos(dados, foto["tipo"] if foto else None, foto["dados"] if foto else None)
+
+
+def _foto_para_ia(produto: str) -> dict | None:
+    """A foto enviada do produto (ou do kit de lâminas): a IA lê e edita a foto que já está na loja."""
+    if produto == produtos.KIT:  # sem foto enviada, a IA usa a foto padrão do kit
+        padrao = _SITE / "assets" / "img" / "kit-foto.jpg"
+        return catalogo.foto() or ({"tipo": "image/jpeg", "dados": padrao.read_bytes()} if padrao.is_file() else None)
+    return produtos.foto(produto) if produto else None
 
 
 @app.post("/api/vendedor/ia/foto")
@@ -478,7 +555,7 @@ async def vendedor_ia_foto(request: Request):
     _vendedor(request)
     _limitar(request, "ia", 12)
     dados = await _json(request)
-    foto = produtos.foto(str(dados.get("produto") or ""))
+    foto = _foto_para_ia(str(dados.get("produto") or ""))
     if not foto:
         raise ia.ErroIA("Envie uma foto do produto primeiro: a IA edita a foto que já está lá.")
     editada = ia.editar_foto(foto["tipo"], foto["dados"], str(dados.get("estilo") or ""), str(dados.get("instrucao") or ""))

@@ -59,7 +59,11 @@ def endereco_do_cep(cep: str) -> dict:
 
 def pacote(kits: int, valor_centavos: int, medidas: dict | None = None) -> dict:
     """Uma caixa com as unidades empilhadas (altura × quantidade) e 100 g de embalagem. Sem medidas: as do kit de lâminas."""
-    p = medidas or config.PRODUTO
+    if medidas is None:
+        from servidor import catalogo  # aqui, para não importar em ciclo
+
+        medidas = catalogo.medidas()  # o kit de lâminas, com as medidas da área do vendedor
+    p = medidas
     return {"peso_g": p["peso_g"] * kits + 100, "comprimento_cm": p["comprimento_cm"], "largura_cm": p["largura_cm"],
             "altura_cm": min(p["altura_cm"] * kits, 100), "valor_centavos": valor_centavos}
 
