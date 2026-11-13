@@ -5,6 +5,8 @@ import {
   formatarCep,
   formatarCpf,
   formatarTelefone,
+  kitsMontadosDaUrl,
+  ofertaMontada,
   reais,
   type Cotacao,
   type Loja,
@@ -15,9 +17,11 @@ import {
 // criar o pedido e devolve o link de pagamento da InfinitePay.
 export function PaginaCheckout({ loja }: { loja: Loja }) {
   const daUrl = new URLSearchParams(window.location.search).get("oferta");
+  const montadosDaUrl = loja.ofertas.some((o) => o.id === daUrl) ? null : kitsMontadosDaUrl(loja, daUrl);
   const [ofertaId, setOfertaId] = useState(
-    loja.ofertas.some((o) => o.id === daUrl) ? daUrl! : loja.oferta_padrao || loja.ofertas[0].id,
+    loja.ofertas.some((o) => o.id === daUrl) || montadosDaUrl ? daUrl! : loja.oferta_padrao || loja.ofertas[0].id,
   );
+  const [kitsMontados, setKitsMontados] = useState(montadosDaUrl ?? loja.montar.minimo);
   const [cep, setCep] = useState("");
   const [cotacao, setCotacao] = useState<Cotacao | null>(null);
   const [freteTipo, setFreteTipo] = useState("");
@@ -27,7 +31,7 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
 
-  const oferta = loja.ofertas.find((o) => o.id === ofertaId)!;
+  const oferta = loja.ofertas.find((o) => o.id === ofertaId) ?? ofertaMontada(loja, kitsMontados);
   const opcao = cotacao?.opcoes.find((o) => o.tipo === freteTipo) ?? null;
 
   async function cotar(id = ofertaId, cepUsado = cep) {
@@ -99,10 +103,21 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
 
         {/* 1. O kit */}
         <Etapa numero="01" titulo="Escolha o kit">
-          <div role="radiogroup" aria-label="Kits" className="grid gap-3 sm:grid-cols-3">
+          <div role="radiogroup" aria-label="Kits" className={`grid gap-3 sm:grid-cols-2 ${loja.montar.ativo ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
             {loja.ofertas.map((o) => (
               <CartaoOferta key={o.id} oferta={o} loja={loja} ativa={o.id === ofertaId} onClick={() => escolherOferta(o.id)} />
             ))}
+            {loja.montar.ativo && (
+              <CartaoMontar
+                loja={loja}
+                kits={kitsMontados}
+                ativa={!loja.ofertas.some((o) => o.id === ofertaId)}
+                aoEscolher={(kits) => {
+                  setKitsMontados(kits);
+                  escolherOferta(`kit${kits}`);
+                }}
+              />
+            )}
           </div>
         </Etapa>
 
@@ -316,6 +331,71 @@ function Etapa({ numero, titulo, apagada = false, children }: { numero: string; 
       </h2>
       {children}
     </section>
+  );
+}
+
+// "Monte o seu kit": de 4 kits até o máximo, com − e +. O preço é o da faixa "4 ou mais" (o servidor recalcula).
+function CartaoMontar({ loja, kits, ativa, aoEscolher }: { loja: Loja; kits: number; ativa: boolean; aoEscolher: (kits: number) => void }) {
+  const o = ofertaMontada(loja, kits);
+  const refis = kits * loja.produto.refis;
+  const avulso = loja.ofertas.find((x) => x.kits === 1)?.preco_centavos ?? 0;
+  const economia = avulso * kits - o.preco_centavos;
+  const { minimo, maximo } = loja.montar;
+  return (
+    <div
+      role="radio"
+      aria-checked={ativa}
+      aria-label={`Monte o seu kit: ${kits} kits, ${reais(o.preco_centavos)}`}
+      tabIndex={0}
+      onClick={() => aoEscolher(kits)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          aoEscolher(kits);
+        }
+      }}
+      className={`relative flex cursor-pointer flex-col items-start gap-1 rounded-2xl border p-4 text-left transition ${
+        ativa ? "border-laranja bg-laranja/10 shadow-[0_10px_30px_-12px_rgba(255,106,19,.6)]" : "border-dashed border-linha-2 hover:bg-white/[.03]"
+      }`}
+    >
+      <span className="font-display text-2xl leading-none font-extrabold uppercase">Monte o seu</span>
+      <span className="mt-1 flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="Menos um kit"
+          disabled={kits <= minimo}
+          onClick={(e) => {
+            e.stopPropagation();
+            aoEscolher(kits - 1);
+          }}
+          className="grid size-8 place-items-center rounded-full border border-linha-2 font-bold disabled:opacity-40"
+        >
+          −
+        </button>
+        <span className="min-w-14 text-center font-mono text-sm font-bold" aria-live="polite">
+          {kits} kits
+        </span>
+        <button
+          type="button"
+          aria-label="Mais um kit"
+          disabled={kits >= maximo}
+          onClick={(e) => {
+            e.stopPropagation();
+            aoEscolher(kits + 1);
+          }}
+          className="grid size-8 place-items-center rounded-full border border-linha-2 font-bold disabled:opacity-40"
+        >
+          +
+        </button>
+      </span>
+      <span className="text-xs text-tinta-2">
+        {kits * loja.produto.aparelhos} aparelhos + {refis} refis
+      </span>
+      <span className="mt-2 font-mono text-lg font-bold">{reais(o.preco_centavos)}</span>
+      <span className="font-mono text-[11px] text-suave">{reais(Math.round(o.preco_centavos / refis))} por refil</span>
+      {economia > 0 && <span className="font-mono text-[11px] text-tinta-2">Economize {reais(economia)}</span>}
+      {o.frete_gratis && <span className="mt-1 font-mono text-[11px] font-bold uppercase text-ok">Frete grátis</span>}
+    </div>
   );
 }
 

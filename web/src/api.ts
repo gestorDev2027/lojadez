@@ -19,7 +19,32 @@ export type Loja = {
   ofertas: Oferta[];
   oferta_padrao: string;
   desconto_pix: number;
+  montar: Montar;
+  frete_gratis_a_partir: number; // 0: sem frete grátis
 };
+// "Monte o seu kit": de `minimo` a `maximo` kits, cada um por preco_kit_centavos (o servidor recalcula).
+export type Montar = { ativo: boolean; minimo: number; maximo: number; preco_kit_centavos: number };
+
+/** A oferta de N kits do "monte o seu" (id "kitN"), igual à que o servidor monta. */
+export function ofertaMontada(loja: Loja, kits: number): Oferta {
+  const limite = loja.frete_gratis_a_partir;
+  return {
+    id: `kit${kits}`,
+    titulo: `${kits} Kits`,
+    kits,
+    preco_centavos: kits * loja.montar.preco_kit_centavos,
+    selo: "",
+    descricao: "",
+    frete_gratis: limite > 0 && kits >= limite,
+  };
+}
+
+/** O kit montado que está na URL (?oferta=kit6), se valer. */
+export function kitsMontadosDaUrl(loja: Loja, id: string | null): number | null {
+  const kits = Number((id ?? "").replace(/^kit/, ""));
+  const m = loja.montar;
+  return m.ativo && /^kit\d+$/.test(id ?? "") && kits >= m.minimo && kits <= m.maximo ? kits : null;
+}
 export type Endereco = { cep: string; rua: string; bairro: string; cidade: string; uf: string };
 export type OpcaoFrete = {
   tipo: string;

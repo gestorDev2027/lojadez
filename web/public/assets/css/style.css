@@ -630,7 +630,8 @@ svg { display: block; }
 .countdown__clock small { font-size: 10px; color: var(--muted); text-transform: uppercase; margin-top: 4px; }
 .countdown__clock i { color: var(--orange); font-style: normal; font-size: 24px; }
 
-.offer-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: stretch; }
+.offer-list { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); gap: 18px; align-items: stretch; }
+@media (max-width: 1320px) { .offer-list[data-n="4"] { grid-template-columns: repeat(2, 1fr); } }
 .offer {
   --rx: 0deg; --ry: 0deg;
   position: relative; text-align: left; cursor: pointer;
@@ -676,7 +677,13 @@ svg { display: block; }
 .offer__now small { font-size: .38em; color: var(--orange-2); margin-right: 4px; vertical-align: .9em; }
 .offer__meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px dashed var(--line-2); font-size: 13px; color: var(--ink-2); }
 .offer__meta b { color: var(--orange-2); }
-.offer__frete { margin: 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #4ade80; }
+.offer__desc > span { display: block; }
+.offer__frete { margin-top: 6px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #4ade80; }
+.offer__stepper { display: flex !important; align-items: center; gap: 10px; margin: 10px 0 8px; }
+.offer__step { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line-2); background: transparent; color: inherit; font-size: 20px; font-weight: 800; cursor: pointer; }
+.offer__step:hover:not(:disabled) { border-color: var(--orange); }
+.offer__step:disabled { opacity: .35; cursor: default; }
+.offer__qty { min-width: 64px; text-align: center; font-size: 16px; }
 .offer__save { font-size: 12px; font-weight: 800; color: #120700; background: #e7eaee; padding: 4px 8px; border-radius: 6px; text-transform: uppercase; }
 .offer__foot { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
 .offer.is-selected .offer__foot { color: var(--orange-2); }

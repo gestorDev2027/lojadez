@@ -2,7 +2,9 @@
 
 Os padrões vêm do .env (servidor/config.py); o que o vendedor grava fica na tabela `ajustes` e vale sobre eles:
 - refis por kit e lâminas por refil;
-- preço e selo de cada oferta (1, 2 e 3 kits), se ela aparece e se o frete é grátis (a loja paga a Loggi);
+- preço e selo de cada oferta (1, 2 e 3 kits) e se ela aparece;
+- o "monte o seu kit" (de 4 kits até o máximo, pelo preço por kit da faixa "4 ou mais");
+- a partir de quantos kits o frete é grátis (a loja paga a Loggi);
 - a foto do kit (tabela `fotos`), usada na landing page e no checkout.
 """
 
@@ -49,14 +51,46 @@ def ofertas(so_ativas: bool = True) -> list[dict]:
     a = _ajustes().get("ofertas") or {}
     saida = []
     for padrao in config.OFERTAS:
-        o = {**padrao, "ativa": True, **{k: v for k, v in (a.get(padrao["id"]) or {}).items() if k in ("preco_centavos", "selo", "ativa", "frete_gratis")}}
+        o = {**padrao, "ativa": True, **{k: v for k, v in (a.get(padrao["id"]) or {}).items() if k in ("preco_centavos", "selo", "ativa")}}
+        o["frete_gratis"] = frete_gratis(o["kits"])
         if o["ativa"] or not so_ativas:
             saida.append(o)
     return saida
 
 
+def frete_gratis_a_partir() -> int:
+    """A partir de quantos kits o frete é grátis (0: nunca)."""
+    return int(_ajustes().get("frete_gratis_a_partir", config.FRETE_GRATIS_A_PARTIR))
+
+
+def frete_gratis(kits: int) -> bool:
+    limite = frete_gratis_a_partir()
+    return bool(limite) and kits >= limite
+
+
+def montar() -> dict:
+    """O "monte o seu kit": {ativo, minimo, maximo, preco_kit_centavos}."""
+    m = {**config.MONTAR_PADRAO, **(_ajustes().get("montar") or {})}
+    return {"ativo": bool(m["ativo"]), "minimo": config.MONTAR_MINIMO, "maximo": int(m["maximo"]),
+            "preco_kit_centavos": int(m["preco_kit_centavos"])}
+
+
+def oferta_montada(kits: int) -> dict | None:
+    """A oferta de N kits do "monte o seu" (id "kitN"), ou None se não vale."""
+    m = montar()
+    if not m["ativo"] or not m["minimo"] <= kits <= m["maximo"]:
+        return None
+    return {"id": f"kit{kits}", "titulo": f"{kits} Kits", "kits": kits, "preco_centavos": kits * m["preco_kit_centavos"],
+            "selo": "", "ativa": True, "montada": True, "frete_gratis": frete_gratis(kits)}
+
+
 def oferta(oferta_id: str) -> dict | None:
-    return next((o for o in ofertas() if o["id"] == oferta_id), None)
+    fixa = next((o for o in ofertas() if o["id"] == oferta_id), None)
+    if fixa:
+        return fixa
+    if oferta_id.startswith("kit") and oferta_id[3:].isdigit() and len(oferta_id) <= 5:
+        return oferta_montada(int(oferta_id[3:]))
+    return None
 
 
 def oferta_padrao() -> str:
@@ -91,11 +125,19 @@ def salvar(dados: dict) -> dict:
                 "preco_centavos": _inteiro(valores.get("preco_centavos"), f"Preço de {oid}", 100, 10_000_000),
                 "selo": " ".join(str(valores.get("selo") or "").split())[:40],
                 "ativa": bool(valores.get("ativa", True)),
-                "frete_gratis": bool(valores.get("frete_gratis", False)),
             }
         if not any(v["ativa"] for v in ofertas_novas.values()):
             raise ErroCatalogo("Deixe pelo menos uma oferta ativa.")
         novos["ofertas"] = ofertas_novas
+    if "frete_gratis_a_partir" in dados:
+        novos["frete_gratis_a_partir"] = _inteiro(dados["frete_gratis_a_partir"], "Frete grátis a partir de", 0, 100)
+    if "montar" in dados:
+        m = dados["montar"] if isinstance(dados["montar"], dict) else {}
+        novos["montar"] = {
+            "ativo": bool(m.get("ativo", True)),
+            "maximo": _inteiro(m.get("maximo"), "Máximo de kits", config.MONTAR_MINIMO, 30),
+            "preco_kit_centavos": _inteiro(m.get("preco_kit_centavos"), "Preço por kit (4 ou mais)", 100, 1_000_000),
+        }
     banco.gravar_ajustes(novos)
     limpar_cache()
     return resumo()
@@ -134,4 +176,5 @@ def url_foto() -> str:
 
 
 def resumo() -> dict:
-    return {"produto": produto(), "ofertas": ofertas(so_ativas=False), "foto": url_foto(), "foto_enviada": foto() is not None}
+    return {"produto": produto(), "ofertas": ofertas(so_ativas=False), "foto": url_foto(), "foto_enviada": foto() is not None,
+            "montar": montar(), "frete_gratis_a_partir": frete_gratis_a_partir()}

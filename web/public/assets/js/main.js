@@ -36,6 +36,21 @@
     o.de = o.precoDe && o.precoDe > o.preco ? o.precoDe : (o.quantidade > 1 && referencia > o.preco ? referencia : null);
     o.economia = o.de ? o.de - o.preco : 0;
   });
+  // "Monte o seu kit": um card a mais, de M.minimo a M.maximo kits, cada um por M.precoKit (o servidor recalcula).
+  const M = C.montar || {};
+  const freteGratisDe = C.freteGratisAPartir || 0;
+  offers.forEach((o) => { o.freteGratis = freteGratisDe > 0 && o.quantidade >= freteGratisDe; });
+  function montarOffer(n) {
+    const preco = Math.round(n * M.precoKit * 100) / 100;
+    const referencia = base.preco * n;
+    return {
+      id: 'montar', montar: true, titulo: `${n} Kits`, quantidade: n, preco, selo: '',
+      refisTotal: P.refis * n, porRefil: preco / (P.refis * n),
+      de: referencia > preco ? referencia : null, economia: referencia > preco ? referencia - preco : 0,
+      freteGratis: freteGratisDe > 0 && n >= freteGratisDe, checkoutUrl: `/checkout?oferta=kit${n}`,
+    };
+  }
+  if (M.ativo && M.precoKit > 0) offers.push(montarOffer(M.minimo || 4));
   let selected = offers.find((o) => o.id === C.ofertaPadrao) || offers[0] || base;
 
   const calc0 = Object.assign({ barbeadasPorSemana: 5, usosPorRefil: 5 }, C.calculadora);
@@ -178,6 +193,8 @@
 
   function renderOffers() {
     if (!offerList) return;
+    offerList.style.setProperty('--n', offers.length);
+    offerList.dataset.n = String(offers.length);
     offerList.innerHTML = offers.map((o, i) => {
       const aparelhos = o.quantidade * P.aparelhos;
       const imgs = Array.from({ length: Math.min(o.quantidade, 3) }, () =>
@@ -185,9 +202,16 @@
       return `
         <div class="offer" role="radio" tabindex="0" aria-checked="false" data-id="${esc(o.id)}" style="--rd:${i * 0.12}s">
           ${o.selo ? `<span class="offer__seal">${esc(o.selo)}</span>` : ''}
-          <h3 class="offer__title">${esc(o.titulo)}</h3>
-          <p class="offer__desc">${aparelhos} ${aparelhos > 1 ? 'aparelhos' : 'aparelho'} + ${o.refisTotal} refis</p>
-          ${o.freteGratis ? '<p class="offer__frete">Frete grátis</p>' : ''}
+          <h3 class="offer__title">${o.montar ? 'Monte o seu' : esc(o.titulo)}</h3>
+          <div class="offer__desc">
+            ${o.montar ? `<span class="offer__stepper">
+              <button type="button" class="offer__step" data-step="-1" aria-label="Menos um kit" ${o.quantidade <= M.minimo ? 'disabled' : ''}>−</button>
+              <b class="offer__qty" aria-live="polite">${o.quantidade} kits</b>
+              <button type="button" class="offer__step" data-step="1" aria-label="Mais um kit" ${o.quantidade >= M.maximo ? 'disabled' : ''}>+</button>
+            </span>` : ''}
+            <span>${aparelhos} ${aparelhos > 1 ? 'aparelhos' : 'aparelho'} + ${o.refisTotal} refis</span>
+            ${o.freteGratis ? '<span class="offer__frete">Frete grátis</span>' : ''}
+          </div>
           <div class="offer__stack" aria-hidden="true">${imgs}</div>
           <div class="offer__price">
             <span class="offer__from">${o.de ? `de ${brl(o.de)}` : ''}</span>
@@ -201,6 +225,18 @@
         </div>`;
     }).join('');
 
+    $$('.offer__step', offerList).forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const i = offers.findIndex((o) => o.id === 'montar');
+        const n = clamp(offers[i].quantidade + Number(btn.dataset.step), M.minimo, M.maximo);
+        offers[i] = montarOffer(n);
+        renderOffers();
+        selectOffer('montar', true);
+        const igual = $(`.offer[data-id="montar"] .offer__step[data-step="${btn.dataset.step}"]`, offerList);
+        if (igual && !igual.disabled) igual.focus();
+      });
+    });
     $$('.offer', offerList).forEach((card) => {
       card.addEventListener('click', () => selectOffer(card.dataset.id, true));
       card.addEventListener('keydown', (e) => {

@@ -98,7 +98,8 @@ def loja():
             "testes": config.LOGGI_AMBIENTE == "simulado" or config.INFINITEPAY_AMBIENTE == "simulado",
             "produto": {k: p[k] for k in ("sku", "ean", "nome", "aparelhos", "refis", "laminas_por_refil")},
             "foto": catalogo.url_foto(), "ofertas": _ofertas(), "oferta_padrao": catalogo.oferta_padrao(),
-            "desconto_pix": config.desconto_pix()}
+            "desconto_pix": config.desconto_pix(), "montar": catalogo.montar(),
+            "frete_gratis_a_partir": catalogo.frete_gratis_a_partir()}
 
 
 @app.get("/produto/foto", include_in_schema=False)
@@ -125,6 +126,8 @@ def lp_config():
                      "precoDe": None, "selo": o["selo"],
                      "freteGratis": bool(o.get("frete_gratis")), "checkoutUrl": f"/checkout?oferta={o['id']}"} for o in catalogo.ofertas()],
         "ofertaPadrao": catalogo.oferta_padrao(),
+        "montar": {**catalogo.montar(), "precoKit": catalogo.montar()["preco_kit_centavos"] / 100},
+        "freteGratisAPartir": catalogo.frete_gratis_a_partir(),
         "calculadora": {"barbeadasPorSemana": 5, "usosPorRefil": 5},
         "contagem": {"ativo": bool(config.LOJA_PROMO_ATE), "terminaEm": config.LOJA_PROMO_ATE,
                      "titulo": "Preço promocional válido por"},
