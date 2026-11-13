@@ -80,7 +80,11 @@ export function PaginaObrigado({ loja }: { loja: Loja }) {
             <p className="mt-2 text-suave">
               {pedido.situacao === "cancelado"
                 ? "Este pedido foi cancelado."
-                : "O valor pago não bateu com o do pedido. Vamos falar com você pelo e-mail informado."}
+                : pedido.situacao === "reembolso_pendente"
+                  ? "Este pedido foi cancelado e o reembolso está em andamento pela InfinitePay."
+                  : pedido.situacao === "reembolsado"
+                    ? "Este pedido foi cancelado e o valor foi devolvido pela InfinitePay."
+                    : "O valor pago não bateu com o do pedido. Vamos falar com você pelo e-mail informado."}
             </p>
           </>
         )}

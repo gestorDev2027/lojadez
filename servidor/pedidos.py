@@ -236,6 +236,74 @@ def cancelar(order_nsu: str) -> dict:
     return banco.buscar(order_nsu)
 
 
+# ───────── Cancelar um pedido pago (reembolso) ─────────
+# A API da InfinitePay não faz estorno: ele é feito no app ou no site dela. A loja marca o pedido, cancela o envio na
+# Loggi (se ainda der), tira a comissão do afiliado (o pedido deixa de contar como venda) e guarda o motivo e o valor.
+
+MOTIVOS_REEMBOLSO = {
+    "arrependimento": "Cliente desistiu da compra",
+    "sem_estoque": "Sem estoque",
+    "endereco": "Endereço errado ou entrega não feita",
+    "defeito": "Produto com defeito",
+    "outro": "Outro motivo",
+}
+
+
+def valor_pago(pedido: dict) -> int:
+    if pedido.get("desconto_pix") and pedido.get("forma_pagamento") == "pix":
+        return total_com_pix(pedido)
+    return int(pedido["total_centavos"])
+
+
+def pedir_reembolso(order_nsu: str, motivo: str, detalhe: str = "", valor_centavos=None, email: str | None = None) -> dict:
+    pedido = _pedido(order_nsu)
+    if pedido["situacao"] not in ("pago", "enviado"):
+        raise ErroPedido("Só pedidos pagos ou enviados são reembolsados (os não pagos: “Cancelar pedido”).", 409)
+    if motivo not in MOTIVOS_REEMBOLSO:
+        raise ErroPedido("Escolha o motivo do cancelamento.")
+    pago = valor_pago(pedido)
+    try:
+        valor = pago if valor_centavos in (None, "") else int(valor_centavos)
+    except (TypeError, ValueError):
+        raise ErroPedido("Valor do reembolso inválido.")
+    if not 1 <= valor <= pago:
+        raise ErroPedido(f"O reembolso vai de R$ 0,01 até o valor pago ({pago / 100:.2f}).".replace(".", ","))
+    texto = MOTIVOS_REEMBOLSO[motivo] + (f": {' '.join(str(detalhe).split())[:300]}" if str(detalhe or "").strip() else "")
+    mudar = {"situacao": "reembolso_pendente", "reembolso_motivo": texto, "reembolso_centavos": valor,
+             "reembolso_pedido_em": banco.agora()}
+    aviso_loggi = None
+    if pedido.get("loggi_key"):
+        try:
+            loggi.cancelar_envio(pedido["loggi_key"])
+            mudar.update({"loggi_key": None, "envio_criado_em": None, "codigo_rastreio": None})
+            aviso_loggi = "O envio na Loggi foi cancelado."
+        except loggi.ErroFrete as erro:  # já em rota ou entregue: o frete fica como custo da loja
+            aviso_loggi = f"O envio na Loggi não foi cancelado ({erro}). Se o pacote já saiu, combine a devolução com o cliente."
+    if not banco.alterar(order_nsu, mudar, so_se_situacao=("pago", "enviado")):
+        raise ErroPedido("O pedido mudou enquanto isso. Atualize e tente de novo.", 409)
+    banco.registrar(email, "reembolso", f"Reembolso pedido: {order_nsu[:8]} · {valor / 100:.2f} · {texto}")
+    return {**banco.buscar(order_nsu), "aviso_loggi": aviso_loggi}
+
+
+def confirmar_reembolso(order_nsu: str, valor_centavos=None, email: str | None = None) -> dict:
+    """Depois do estorno feito na InfinitePay: o pedido vira “reembolsado” (dá para acertar o valor devolvido)."""
+    pedido = _pedido(order_nsu)
+    if pedido["situacao"] != "reembolso_pendente":
+        raise ErroPedido("Este pedido não está esperando reembolso.", 409)
+    mudar = {"situacao": "reembolsado", "reembolsado_em": banco.agora()}
+    if valor_centavos not in (None, ""):
+        try:
+            valor = int(valor_centavos)
+        except (TypeError, ValueError):
+            raise ErroPedido("Valor do reembolso inválido.")
+        if not 1 <= valor <= valor_pago(pedido):
+            raise ErroPedido("O valor devolvido passa do valor pago.")
+        mudar["reembolso_centavos"] = valor
+    banco.alterar(order_nsu, mudar, so_se_situacao=("reembolso_pendente",))
+    banco.registrar(email, "reembolso", f"Reembolso confirmado: {order_nsu[:8]}")
+    return banco.buscar(order_nsu)
+
+
 # ───────── Envio pela Loggi ─────────
 
 _trava_envio = threading.Lock()

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { chamar, formatarCpf, formatarTelefone, reais } from "../api";
+import { Tabela, type ColunaTabela } from "./Tabela";
 import { Campo } from "./VendedorAjustes";
 import { Cartao, Coluna, Selo, SeletorPeriodo, periodoInicial, rotuloPagamento, type Periodo } from "./VendedorPainel";
 
@@ -57,6 +58,90 @@ type Ficha = {
   vendas_total: number;
 };
 type ProdutoOpcao = { id: string; nome: string };
+
+const COLUNAS_AFILIADOS: ColunaTabela<Afiliado & Numeros>[] = [
+  {
+    id: "afiliado",
+    rotulo: "Afiliado",
+    valor: (a) => `${a.nome} ${a.codigo} ${a.email ?? ""} ${a.telefone ?? ""} ${a.chave_pix ?? ""}`,
+    render: (a) => (
+      <>
+        <span className="block font-semibold">{a.nome}</span>
+        <span className="font-mono text-xs text-suave">?ref={a.codigo}</span>
+      </>
+    ),
+  },
+  { id: "comissao_pct", rotulo: "Comissão", valor: (a) => a.comissao_pct, render: (a) => <span className="font-mono">{pct(a.comissao_pct)}</span> },
+  { id: "produtos", rotulo: "Produtos", valor: (a) => (a.todos_produtos ? "Todos" : `${a.produtos.length} liberado(s)`) },
+  {
+    id: "cliques",
+    rotulo: "Cliques",
+    direita: true,
+    valor: (a) => a.cliques,
+    render: (a) => (
+      <span className="font-mono">
+        {a.cliques}
+        <span className="block text-[10px] text-suave">{pct(a.conversao_pct)}</span>
+      </span>
+    ),
+  },
+  { id: "pedidos", rotulo: "Pedidos", direita: true, valor: (a) => a.pedidos, render: (a) => <span className="font-mono">{a.pedidos}</span> },
+  {
+    id: "vendas",
+    rotulo: "Vendas",
+    direita: true,
+    valor: (a) => a.vendas_centavos / 100,
+    render: (a) => <span className="font-mono font-bold">{reais(a.vendas_centavos)}</span>,
+  },
+  {
+    id: "comissao",
+    rotulo: "Comissão gerada",
+    direita: true,
+    valor: (a) => a.comissao_centavos / 100,
+    render: (a) => <span className="font-mono text-laranja-2">{reais(a.comissao_centavos)}</span>,
+  },
+  { id: "pix", rotulo: "Chave Pix", valor: (a) => a.chave_pix ?? "", render: (a) => <span className="text-xs text-tinta-2">{a.chave_pix ?? "—"}</span> },
+  {
+    id: "situacao",
+    rotulo: "Situação",
+    valor: (a) => (a.ativo ? "Ativo" : "Inativo"),
+    render: (a) => (
+      <span className={`inline-block rounded-full px-2.5 py-0.5 font-mono text-[11px] font-bold ${a.ativo ? "bg-ok/15 text-ok" : "bg-white/10 text-suave"}`}>
+        {a.ativo ? "Ativo" : "Inativo"}
+      </span>
+    ),
+  },
+];
+
+const COLUNAS_VENDAS: ColunaTabela<Venda>[] = [
+  {
+    id: "data",
+    rotulo: "Data",
+    valor: (v) => v.criado_em ?? "",
+    render: (v) => <span className="font-mono text-xs text-tinta-2">{v.criado_em ? new Date(v.criado_em).toLocaleDateString("pt-BR") : "—"}</span>,
+  },
+  {
+    id: "cliente",
+    rotulo: "Cliente",
+    valor: (v) => `${v.cliente} ${v.cidade}`,
+    render: (v) => (
+      <>
+        <span className="font-semibold">{v.cliente}</span> <span className="text-xs text-suave">{v.cidade}</span>
+      </>
+    ),
+  },
+  { id: "produto", rotulo: "Produto", valor: (v) => `${v.produto} · ${v.quantidade}`, render: (v) => <span className="text-tinta-2">{v.produto} · {v.quantidade}</span> },
+  { id: "pagamento", rotulo: "Pagamento", valor: (v) => rotuloPagamento(v.forma_pagamento) },
+  { id: "valor", rotulo: "Valor", direita: true, valor: (v) => v.valor_centavos / 100, render: (v) => <span className="font-mono font-bold">{reais(v.valor_centavos)}</span> },
+  {
+    id: "comissao",
+    rotulo: "Comissão",
+    direita: true,
+    valor: (v) => v.comissao_centavos / 100,
+    render: (v) => <span className="font-mono text-laranja-2">{reais(v.comissao_centavos)}</span>,
+  },
+  { id: "situacao", rotulo: "Situação", valor: (v) => v.situacao, render: (v) => <Selo situacao={v.situacao} /> },
+];
 
 const pct = (n: number | null) => (n === null ? "—" : `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`);
 
@@ -168,59 +253,25 @@ function ListaAfiliados({
             </Cartao>
           </div>
 
-          <section className="rounded-2xl border border-linha bg-fundo-2/90 p-2 sm:p-4">
-            {dados.afiliados.length === 0 ? (
-              <div className="grid justify-items-center gap-3 p-8 text-center">
-                <p className="text-suave">Nenhum afiliado ainda.</p>
-                <button type="button" onClick={aoNovo} className="btn-laranja px-5 py-2.5 text-sm">
-                  Cadastrar o primeiro
-                </button>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] text-sm">
-                  <thead>
-                    <tr className="text-left font-mono text-[11px] tracking-[.12em] text-suave uppercase">
-                      <th className="px-2 py-2 font-semibold">Afiliado</th>
-                      <th className="px-2 py-2 font-semibold">Comissão</th>
-                      <th className="px-2 py-2 font-semibold">Produtos</th>
-                      <th className="px-2 py-2 text-right font-semibold">Cliques</th>
-                      <th className="px-2 py-2 text-right font-semibold">Pedidos</th>
-                      <th className="px-2 py-2 text-right font-semibold">Vendas</th>
-                      <th className="px-2 py-2 text-right font-semibold">Comissão gerada</th>
-                      <th className="px-2 py-2 font-semibold">Situação</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dados.afiliados.map((a) => (
-                      <tr key={a.id} onClick={() => aoAbrir(a.id)} className="cursor-pointer border-t border-linha hover:bg-white/[.03]">
-                        <td className="px-2 py-3">
-                          <span className="block font-semibold">{a.nome}</span>
-                          <span className="font-mono text-xs text-suave">?ref={a.codigo}</span>
-                        </td>
-                        <td className="px-2 py-3 font-mono">{pct(a.comissao_pct)}</td>
-                        <td className="px-2 py-3 text-tinta-2">{a.todos_produtos ? "Todos" : `${a.produtos.length} liberado(s)`}</td>
-                        <td className="px-2 py-3 text-right font-mono">
-                          {a.cliques}
-                          <span className="block text-[10px] text-suave">{pct(a.conversao_pct)}</span>
-                        </td>
-                        <td className="px-2 py-3 text-right font-mono">{a.pedidos}</td>
-                        <td className="px-2 py-3 text-right font-mono font-bold">{reais(a.vendas_centavos)}</td>
-                        <td className="px-2 py-3 text-right font-mono text-laranja-2">{reais(a.comissao_centavos)}</td>
-                        <td className="px-2 py-3">
-                          <span
-                            className={`inline-block rounded-full px-2.5 py-0.5 font-mono text-[11px] font-bold ${a.ativo ? "bg-ok/15 text-ok" : "bg-white/10 text-suave"}`}
-                          >
-                            {a.ativo ? "Ativo" : "Inativo"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          {dados.afiliados.length === 0 ? (
+            <section className="grid justify-items-center gap-3 rounded-2xl border border-linha bg-fundo-2/90 p-8 text-center">
+              <p className="text-suave">Nenhum afiliado ainda.</p>
+              <button type="button" onClick={aoNovo} className="btn-laranja px-5 py-2.5 text-sm">
+                Cadastrar o primeiro
+              </button>
+            </section>
+          ) : (
+            <Tabela
+              linhas={dados.afiliados}
+              colunas={COLUNAS_AFILIADOS}
+              chave={(a) => String(a.id)}
+              aoClicar={(a) => aoAbrir(a.id)}
+              ordemInicial={{ coluna: "vendas", desc: true }}
+              buscaDica="Buscar por nome, código, e-mail, telefone ou chave Pix"
+              arquivo="afiliados"
+              larguraMinima={900}
+            />
+          )}
         </>
       )}
     </div>
@@ -359,45 +410,16 @@ function FichaAfiliado({
           </span>
           <span className="font-normal text-suave normal-case tracking-normal">{ficha.vendas_total} no período</span>
         </h2>
-        {ficha.vendas.length === 0 ? (
-          <p className="py-6 text-center text-sm text-suave">Nenhuma venda no período.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead>
-                <tr className="text-left font-mono text-[11px] tracking-[.12em] text-suave uppercase">
-                  <th className="px-2 py-2 font-semibold">Data</th>
-                  <th className="px-2 py-2 font-semibold">Cliente</th>
-                  <th className="px-2 py-2 font-semibold">Produto</th>
-                  <th className="px-2 py-2 font-semibold">Pagamento</th>
-                  <th className="px-2 py-2 text-right font-semibold">Valor</th>
-                  <th className="px-2 py-2 text-right font-semibold">Comissão</th>
-                  <th className="px-2 py-2 font-semibold">Situação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ficha.vendas.map((v) => (
-                  <tr key={v.order_nsu} className="border-t border-linha">
-                    <td className="px-2 py-2.5 font-mono text-xs text-tinta-2">{v.criado_em ? new Date(v.criado_em).toLocaleDateString("pt-BR") : "—"}</td>
-                    <td className="px-2 py-2.5">
-                      <span className="font-semibold">{v.cliente}</span> <span className="text-xs text-suave">{v.cidade}</span>
-                    </td>
-                    <td className="px-2 py-2.5 text-tinta-2">
-                      {v.produto} · {v.quantidade}
-                    </td>
-                    <td className="px-2 py-2.5 text-tinta-2">{rotuloPagamento(v.forma_pagamento)}</td>
-                    <td className="px-2 py-2.5 text-right font-mono font-bold">{reais(v.valor_centavos)}</td>
-                    <td className="px-2 py-2.5 text-right font-mono text-laranja-2">{reais(v.comissao_centavos)}</td>
-                    <td className="px-2 py-2.5">
-                      <Selo situacao={v.situacao} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </section>
+      <Tabela
+        linhas={ficha.vendas}
+        colunas={COLUNAS_VENDAS}
+        chave={(v) => v.order_nsu}
+        ordemInicial={{ coluna: "data", desc: true }}
+        buscaDica="Buscar nas vendas deste afiliado"
+        arquivo={`vendas-${a.codigo}`}
+        vazio="Nenhuma venda no período."
+      />
 
       <section className="grid gap-1 rounded-2xl border border-linha bg-fundo-2/90 p-4 text-sm">
         <p className="font-mono text-[11px] font-bold tracking-[.14em] text-suave uppercase">Contato e documento</p>

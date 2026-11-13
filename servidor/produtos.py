@@ -133,7 +133,7 @@ def vitrine() -> list[dict]:
     """A lista da página /produtos: o kit de lâminas primeiro, depois os produtos ativos."""
     kit = catalogo.ofertas()
     p = catalogo.produto()
-    itens = [{"id": KIT, "nome": p["nome"], "chamada": f"{p['aparelhos']} aparelho + {p['refis']} refis por kit",
+    itens = [{"id": KIT, "nome": p["nome"], "chamada": p.get("chamada") or f"{p['aparelhos']} aparelho + {p['refis']} refis por kit",
               "foto": catalogo.url_foto(), "url": "/",
               "a_partir_de_centavos": min((o["preco_centavos"] for o in kit), default=0)}]
     for prod in listar():

@@ -14,7 +14,7 @@ pedidos = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("order_nsu", String(36), nullable=False, unique=True, index=True),
     Column("criado_em", DateTime(timezone=True), nullable=False),
-    # aguardando_pagamento → pago → enviado; ou cancelado
+    # aguardando_pagamento → pago → enviado; ou cancelado; pago/enviado → reembolso_pendente → reembolsado
     Column("situacao", String(30), nullable=False, default="aguardando_pagamento"),
     Column("sku", String(40), nullable=False),
     Column("oferta", String(20), nullable=False),
@@ -61,13 +61,20 @@ pedidos = Table(
     Column("afiliado_codigo", String(30)),
     Column("comissao_pct", Float),
     Column("comissao_centavos", Integer),
+    # cancelamento de pedido pago: o estorno é feito na InfinitePay; aqui fica o motivo, o valor e quando
+    Column("reembolso_motivo", Text),
+    Column("reembolso_centavos", Integer),
+    Column("reembolso_pedido_em", DateTime(timezone=True)),
+    Column("reembolsado_em", DateTime(timezone=True)),
 )
 
 # Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
 COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP WITH TIME ZONE", "envio_erro": "TEXT",
                           "desconto_pix": "DOUBLE PRECISION", "frete_custo_centavos": "INTEGER",
                           "produto_id": "VARCHAR(60)", "afiliado_id": "INTEGER", "afiliado_codigo": "VARCHAR(30)",
-                          "comissao_pct": "DOUBLE PRECISION", "comissao_centavos": "INTEGER"}}
+                          "comissao_pct": "DOUBLE PRECISION", "comissao_centavos": "INTEGER",
+                          "reembolso_motivo": "TEXT", "reembolso_centavos": "INTEGER",
+                          "reembolso_pedido_em": "TIMESTAMP WITH TIME ZONE", "reembolsado_em": "TIMESTAMP WITH TIME ZONE"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -308,7 +315,7 @@ def ultimas_mudancas(limite: int = 20) -> list[dict]:
         return [dict(l) for l in c.execute(consulta).mappings().all()]
 
 
-def listar(situacao: str | None = None, limite: int = 200) -> list[dict]:
+def listar(situacao: str | None = None, limite: int = 5000) -> list[dict]:
     consulta = select(pedidos).order_by(pedidos.c.criado_em.desc()).limit(limite)
     if situacao:
         consulta = consulta.where(pedidos.c.situacao == situacao)

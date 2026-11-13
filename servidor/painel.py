@@ -133,6 +133,10 @@ def _indicadores(lista: list[dict]) -> dict:
     frete = sum(frete_da_loja(p) for p in vendidos)
     comissoes = sum(comissao(p) for p in vendidos)
     aguardando = [p for p in lista if p["situacao"] == "aguardando_pagamento"]
+    reembolsos = [p for p in lista if p["situacao"] in ("reembolso_pendente", "reembolsado")]
+    devolvido = sum(int(p.get("reembolso_centavos") or 0) for p in reembolsos)
+    retido = sum(max(cobrado(p) - int(p.get("reembolso_centavos") or 0), 0) for p in reembolsos)  # reembolso parcial
+    frete_perdido = sum(frete_da_loja(p) for p in reembolsos if p.get("loggi_key"))  # o envio não foi cancelado
     return {
         "vendas_centavos": vendas,
         "produtos_centavos": sum(int(p["preco_centavos"]) for p in vendidos),
@@ -142,7 +146,11 @@ def _indicadores(lista: list[dict]) -> dict:
         "fretes_gratis_centavos": sum(frete_da_loja(p) for p in gratis),
         "comissoes_centavos": comissoes,
         "vendas_afiliados": sum(1 for p in vendidos if p.get("afiliado_id")),
-        "liquida_centavos": vendas - frete - comissoes,
+        "liquida_centavos": vendas - frete - comissoes + retido - frete_perdido,
+        "reembolsos": len(reembolsos),
+        "reembolsos_pendentes": sum(1 for p in reembolsos if p["situacao"] == "reembolso_pendente"),
+        "reembolsos_centavos": devolvido,
+        "frete_perdido_centavos": frete_perdido,
         "pedidos": len(vendidos),
         "ticket_medio_centavos": round(vendas / len(vendidos)) if vendidos else 0,
         "aguardando": len(aguardando),

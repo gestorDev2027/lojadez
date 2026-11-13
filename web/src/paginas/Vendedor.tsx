@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { chamar, ErroApi, formatarCep, formatarCpf, formatarTelefone, reais, type PedidoVendedor } from "../api";
+import { Tabela, type ColunaTabela } from "./Tabela";
 import { rotuloPagamento, Selo, VisaoGeral } from "./VendedorPainel";
 import { AbaIntegracoes, AbaProduto } from "./VendedorAjustes";
 import { AbaAfiliados } from "./VendedorAfiliados";
@@ -10,11 +11,12 @@ import { AbaProdutos } from "./VendedorProdutos";
 // As telas usam o token no lugar da antiga senha única (a prop continua se chamando "senha").
 const CHAVE = "loja-sessao-vendedor";
 
-const FILTROS = [
-  { valor: "pago", rotulo: "Para enviar" },
-  { valor: "aguardando_pagamento", rotulo: "Aguardando pagamento" },
-  { valor: "enviado", rotulo: "Enviados" },
-  { valor: "", rotulo: "Todos" },
+const FILTROS: { valor: string; rotulo: string; situacoes: string[] }[] = [
+  { valor: "pago", rotulo: "Para enviar", situacoes: ["pago"] },
+  { valor: "aguardando_pagamento", rotulo: "Aguardando", situacoes: ["aguardando_pagamento", "pagamento_divergente"] },
+  { valor: "enviado", rotulo: "Enviados", situacoes: ["enviado"] },
+  { valor: "reembolsos", rotulo: "Reembolsos", situacoes: ["reembolso_pendente", "reembolsado"] },
+  { valor: "", rotulo: "Todos", situacoes: [] },
 ];
 
 const SITUACOES: Record<string, { rotulo: string; cor: string }> = {
@@ -23,6 +25,8 @@ const SITUACOES: Record<string, { rotulo: string; cor: string }> = {
   enviado: { rotulo: "Enviado", cor: "bg-sky-400/15 text-sky-300" },
   cancelado: { rotulo: "Cancelado", cor: "bg-white/10 text-suave" },
   pagamento_divergente: { rotulo: "Valor divergente", cor: "bg-red-400/15 text-red-300" },
+  reembolso_pendente: { rotulo: "Reembolso pendente", cor: "bg-amber-400/15 text-amber-300" },
+  reembolsado: { rotulo: "Reembolsado", cor: "bg-white/10 text-tinta-2" },
 };
 
 function lerSenha() {
@@ -173,7 +177,69 @@ export function PaginaVendedor() {
   );
 }
 
-// Os pedidos em tabela: filtros, busca e, ao clicar numa linha, o pedido completo num painel ao lado.
+// Os pedidos na tabela padrão (busca, ordem, páginas, planilha) e, ao clicar numa linha, o pedido completo ao lado.
+const dataHora = (iso: string) => new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+const COLUNAS_PEDIDOS: ColunaTabela<PedidoVendedor>[] = [
+  {
+    id: "data",
+    rotulo: "Data",
+    valor: (p) => p.criado_em,
+    render: (p) => <span className="font-mono text-xs text-tinta-2">{dataHora(p.criado_em)}</span>,
+  },
+  {
+    id: "cliente",
+    rotulo: "Cliente",
+    valor: (p) => `${p.nome} ${p.email} ${p.cpf} ${p.telefone} ${p.cidade}/${p.uf}`,
+    render: (p) => (
+      <>
+        <span className="block font-semibold">{p.nome}</span>
+        <span className="text-xs text-suave">
+          {p.cidade}/{p.uf}
+        </span>
+      </>
+    ),
+  },
+  {
+    id: "produto",
+    rotulo: "Produto",
+    valor: (p) => p.produto,
+    render: (p) => (
+      <span className="block max-w-[300px] text-tinta-2">
+        <span className="line-clamp-2">{p.produto}</span>
+        {p.frete_centavos === 0 && <span className="font-mono text-[10px] font-bold text-ok">FRETE GRÁTIS</span>}
+      </span>
+    ),
+  },
+  { id: "afiliado", rotulo: "Afiliado", valor: (p) => p.afiliado_codigo ?? "", render: (p) => <span className="text-tinta-2">{p.afiliado_codigo ?? "—"}</span> },
+  {
+    id: "pagamento",
+    rotulo: "Pagamento",
+    valor: (p) => `${rotuloPagamento(p.forma_pagamento)}${p.parcelas && p.parcelas > 1 ? ` ${p.parcelas}x` : ""}`,
+  },
+  {
+    id: "valor",
+    rotulo: "Valor",
+    direita: true,
+    valor: (p) => p.total_centavos / 100,
+    render: (p) => <span className="font-mono font-bold">{reais(p.total_centavos)}</span>,
+  },
+  { id: "situacao", rotulo: "Situação", valor: (p) => SITUACOES[p.situacao]?.rotulo ?? p.situacao, render: (p) => <Selo situacao={p.situacao} /> },
+  {
+    id: "envio",
+    rotulo: "Envio",
+    valor: (p) => p.codigo_rastreio ?? (p.situacao === "pago" ? (p.envio_erro ? "Envio falhou" : "Criar envio") : ""),
+    render: (p) =>
+      p.codigo_rastreio ? (
+        <span className="font-mono text-xs">{p.codigo_rastreio}</span>
+      ) : p.situacao === "pago" ? (
+        <span className="text-xs text-amber-300">{p.envio_erro ? "Envio falhou" : "Criar envio"}</span>
+      ) : (
+        <span className="text-suave">—</span>
+      ),
+  },
+  { id: "pedido", rotulo: "Pedido", valor: (p) => p.order_nsu, render: (p) => <span className="font-mono text-[11px] text-suave">{p.order_nsu.slice(0, 8)}</span> },
+];
+
 function AbaPedidos({
   senha,
   aberto,
@@ -186,7 +252,6 @@ function AbaPedidos({
   aoSair: () => void;
 }) {
   const [filtro, setFiltro] = useState(aberto ? "" : "pago");
-  const [busca, setBusca] = useState("");
   const [lista, setLista] = useState<PedidoVendedor[] | null>(null);
   const [erro, setErro] = useState("");
   const sairRef = useRef(aoSair);
@@ -195,28 +260,21 @@ function AbaPedidos({
   const carregar = useCallback(async () => {
     setErro("");
     try {
-      setLista(await chamar<PedidoVendedor[]>(`/api/vendedor/pedidos${filtro ? `?situacao=${filtro}` : ""}`, { senha }));
+      setLista(await chamar<PedidoVendedor[]>("/api/vendedor/pedidos", { senha }));
     } catch (e) {
       if (e instanceof ErroApi && e.status === 401) sairRef.current();
       setErro((e as Error).message);
     }
-  }, [senha, filtro]);
+  }, [senha]);
 
   useEffect(() => {
     void carregar();
   }, [carregar]);
 
-  const termo = busca.trim().toLowerCase();
-  const digitos = termo.replace(/\D/g, "");
-  const visiveis = (lista ?? []).filter(
-    (p) =>
-      !termo ||
-      p.nome.toLowerCase().includes(termo) ||
-      p.email.toLowerCase().includes(termo) ||
-      p.order_nsu.startsWith(termo) ||
-      p.produto.toLowerCase().includes(termo) ||
-      (digitos.length >= 4 && (p.cpf.includes(digitos) || p.telefone.includes(digitos))),
-  );
+  const contagem = (f: (typeof FILTROS)[number]) =>
+    (lista ?? []).filter((p) => !f.situacoes.length || f.situacoes.includes(p.situacao)).length;
+  const escolhido = FILTROS.find((f) => f.valor === filtro) ?? FILTROS[FILTROS.length - 1];
+  const linhas = (lista ?? []).filter((p) => !escolhido.situacoes.length || escolhido.situacoes.includes(p.situacao));
   const selecionado = (lista ?? []).find((p) => p.order_nsu === aberto) ?? null;
 
   return (
@@ -224,109 +282,46 @@ function AbaPedidos({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold md:text-3xl">Pedidos</h1>
-          <p className="mt-1 text-sm text-suave">Clique num pedido para ver o endereço, criar o envio na Loggi e marcar como enviado.</p>
+          <p className="mt-1 text-sm text-suave">Clique num pedido para ver o endereço, criar o envio na Loggi, marcar como enviado ou cancelar e reembolsar.</p>
         </div>
         <button type="button" onClick={() => void carregar()} className="rounded-xl border border-linha-2 bg-fundo-2 px-4 py-2 text-sm font-semibold hover:border-laranja">
           Atualizar
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div role="tablist" aria-label="Filtrar pedidos" className="flex gap-1 overflow-x-auto rounded-xl border border-linha-2 bg-fundo-2 p-1">
-          {FILTROS.map((f) => (
-            <button
-              key={f.valor}
-              role="tab"
-              aria-selected={filtro === f.valor}
-              type="button"
-              onClick={() => setFiltro(f.valor)}
-              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold ${filtro === f.valor ? "bg-laranja text-black" : "text-tinta-2 hover:text-tinta"}`}
-            >
-              {f.rotulo}
-            </button>
-          ))}
-        </div>
-        <label className="relative min-w-0 flex-1 basis-60 sm:max-w-sm">
-          <span className="sr-only">Buscar pedido</span>
-          <input
-            className="campo pl-10"
-            placeholder="Buscar por nome, e-mail, CPF ou produto"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-          <svg viewBox="0 0 24 24" className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-suave" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-            <circle cx="11" cy="11" r="7" />
-            <path d="M20 20l-3.5-3.5" />
-          </svg>
-        </label>
-      </div>
-
       {erro && <p role="alert" className="text-alerta">{erro}</p>}
-      <section className="rounded-2xl border border-linha bg-fundo-2/90 p-2 sm:p-4">
-        {lista === null ? (
-          <p className="p-6 text-center text-suave">Carregando…</p>
-        ) : visiveis.length === 0 ? (
-          <p className="p-8 text-center text-suave">{termo ? "Nenhum pedido com essa busca." : "Nenhum pedido aqui."}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-sm">
-              <thead>
-                <tr className="text-left font-mono text-[11px] tracking-[.12em] text-suave uppercase">
-                  <th className="px-2 py-2 font-semibold">Data</th>
-                  <th className="px-2 py-2 font-semibold">Cliente</th>
-                  <th className="px-2 py-2 font-semibold">Produto</th>
-                  <th className="px-2 py-2 font-semibold">Pagamento</th>
-                  <th className="px-2 py-2 text-right font-semibold">Valor</th>
-                  <th className="px-2 py-2 font-semibold">Situação</th>
-                  <th className="px-2 py-2 font-semibold">Envio</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visiveis.map((p) => (
-                  <tr
-                    key={p.order_nsu}
-                    onClick={() => aoAbrir(p.order_nsu)}
-                    aria-selected={p.order_nsu === aberto}
-                    className={`cursor-pointer border-t border-linha ${p.order_nsu === aberto ? "bg-laranja/10" : "hover:bg-white/[.03]"}`}
-                  >
-                    <td className="px-2 py-3 font-mono text-xs text-tinta-2">
-                      {new Date(p.criado_em).toLocaleDateString("pt-BR")}
-                      <span className="block text-suave">{new Date(p.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
-                    </td>
-                    <td className="px-2 py-3">
-                      <span className="block font-semibold">{p.nome}</span>
-                      <span className="text-xs text-suave">
-                        {p.cidade}/{p.uf}
-                      </span>
-                    </td>
-                    <td className="max-w-[320px] px-2 py-3 text-tinta-2">
-                      <span className="line-clamp-2">{p.produto}</span>
-                      {p.frete_centavos === 0 && <span className="font-mono text-[10px] font-bold text-ok">FRETE GRÁTIS</span>}
-                    </td>
-                    <td className="px-2 py-3 text-tinta-2">
-                      {rotuloPagamento(p.forma_pagamento)}
-                      {p.parcelas && p.parcelas > 1 ? ` ${p.parcelas}x` : ""}
-                    </td>
-                    <td className="px-2 py-3 text-right font-mono font-bold">{reais(p.total_centavos)}</td>
-                    <td className="px-2 py-3">
-                      <Selo situacao={p.situacao} />
-                    </td>
-                    <td className="px-2 py-3 text-xs text-tinta-2">
-                      {p.codigo_rastreio ? (
-                        <span className="font-mono">{p.codigo_rastreio}</span>
-                      ) : p.situacao === "pago" ? (
-                        <span className="text-amber-300">{p.envio_erro ? "Envio falhou" : "Criar envio"}</span>
-                      ) : (
-                        <span className="text-suave">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      {lista === null ? (
+        <p className="text-suave">Carregando…</p>
+      ) : (
+        <Tabela
+          linhas={linhas}
+          colunas={COLUNAS_PEDIDOS}
+          chave={(p) => p.order_nsu}
+          aoClicar={(p) => aoAbrir(p.order_nsu)}
+          selecionada={aberto}
+          ordemInicial={{ coluna: "data", desc: true }}
+          buscaDica="Buscar por nome, e-mail, CPF, telefone, cidade, produto, afiliado ou pedido"
+          arquivo="pedidos"
+          vazio="Nenhum pedido aqui."
+          larguraMinima={980}
+          extras={
+            <div role="tablist" aria-label="Filtrar pedidos" className="flex gap-1 overflow-x-auto rounded-xl border border-linha-2 bg-fundo p-1 [scrollbar-width:none]">
+              {FILTROS.map((f) => (
+                <button
+                  key={f.valor}
+                  role="tab"
+                  aria-selected={filtro === f.valor}
+                  type="button"
+                  onClick={() => setFiltro(f.valor)}
+                  className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold ${filtro === f.valor ? "bg-laranja text-black" : "text-tinta-2 hover:text-tinta"}`}
+                >
+                  {f.rotulo} <span className="font-mono text-[11px] opacity-70">{contagem(f)}</span>
+                </button>
+              ))}
+            </div>
+          }
+        />
+      )}
 
       {/* O pedido aberto, num painel à direita */}
       {aberto && (
@@ -349,11 +344,164 @@ function AbaPedidos({
                 <CartaoPedido pedido={selecionado} senha={senha} aoMudar={() => void carregar()} />
               </ul>
             ) : (
-              <p className="text-suave">{lista === null ? "Carregando…" : "Pedido fora deste filtro. Escolha “Todos”."}</p>
+              <p className="text-suave">{lista === null ? "Carregando…" : "Pedido não encontrado."}</p>
             )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Cancelar um pedido pago: o estorno é feito na InfinitePay (a API dela não estorna); aqui fica o motivo e o valor,
+// o envio na Loggi é cancelado (se ainda der) e, feito o estorno, o pedido é marcado como reembolsado.
+const MOTIVOS = [
+  { id: "arrependimento", rotulo: "Cliente desistiu da compra" },
+  { id: "sem_estoque", rotulo: "Sem estoque" },
+  { id: "endereco", rotulo: "Endereço errado ou entrega não feita" },
+  { id: "defeito", rotulo: "Produto com defeito" },
+  { id: "outro", rotulo: "Outro motivo" },
+];
+const paraReais = (centavos: number) => (centavos / 100).toFixed(2).replace(".", ",");
+const paraCentavos = (texto: string) => {
+  const v = Number.parseFloat(texto.replace(/[^\d,.]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."));
+  return Number.isFinite(v) ? Math.round(v * 100) : NaN;
+};
+
+function Reembolso({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senha: string; aoMudar: () => void }) {
+  const pago = p.valor_pago_centavos && p.forma_pagamento === "pix" ? p.valor_pago_centavos : p.total_centavos;
+  const [aberto, setAberto] = useState(false);
+  const [motivo, setMotivo] = useState("arrependimento");
+  const [detalhe, setDetalhe] = useState("");
+  const [valor, setValor] = useState(paraReais(p.reembolso_centavos ?? pago));
+  const [ocupado, setOcupado] = useState(false);
+  const [erro, setErro] = useState("");
+  const [aviso, setAviso] = useState("");
+  const [copiado, setCopiado] = useState(false);
+
+  async function enviar(caminho: string, corpo: object) {
+    setErro("");
+    setOcupado(true);
+    try {
+      const r = await chamar<{ aviso_loggi?: string | null }>(`/api/vendedor/pedidos/${p.order_nsu}/${caminho}`, { senha, corpo });
+      if (r.aviso_loggi) setAviso(r.aviso_loggi);
+      setAberto(false);
+      aoMudar();
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  if (p.situacao === "reembolsado")
+    return (
+      <div className="grid gap-1 rounded-xl border border-linha-2 p-3 text-sm">
+        <p className="font-bold">Reembolsado: {reais(p.reembolso_centavos ?? 0)}</p>
+        <p className="text-suave">{p.reembolso_motivo}</p>
+        {p.reembolsado_em && <p className="text-xs text-suave">Confirmado em {new Date(p.reembolsado_em).toLocaleString("pt-BR")}</p>}
+      </div>
+    );
+
+  if (p.situacao === "reembolso_pendente")
+    return (
+      <div className="grid gap-2 rounded-xl border border-amber-400/40 bg-amber-400/[.06] p-3 text-sm">
+        <p className="font-bold text-amber-300">Reembolso pendente: {reais(p.reembolso_centavos ?? 0)}</p>
+        <p className="text-tinta-2">{p.reembolso_motivo}</p>
+        {aviso && <p className="text-tinta-2">{aviso}</p>}
+        <ol className="ml-4 list-decimal space-y-1 text-tinta-2">
+          <li>Abra o app (ou o site) da InfinitePay, em Vendas, e ache esta venda pelo código abaixo ou pelo valor.</li>
+          <li>Faça o estorno de {reais(p.reembolso_centavos ?? 0)}.</li>
+          <li>Volte aqui e clique em “Marcar como reembolsado”.</li>
+        </ol>
+        {p.transaction_nsu && (
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-lg bg-fundo px-2 py-1.5 font-mono text-xs">{p.transaction_nsu}</code>
+            <button
+              type="button"
+              onClick={async () => {
+                await navigator.clipboard.writeText(p.transaction_nsu ?? "").catch(() => undefined);
+                setCopiado(true);
+                window.setTimeout(() => setCopiado(false), 2000);
+              }}
+              className="rounded-lg border border-laranja/60 px-3 py-1.5 text-xs font-bold text-laranja-2"
+            >
+              {copiado ? "Copiado" : "Copiar código"}
+            </button>
+          </div>
+        )}
+        {p.recibo_url && (
+          <a href={p.recibo_url} target="_blank" rel="noreferrer" className="text-xs text-laranja-2 hover:underline">
+            Ver o recibo da InfinitePay
+          </a>
+        )}
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="grid gap-1 text-xs">
+            Valor devolvido (R$)
+            <input className="campo w-32 py-2 font-mono text-sm" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} />
+          </label>
+          <button
+            type="button"
+            disabled={ocupado}
+            onClick={() => void enviar("reembolsado", { valor_centavos: paraCentavos(valor) })}
+            className="btn-laranja px-4 py-2.5 text-xs"
+          >
+            {ocupado ? "Salvando…" : "Marcar como reembolsado"}
+          </button>
+        </div>
+        {erro && <p role="alert" className="text-alerta">{erro}</p>}
+      </div>
+    );
+
+  if (p.situacao !== "pago" && p.situacao !== "enviado") return null;
+  if (!aberto)
+    return (
+      <button type="button" onClick={() => setAberto(true)} className="justify-self-start text-sm font-medium text-red-300 hover:underline">
+        Cancelar e reembolsar
+      </button>
+    );
+  return (
+    <div className="grid gap-3 rounded-xl border border-red-400/40 bg-red-400/[.05] p-3 text-sm">
+      <p className="font-bold">Cancelar e reembolsar</p>
+      <p className="text-tinta-2">
+        O dinheiro volta pela InfinitePay (no app dela). Aqui o pedido fica como “Reembolso pendente”, a comissão do afiliado sai e
+        {p.loggi_key ? " o envio na Loggi é cancelado (se ainda der)." : " ele deixa de contar como venda."}
+      </p>
+      <label className="grid gap-1">
+        Motivo
+        <select className="campo py-2" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
+          {MOTIVOS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.rotulo}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="grid gap-1">
+        Detalhe (opcional)
+        <input className="campo py-2" maxLength={300} value={detalhe} onChange={(e) => setDetalhe(e.target.value)} />
+      </label>
+      <label className="grid gap-1">
+        Valor a devolver (R$) · pago {reais(pago)}
+        <input className="campo w-40 py-2 font-mono" inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={ocupado}
+          onClick={() => {
+            if (window.confirm(`Cancelar este pedido e reembolsar ${reais(paraCentavos(valor) || 0)}?`))
+              void enviar("reembolso", { motivo, detalhe, valor_centavos: paraCentavos(valor) });
+          }}
+          className="rounded-full bg-red-500/90 px-4 py-2.5 text-xs font-bold text-white hover:bg-red-500"
+        >
+          {ocupado ? "Cancelando…" : "Cancelar o pedido"}
+        </button>
+        <button type="button" onClick={() => setAberto(false)} className="rounded-full px-4 py-2 text-xs text-suave">
+          Voltar
+        </button>
+      </div>
+      {erro && <p role="alert" className="text-alerta">{erro}</p>}
     </div>
   );
 }
@@ -691,6 +839,7 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
           {erro}
         </p>
       )}
+      <Reembolso pedido={p} senha={senha} aoMudar={aoMudar} />
       <p className="text-xs text-suave">Pedido {p.order_nsu}</p>
     </li>
   );

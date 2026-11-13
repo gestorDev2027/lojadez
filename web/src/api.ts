@@ -137,7 +137,7 @@ export type Cotacao = { endereco: Endereco; opcoes: OpcaoFrete[]; produto_centav
 
 export type PedidoPublico = {
   order_nsu: string;
-  situacao: "aguardando_pagamento" | "pago" | "enviado" | "cancelado" | "pagamento_divergente";
+  situacao: "aguardando_pagamento" | "pago" | "enviado" | "cancelado" | "pagamento_divergente" | "reembolso_pendente" | "reembolsado";
   primeiro_nome: string;
   produto: string;
   kits: number;
@@ -197,6 +197,13 @@ export type PedidoVendedor = Omit<PedidoPublico, "primeiro_nome" | "situacao"> &
   envio_criado_em: string | null;
   envio_erro: string | null;
   frete_custo_centavos: number | null; // o que a Loggi cobra da loja
+  transaction_nsu: string | null;
+  afiliado_codigo: string | null;
+  comissao_centavos: number | null;
+  reembolso_motivo: string | null;
+  reembolso_centavos: number | null;
+  reembolso_pedido_em: string | null;
+  reembolsado_em: string | null;
 };
 
 export type Rastreio = {

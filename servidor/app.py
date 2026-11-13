@@ -409,6 +409,23 @@ def vendedor_cancelar(order_nsu: str, request: Request):
 
 # Envio pela Loggi: cria o pacote (de verdade, fora do modo simulado), baixa a etiqueta e cancela.
 
+@app.post("/api/vendedor/pedidos/{order_nsu}/reembolso")
+async def vendedor_pedir_reembolso(order_nsu: str, request: Request):
+    """Cancela um pedido pago: o estorno é feito na InfinitePay; a loja guarda o motivo e cancela o envio na Loggi."""
+    email = _vendedor(request)
+    dados = await _json(request)
+    pedido = pedidos.pedir_reembolso(_nsu(order_nsu), str(dados.get("motivo") or ""), str(dados.get("detalhe") or ""),
+                                     dados.get("valor_centavos"), email)
+    return {**banco_para_tela({k: v for k, v in pedido.items() if k != "aviso_loggi"}), "aviso_loggi": pedido["aviso_loggi"]}
+
+
+@app.post("/api/vendedor/pedidos/{order_nsu}/reembolsado")
+async def vendedor_confirmar_reembolso(order_nsu: str, request: Request):
+    email = _vendedor(request)
+    dados = await _json(request)
+    return banco_para_tela(pedidos.confirmar_reembolso(_nsu(order_nsu), dados.get("valor_centavos"), email))
+
+
 @app.post("/api/vendedor/pedidos/{order_nsu}/loggi/envio")
 def vendedor_criar_envio(order_nsu: str, request: Request):
     _vendedor(request)
@@ -521,8 +538,16 @@ async def vendedor_ia_textos(request: Request):
     _vendedor(request)
     _limitar(request, "ia", 12)
     dados = await _json(request)
-    foto = produtos.foto(str(dados.get("produto") or "")) if dados.get("produto") and dados.get("usar_foto", True) else None
+    foto = _foto_para_ia(str(dados.get("produto") or "")) if dados.get("usar_foto", True) else None
     return ia.sugerir_textos(dados, foto["tipo"] if foto else None, foto["dados"] if foto else None)
+
+
+def _foto_para_ia(produto: str) -> dict | None:
+    """A foto enviada do produto (ou do kit de lâminas): a IA lê e edita a foto que já está na loja."""
+    if produto == produtos.KIT:  # sem foto enviada, a IA usa a foto padrão do kit
+        padrao = _SITE / "assets" / "img" / "kit-foto.jpg"
+        return catalogo.foto() or ({"tipo": "image/jpeg", "dados": padrao.read_bytes()} if padrao.is_file() else None)
+    return produtos.foto(produto) if produto else None
 
 
 @app.post("/api/vendedor/ia/foto")
@@ -530,7 +555,7 @@ async def vendedor_ia_foto(request: Request):
     _vendedor(request)
     _limitar(request, "ia", 12)
     dados = await _json(request)
-    foto = produtos.foto(str(dados.get("produto") or ""))
+    foto = _foto_para_ia(str(dados.get("produto") or ""))
     if not foto:
         raise ia.ErroIA("Envie uma foto do produto primeiro: a IA edita a foto que já está lá.")
     editada = ia.editar_foto(foto["tipo"], foto["dados"], str(dados.get("estilo") or ""), str(dados.get("instrucao") or ""))
