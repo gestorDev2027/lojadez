@@ -11,3 +11,7 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false # Supabase: Connect > Session pooler (porta 5432), com a senha do banco
+      - key: LOJA_ADMIN_EMAIL
+        sync: false # opcional: o acesso ao /vendedor (sem ele, o primeiro acesso usa o código dos Logs)
+      - key: LOJA_ADMIN_SENHA
+        sync: false # opcional: pelo menos 10 caracteres; a senha desse acesso só muda aqui

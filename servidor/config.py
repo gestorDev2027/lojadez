@@ -99,6 +99,10 @@ POR_CHAVE = {c.chave: c for c in CAMPOS}
 PRODUTO_SKU, PRODUTO_EAN = "MADE-BB006", "7892125080110"
 INFINITEPAY_URL = "https://api.checkout.infinitepay.io"
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
+# O acesso à área do vendedor fixo no .env (opcional). Ao ligar, a loja cria esse acesso (ou acerta a senha) no banco,
+# onde fica só o hash. A senha desse acesso só muda no .env.
+ADMIN_EMAIL = (os.getenv("LOJA_ADMIN_EMAIL") or "").strip().lower()
+ADMIN_SENHA = os.getenv("LOJA_ADMIN_SENHA") or ""
 
 
 def _digitos(texto: str) -> str:

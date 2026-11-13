@@ -25,6 +25,7 @@ log = logging.getLogger("loja")
 async def _vida(_: FastAPI):
     banco.iniciar()
     configuracoes.recarregar()  # o que foi salvo na aba Configurações (e no Vault) vale sobre o .env
+    acesso.acesso_do_ambiente()  # LOJA_ADMIN_EMAIL e LOJA_ADMIN_SENHA no .env: cria o acesso ou acerta a senha
     acesso.preparar_primeiro_acesso()  # sem administrador: mostra no terminal o código do primeiro acesso
     for problema in config.conferir():
         log.warning("Configuração: %s", problema)

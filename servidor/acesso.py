@@ -3,7 +3,9 @@
 - A senha fica só como hash scrypt (sal próprio), nunca em texto. Conferência em tempo constante.
 - Entrou: um token aleatório (vale ACESSO_HORAS). No banco fica só o hash dele.
 - Cinco senhas erradas para o mesmo e-mail em 15 minutos bloqueiam esse e-mail por 15 minutos.
-- O primeiro administrador é criado na tela de primeiro acesso (/vendedor), com um código de uso único que a loja
+- O acesso pode vir do .env (LOJA_ADMIN_EMAIL e LOJA_ADMIN_SENHA): ao ligar, a loja cria esse administrador ou acerta a
+  senha dele no banco (só o hash). A senha dele só muda no .env.
+- Sem isso, o primeiro administrador é criado na tela de primeiro acesso (/vendedor), com um código de uso único que a loja
   mostra no terminal (no Render, nos logs) ao ligar, ou pelo comando `python -m servidor.admin`. Com um administrador
   criado, a tela de primeiro acesso some. Cinco códigos errados trocam o código.
 """
@@ -20,7 +22,7 @@ from datetime import timedelta
 
 from sqlalchemy import delete, insert, select, update
 
-from servidor import banco
+from servidor import banco, config
 
 ACESSO_HORAS = 12
 SENHA_MINIMA = 10
@@ -100,6 +102,30 @@ def definir_administrador(email: str, senha: str) -> str:
                                                            atualizado_em=agora))
         c.execute(delete(banco.sessoes).where(banco.sessoes.c.email == email))
     banco.registrar(email, "senha" if existe else "administrador", "Senha trocada" if existe else "Administrador criado")
+    return email
+
+
+def acesso_do_ambiente() -> str | None:
+    """Ao ligar: cria o administrador do .env ou acerta a senha dele. Devolve o e-mail, ou None se não houver."""
+    email, senha = config.ADMIN_EMAIL, config.ADMIN_SENHA
+    if not email and not senha:
+        return None
+    if not email or not senha:
+        log.warning("Acesso do .env ignorado: preencha LOJA_ADMIN_EMAIL e LOJA_ADMIN_SENHA.")
+        return None
+    try:
+        _email(email)
+        conferir_senha_nova(senha)
+    except ErroAcesso as erro:
+        log.warning("Acesso do .env ignorado: %s", erro.mensagem)
+        return None
+    with banco.engine.connect() as c:
+        linha = c.execute(select(banco.administradores.c.senha_hash)
+                          .where(banco.administradores.c.email == email)).first()
+    if linha and senha_confere(senha, linha.senha_hash):
+        return email
+    definir_administrador(email, senha)  # cria, ou troca a senha (e fecha as sessões abertas)
+    log.info("Acesso do .env %s na área do vendedor.", "atualizado" if linha else "criado")
     return email
 
 
@@ -221,5 +247,7 @@ def sair(token: str) -> None:
 
 
 def trocar_senha(email: str, atual: str, nova: str) -> None:
+    if config.ADMIN_EMAIL and email == config.ADMIN_EMAIL:
+        raise ErroAcesso("A senha deste acesso vem do .env (LOJA_ADMIN_SENHA): troque lá e religue a loja.", 409)
     conferir_credenciais(email, atual)
     definir_administrador(email, nova)

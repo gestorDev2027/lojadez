@@ -12,6 +12,7 @@ os.environ.update(LOGGI_AMBIENTE="simulado", INFINITEPAY_AMBIENTE="simulado", IN
                   PRODUTO_DIMENSOES_CM="32x17x5", LOGGI_ENVIO_AUTOMATICO="nao",
                   # as chaves do .env de verdade não entram nos testes (vazio no ambiente: o .env não sobrepõe)
                   LOGGI_CLIENT_ID="", LOGGI_CLIENT_SECRET="", LOGGI_COMPANY_ID="", INFINITEPAY_API_KEY="", INFINITEPAY_HANDLE="",
+                  LOJA_ADMIN_EMAIL="", LOJA_ADMIN_SENHA="",
                   DATABASE_URL=os.environ.get("TESTE_DATABASE_URL", ""), SITE_URL="http://testserver", LOJA_ORIGEM_CEP="01310100")
 
 import pytest  # noqa: E402
@@ -366,6 +367,32 @@ def test_codigo_do_primeiro_acesso_troca_depois_de_cinco_erros(cliente, caplog, 
     assert cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": errado, **novo}).status_code == 429
     acesso_antigo = cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": antigo, **novo})
     assert acesso_antigo.status_code in (401, 429)  # o código antigo não vale mais (ou o limite por IP segurou)
+
+
+def test_acesso_fixo_no_env(cliente, monkeypatch):
+    from servidor import acesso, config
+
+    monkeypatch.setattr(config, "ADMIN_SENHA", "curta")
+    monkeypatch.setattr(config, "ADMIN_EMAIL", "env@loja.test")
+    assert acesso.acesso_do_ambiente() is None  # senha curta: ignora e avisa no terminal
+    monkeypatch.setattr(config, "ADMIN_SENHA", "senha-do-env-bem-longa")
+    assert acesso.acesso_do_ambiente() == "env@loja.test"
+    r = cliente.post("/api/vendedor/entrar", json={"email": "ENV@loja.test", "senha": "senha-do-env-bem-longa"})
+    assert r.status_code == 200
+    token = {"Authorization": f"Bearer {r.json()['token']}"}
+    assert cliente.get("/api/vendedor/primeiro-acesso").json() == {"disponivel": False}
+    # A senha desse acesso só muda no .env
+    r = cliente.post("/api/vendedor/senha", json={"atual": "senha-do-env-bem-longa", "nova": "outra-senha-qualquer"},
+                     headers=token)
+    assert r.status_code == 409
+    # Mudou no .env: ao ligar de novo, a senha é acertada e as sessões antigas caem
+    assert acesso.acesso_do_ambiente() == "env@loja.test"  # mesma senha: nada muda
+    assert cliente.get("/api/vendedor/eu", headers=token).status_code == 200
+    monkeypatch.setattr(config, "ADMIN_SENHA", "senha-nova-do-env-longa")
+    acesso.acesso_do_ambiente()
+    assert cliente.get("/api/vendedor/eu", headers=token).status_code == 401
+    assert cliente.post("/api/vendedor/entrar", json={"email": "env@loja.test", "senha": "senha-do-env-bem-longa"}).status_code == 401
+    assert cliente.post("/api/vendedor/entrar", json={"email": "env@loja.test", "senha": "senha-nova-do-env-longa"}).status_code == 200
 
 
 def test_bloqueia_depois_de_cinco_erros(cliente):
