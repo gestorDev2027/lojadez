@@ -16,7 +16,9 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from servidor import acesso, banco, catalogo, config, configuracoes, loggi, pedidos, produtos, simulador
+import base64
+
+from servidor import acesso, banco, catalogo, config, configuracoes, ia, loggi, painel, pedidos, produtos, simulador
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -44,6 +46,16 @@ def _erro_pedido(_: Request, erro: pedidos.ErroPedido):
 @app.exception_handler(acesso.ErroAcesso)
 def _erro_acesso(_: Request, erro: acesso.ErroAcesso):
     return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(ia.ErroIA)
+def _erro_ia(_: Request, erro: ia.ErroIA):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
+
+
+@app.exception_handler(painel.ErroPainel)
+def _erro_painel(_: Request, erro: painel.ErroPainel):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
 
 
 @app.exception_handler(produtos.ErroProduto)
@@ -154,6 +166,8 @@ def lp_config():
                      "precoDe": None, "selo": o["selo"],
                      "freteGratis": bool(o.get("frete_gratis")), "checkoutUrl": f"/checkout?oferta={o['id']}"} for o in catalogo.ofertas()],
         "ofertaPadrao": catalogo.oferta_padrao(),
+        "produtos": [{"nome": p["nome"], "chamada": p["chamada"], "foto": p["foto"], "url": p["url"],
+                      "aPartirDe": p["a_partir_de_centavos"] / 100} for p in produtos.vitrine() if p["id"] != produtos.KIT],
         "montar": {**catalogo.montar(), "precoKit": catalogo.montar()["preco_kit_centavos"] / 100},
         "freteGratisAPartir": catalogo.frete_gratis_a_partir(),
         "calculadora": {"barbeadasPorSemana": 5, "usosPorRefil": 5},
@@ -311,6 +325,14 @@ async def vendedor_importar_configuracoes(request: Request):
     _confirmar_senha(request, email, await _json(request))
     return configuracoes.importar_do_ambiente(email)
 
+@app.get("/api/vendedor/painel")
+def vendedor_painel(request: Request, de: str | None = None, ate: str | None = None, visao: str = "vendas",
+                    produto: str | None = None, quantidade: int | None = None):
+    """A visão geral: indicadores do período e os recortes (produto → quantidade → afiliado)."""
+    _vendedor(request)
+    return painel.visao_geral(de, ate, visao, produto, quantidade)
+
+
 @app.get("/api/vendedor/pedidos")
 def vendedor_pedidos(request: Request, situacao: str | None = None):
     _vendedor(request)
@@ -432,6 +454,35 @@ def vendedor_apagar_foto_produto(slug: str, request: Request):
         raise HTTPException(404, "Produto não encontrado.")
     produtos.apagar_foto(slug)
     return produtos.para_vendedor(produtos.buscar(slug))
+
+
+# IA (Gemini) no cadastro de produtos: sugere textos e edita a foto. Nada é gravado sozinho.
+
+@app.get("/api/vendedor/ia")
+def vendedor_ia(request: Request):
+    _vendedor(request)
+    return {"disponivel": ia.disponivel(), "estilos": [{"id": k, "rotulo": v[0]} for k, v in ia.ESTILOS.items()]}
+
+
+@app.post("/api/vendedor/ia/textos")
+async def vendedor_ia_textos(request: Request):
+    _vendedor(request)
+    _limitar(request, "ia", 12)
+    dados = await _json(request)
+    foto = produtos.foto(str(dados.get("produto") or "")) if dados.get("produto") and dados.get("usar_foto", True) else None
+    return ia.sugerir_textos(dados, foto["tipo"] if foto else None, foto["dados"] if foto else None)
+
+
+@app.post("/api/vendedor/ia/foto")
+async def vendedor_ia_foto(request: Request):
+    _vendedor(request)
+    _limitar(request, "ia", 12)
+    dados = await _json(request)
+    foto = produtos.foto(str(dados.get("produto") or ""))
+    if not foto:
+        raise ia.ErroIA("Envie uma foto do produto primeiro: a IA edita a foto que já está lá.")
+    editada = ia.editar_foto(foto["tipo"], foto["dados"], str(dados.get("estilo") or ""), str(dados.get("instrucao") or ""))
+    return {"tipo": editada["tipo"], "dados": base64.b64encode(editada["dados"]).decode()}
 
 
 # Integrações: o que está ligado e o que falta (nunca mostra as chaves).

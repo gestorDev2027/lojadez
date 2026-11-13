@@ -134,6 +134,13 @@ export function AbaProdutos({ senha }: { senha: string }) {
   const [lista, setLista] = useState<ProdutoVendedor[] | null>(null);
   const [editando, setEditando] = useState<ProdutoVendedor | "novo" | null>(null);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [ia, setIa] = useState<EstadoIA | null>(null);
+
+  useEffect(() => {
+    chamar<EstadoIA>("/api/vendedor/ia", { senha })
+      .then(setIa)
+      .catch(() => setIa({ disponivel: false, estilos: [] }));
+  }, [senha]);
 
   async function carregar() {
     try {
@@ -152,6 +159,7 @@ export function AbaProdutos({ senha }: { senha: string }) {
     return (
       <EditorProduto
         senha={senha}
+        ia={ia}
         produto={editando === "novo" ? null : editando}
         aoVoltar={(texto) => {
           setEditando(null);
@@ -220,11 +228,13 @@ export function AbaProdutos({ senha }: { senha: string }) {
 
 function EditorProduto({
   senha,
+  ia,
   produto,
   aoVoltar,
   aoTrocar,
 }: {
   senha: string;
+  ia: EstadoIA | null;
   produto: ProdutoVendedor | null;
   aoVoltar: (aviso?: string) => void;
   aoTrocar: (p: ProdutoVendedor) => void;
@@ -259,10 +269,8 @@ function EditorProduto({
     }
   }
 
-  async function enviarFoto(e: ChangeEvent<HTMLInputElement>) {
-    const arquivo = e.target.files?.[0];
-    e.target.value = "";
-    if (!arquivo || !produto) return;
+  async function subirFoto(arquivo: Blob, aviso = "Foto trocada.") {
+    if (!produto) return;
     setAvisoFoto("");
     try {
       const r = await fetch(`/api/vendedor/produtos/${produto.slug}/foto`, {
@@ -273,10 +281,16 @@ function EditorProduto({
       const dados = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(dados.erro ?? dados.detail ?? "Não consegui enviar a foto.");
       aoTrocar(dados as ProdutoVendedor);
-      setAvisoFoto("Foto trocada.");
+      setAvisoFoto(aviso);
     } catch (falha) {
       setAvisoFoto((falha as Error).message);
     }
+  }
+
+  async function enviarFoto(e: ChangeEvent<HTMLInputElement>) {
+    const arquivo = e.target.files?.[0];
+    e.target.value = "";
+    if (arquivo) await subirFoto(arquivo);
   }
 
   const unidade = f.unidade || "unidade";
@@ -309,6 +323,13 @@ function EditorProduto({
             <Campo rotulo="Descrição (opcional)" dica="O texto da página do produto. Cada linha vira um parágrafo.">
               <textarea className="campo min-h-32" maxLength={4000} value={f.descricao} onChange={(e) => mudar("descricao", e.target.value)} />
             </Campo>
+            <SugestaoDeTextos
+              senha={senha}
+              ia={ia}
+              produto={produto}
+              formulario={f}
+              aoUsar={(campos) => setF((atual) => ({ ...atual, ...campos }))}
+            />
             <div className="grid gap-4 sm:grid-cols-3">
               <Campo rotulo="Unidade" dica="ex.: pote, frasco, kit">
                 <input className="campo" required value={f.unidade} onChange={(e) => mudar("unidade", e.target.value)} />
@@ -449,13 +470,256 @@ function EditorProduto({
               Trocar a foto
               <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => void enviarFoto(e)} />
             </label>
-            <p className="text-xs text-suave">JPG, PNG ou WebP, até 3 MB. Quadrada fica melhor.</p>
+            <p className="text-xs text-suave">JPG, PNG ou WebP, até 8 MB. Quadrada fica melhor.</p>
             {avisoFoto && <p className="text-sm text-tinta-2">{avisoFoto}</p>}
+            <EdicaoDeFoto
+              senha={senha}
+              ia={ia}
+              produto={produto}
+              aoUsar={(blob) => subirFoto(blob, "Foto da IA aplicada. Ela já aparece na loja.")}
+            />
           </div>
         ) : (
           <p className="text-sm text-suave">Crie o produto primeiro; depois você envia a foto aqui.</p>
         )}
       </Cartao>
     </form>
+  );
+}
+
+// ───────── IA (Gemini) ─────────
+
+type EstadoIA = { disponivel: boolean; estilos: { id: string; rotulo: string }[] };
+type Textos = { nome: string; chamada: string; descricao: string };
+
+function Faisca() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden>
+      <path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8zM19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9zM5 15l.7 1.6L7.3 17.3l-1.6.7L5 19.6l-.7-1.6-1.6-.7 1.6-.7z" />
+    </svg>
+  );
+}
+
+function SemIA({ ia }: { ia: EstadoIA | null }) {
+  if (!ia || ia.disponivel) return null;
+  return <p className="text-xs text-suave">A IA está desligada: ponha a chave do Gemini em Configurações → IA.</p>;
+}
+
+function SugestaoDeTextos({
+  senha,
+  ia,
+  produto,
+  formulario: f,
+  aoUsar,
+}: {
+  senha: string;
+  ia: EstadoIA | null;
+  produto: ProdutoVendedor | null;
+  formulario: Formulario;
+  aoUsar: (campos: Partial<Formulario>) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [destaque, setDestaque] = useState("");
+  const [sugestao, setSugestao] = useState<Textos | null>(null);
+  const [gerando, setGerando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function gerar() {
+    setGerando(true);
+    setErro("");
+    try {
+      setSugestao(
+        await chamar<Textos>("/api/vendedor/ia/textos", {
+          senha,
+          corpo: {
+            produto: produto?.slug,
+            nome: f.nome,
+            unidade: f.unidade,
+            conteudo: f.conteudo,
+            chamada: f.chamada,
+            descricao: f.descricao,
+            observacoes: destaque,
+          },
+        }),
+      );
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setGerando(false);
+    }
+  }
+
+  if (!aberto)
+    return (
+      <div className="grid gap-1">
+        <button
+          type="button"
+          disabled={!ia?.disponivel}
+          onClick={() => setAberto(true)}
+          className="flex items-center gap-2 justify-self-start rounded-full border border-laranja/60 bg-laranja/10 px-4 py-2 text-sm font-bold text-laranja-2 disabled:opacity-40"
+        >
+          <Faisca /> Sugerir nome, chamada e descrição com IA
+        </button>
+        <SemIA ia={ia} />
+      </div>
+    );
+
+  return (
+    <section className="grid gap-3 rounded-2xl border border-laranja/40 bg-laranja/[.06] p-4">
+      <p className="flex items-center gap-2 text-sm font-bold text-laranja-2">
+        <Faisca /> Textos com IA (Gemini)
+      </p>
+      <Campo
+        rotulo="O que destacar (opcional)"
+        dica={produto?.foto_enviada ? "A IA também olha a foto do produto." : "Com a foto enviada, a IA também olha a foto."}
+      >
+        <input
+          className="campo"
+          maxLength={300}
+          placeholder="ex.: fixação forte, efeito seco, cheiro de madeira"
+          value={destaque}
+          onChange={(e) => setDestaque(e.target.value)}
+        />
+      </Campo>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={gerando} onClick={() => void gerar()} className="btn-laranja px-5 py-2.5 text-sm">
+          {gerando ? "Escrevendo…" : sugestao ? "Gerar outra" : "Gerar sugestão"}
+        </button>
+        <button type="button" onClick={() => setAberto(false)} className="rounded-full px-4 py-2 text-sm text-suave">
+          Fechar
+        </button>
+      </div>
+      {erro && <p role="alert" className="text-sm text-alerta">{erro}</p>}
+      {sugestao && (
+        <div className="grid gap-3 rounded-xl border border-linha-2 bg-fundo p-3 text-sm">
+          {(["nome", "chamada", "descricao"] as const).map((campo) => (
+            <div key={campo} className="grid gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-[11px] font-bold tracking-widest text-suave uppercase">
+                  {campo === "descricao" ? "Descrição" : campo === "nome" ? "Nome" : "Chamada"}
+                </span>
+                <button type="button" onClick={() => aoUsar({ [campo]: sugestao[campo] })} className="text-xs font-bold text-laranja-2 hover:underline">
+                  Usar
+                </button>
+              </div>
+              <p className="whitespace-pre-line text-tinta">{sugestao[campo]}</p>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => aoUsar({ nome: sugestao.nome, chamada: sugestao.chamada, descricao: sugestao.descricao })}
+            className="justify-self-start rounded-full border border-laranja px-4 py-2 text-sm font-bold text-laranja-2"
+          >
+            Usar tudo
+          </button>
+          <p className="text-xs text-suave">Confira antes de salvar: a IA pode errar. Nada muda na loja até você clicar em “Salvar”.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EdicaoDeFoto({
+  senha,
+  ia,
+  produto,
+  aoUsar,
+}: {
+  senha: string;
+  ia: EstadoIA | null;
+  produto: ProdutoVendedor;
+  aoUsar: (foto: Blob) => Promise<void>;
+}) {
+  const [estilo, setEstilo] = useState("estudio");
+  const [instrucao, setInstrucao] = useState("");
+  const [gerada, setGerada] = useState<{ url: string; blob: Blob } | null>(null);
+  const [gerando, setGerando] = useState(false);
+  const [usando, setUsando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => () => {
+    if (gerada) URL.revokeObjectURL(gerada.url);
+  }, [gerada]);
+
+  async function gerar() {
+    setGerando(true);
+    setErro("");
+    try {
+      const r = await chamar<{ tipo: string; dados: string }>("/api/vendedor/ia/foto", {
+        senha,
+        corpo: { produto: produto.slug, estilo, instrucao },
+      });
+      const bytes = Uint8Array.from(atob(r.dados), (c) => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: r.tipo });
+      setGerada({ url: URL.createObjectURL(blob), blob });
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setGerando(false);
+    }
+  }
+
+  if (!produto.foto_enviada)
+    return <p className="text-xs text-suave">Envie uma foto (mesmo de celular) para a IA poder deixá-la com cara de loja.</p>;
+
+  return (
+    <section className="grid gap-3 rounded-2xl border border-laranja/40 bg-laranja/[.06] p-3">
+      <p className="flex items-center gap-2 text-sm font-bold text-laranja-2">
+        <Faisca /> Editar a foto com IA
+      </p>
+      <SemIA ia={ia} />
+      <div className="grid gap-1.5">
+        {(ia?.estilos ?? []).map((e) => (
+          <label key={e.id} className="flex items-center gap-2 text-sm">
+            <input type="radio" name="estilo-foto" checked={estilo === e.id} onChange={() => setEstilo(e.id)} className="accent-laranja" />
+            {e.rotulo}
+          </label>
+        ))}
+      </div>
+      <input
+        className="campo text-sm"
+        maxLength={300}
+        placeholder={estilo === "livre" ? "Descreva o que mudar na foto" : "Algum detalhe a mais? (opcional)"}
+        value={instrucao}
+        onChange={(e) => setInstrucao(e.target.value)}
+      />
+      <button type="button" disabled={gerando || !ia?.disponivel} onClick={() => void gerar()} className="btn-laranja px-4 py-2.5 text-sm">
+        {gerando ? "Gerando a foto… (uns 15 s)" : gerada ? "Gerar outra" : "Gerar foto"}
+      </button>
+      {erro && <p role="alert" className="text-sm text-alerta">{erro}</p>}
+      {gerada && (
+        <div className="grid gap-2">
+          <div className="grid grid-cols-2 gap-2 text-center font-mono text-[10px] text-suave uppercase">
+            <figure className="grid gap-1">
+              <img src={produto.foto} alt="Foto atual" className="aspect-square w-full rounded-xl border border-linha object-cover" />
+              <figcaption>Atual</figcaption>
+            </figure>
+            <figure className="grid gap-1">
+              <img src={gerada.url} alt="Foto gerada pela IA" className="aspect-square w-full rounded-xl border border-laranja/60 object-cover" />
+              <figcaption>Nova</figcaption>
+            </figure>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={usando}
+              onClick={async () => {
+                setUsando(true);
+                await aoUsar(gerada.blob);
+                setUsando(false);
+                setGerada(null);
+              }}
+              className="btn-laranja flex-1 px-4 py-2.5 text-sm"
+            >
+              {usando ? "Aplicando…" : "Usar esta foto"}
+            </button>
+            <button type="button" onClick={() => setGerada(null)} className="rounded-full border border-linha-2 px-4 py-2 text-sm">
+              Descartar
+            </button>
+          </div>
+          <p className="text-xs text-suave">Confira se o rótulo saiu certo: a IA pode trocar letras.</p>
+        </div>
+      )}
+    </section>
   );
 }

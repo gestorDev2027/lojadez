@@ -23,7 +23,7 @@ _trava = threading.Lock()
 
 FOTO_KIT = "kit"
 TIPOS_FOTO = {"image/jpeg": b"\xff\xd8\xff", "image/png": b"\x89PNG", "image/webp": b"RIFF"}
-FOTO_MAXIMA = 3 * 1024 * 1024
+FOTO_MAXIMA = 8 * 1024 * 1024
 
 
 def _ajustes() -> dict:
@@ -148,7 +148,7 @@ def salvar_foto(tipo: str, dados: bytes) -> None:
     if tipo not in TIPOS_FOTO or not dados.startswith(TIPOS_FOTO[tipo]):
         raise ErroCatalogo("Envie uma foto JPG, PNG ou WebP.")
     if len(dados) > FOTO_MAXIMA:
-        raise ErroCatalogo("A foto tem até 3 MB.")
+        raise ErroCatalogo("A foto tem até 8 MB.")
     banco.gravar_foto(FOTO_KIT, tipo, dados)
     limpar_cache()
 
