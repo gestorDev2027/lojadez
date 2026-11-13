@@ -80,7 +80,8 @@ COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP 
                           "reembolso_motivo": "TEXT", "reembolso_centavos": "INTEGER",
                           "reembolso_pedido_em": "TIMESTAMP WITH TIME ZONE", "reembolsado_em": "TIMESTAMP WITH TIME ZONE",
                           "cupom_codigo": "VARCHAR(30)", "desconto_cupom_centavos": "INTEGER",
-                          "campanha_codigo": "VARCHAR(12)"}}
+                          "campanha_codigo": "VARCHAR(12)"},
+                 "produtos": {"destaque": "BOOLEAN", "categoria": "VARCHAR(40)", "selo": "VARCHAR(40)"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -176,6 +177,9 @@ produtos = Table(
     Column("ofertas", JSON, nullable=False),  # [{"quantidade", "preco_centavos", "selo"}]
     Column("montar", JSON, nullable=False),  # {"ativo", "maximo", "preco_unidade_centavos"}
     Column("frete_gratis_a_partir", Integer, nullable=False, default=0),
+    Column("destaque", Boolean, default=False),  # aparece no banner do topo da vitrine
+    Column("categoria", String(40)),  # uma das categorias da loja (ajustes "categorias")
+    Column("selo", String(40)),  # ex.: "Novo", "Mais vendido"
     Column("criado_em", DateTime(timezone=True), nullable=False),
     Column("atualizado_em", DateTime(timezone=True), nullable=False),
 )

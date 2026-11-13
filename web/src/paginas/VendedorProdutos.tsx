@@ -25,6 +25,9 @@ type ProdutoVendedor = {
   ofertas: OfertaProduto[];
   montar: { ativo: boolean; maximo: number; preco_unidade_centavos: number };
   frete_gratis_a_partir: number;
+  destaque: boolean | null;
+  categoria: string | null;
+  selo: string | null;
   foto: string;
   foto_enviada: boolean;
   url: string;
@@ -50,6 +53,9 @@ type Formulario = {
   montar_maximo: string;
   montar_preco: string;
   frete_gratis_a_partir: string;
+  destaque: boolean;
+  categoria: string;
+  selo: string;
 };
 
 const paraReais = (centavos: number) => (centavos / 100).toFixed(2).replace(".", ",");
@@ -83,6 +89,9 @@ const VAZIO: Formulario = {
   montar_maximo: "10",
   montar_preco: "",
   frete_gratis_a_partir: "0",
+  destaque: false,
+  categoria: "",
+  selo: "",
 };
 
 function doProduto(p: ProdutoVendedor): Formulario {
@@ -105,6 +114,9 @@ function doProduto(p: ProdutoVendedor): Formulario {
     montar_maximo: String(p.montar.maximo || 10),
     montar_preco: p.montar.preco_unidade_centavos ? paraReais(p.montar.preco_unidade_centavos) : "",
     frete_gratis_a_partir: String(p.frete_gratis_a_partir),
+    destaque: Boolean(p.destaque),
+    categoria: p.categoria ?? "",
+    selo: p.selo ?? "",
   };
 }
 
@@ -128,6 +140,9 @@ function paraEnviar(f: Formulario) {
       .map((o) => ({ quantidade: Number(o.quantidade), preco_centavos: paraCentavos(o.preco), selo: o.selo })),
     montar: { ativo: f.montar_ativo, maximo: Number(f.montar_maximo || 0), preco_unidade_centavos: paraCentavos(f.montar_preco) || 0 },
     frete_gratis_a_partir: Number(f.frete_gratis_a_partir || 0),
+    destaque: f.destaque,
+    categoria: f.categoria,
+    selo: f.selo,
   };
 }
 
@@ -238,6 +253,7 @@ export function AbaProdutos({ senha }: { senha: string }) {
           {aviso.texto}
         </p>
       )}
+      <Categorias senha={senha} />
       {lista === null ? (
         <p className="text-suave">Carregando…</p>
       ) : lista.length === 0 ? (
@@ -406,6 +422,14 @@ function EditorProduto({
               </label>
             </div>
           </div>
+        </Cartao>
+
+        <Cartao titulo="Na vitrine">
+          <NaVitrine
+            senha={senha}
+            valor={{ destaque: f.destaque, categoria: f.categoria, selo: f.selo }}
+            aoMudar={(campos) => setF((atual) => ({ ...atual, ...campos }))}
+          />
         </Cartao>
 
         <Cartao titulo="Ofertas e preços">
@@ -783,6 +807,130 @@ export function EdicaoDeFoto({
             </button>
           </div>
           <p className="text-xs text-suave">Confira se o rótulo saiu certo: a IA pode trocar letras.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ───────── Vitrine: destaque, categoria e selo (produtos e kit) e as categorias da loja ─────────
+
+const SELOS = ["Novo", "Mais vendido", "Promoção", "Edição limitada", "Kit econômico"];
+
+function useCategorias(senha: string) {
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const carregar = () =>
+    chamar<{ categorias: string[] }>("/api/vendedor/catalogo", { senha })
+      .then((c) => setCategorias(c.categorias))
+      .catch(() => undefined);
+  useEffect(() => {
+    void carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [senha]);
+  return { categorias, setCategorias, carregar };
+}
+
+export function NaVitrine({
+  senha,
+  valor,
+  aoMudar,
+}: {
+  senha: string;
+  valor: { destaque: boolean; categoria: string; selo: string };
+  aoMudar: (campos: Partial<{ destaque: boolean; categoria: string; selo: string }>) => void;
+}) {
+  const { categorias } = useCategorias(senha);
+  return (
+    <div className="grid gap-4">
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" checked={valor.destaque} onChange={(e) => aoMudar({ destaque: e.target.checked })} className="mt-0.5 size-4 accent-laranja" />
+        <span>
+          <span className="font-semibold">Destaque na vitrine</span>
+          <span className="block text-xs text-suave">Aparece no banner do topo da vitrine (/produtos) e primeiro na página principal.</span>
+        </span>
+      </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Campo rotulo="Categoria" dica="As categorias viram abas na vitrine. Crie e renomeie em Produtos.">
+          <select className="campo" value={valor.categoria} onChange={(e) => aoMudar({ categoria: e.target.value })}>
+            <option value="">Sem categoria</option>
+            {categorias.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+            {valor.categoria && !categorias.includes(valor.categoria) && <option value={valor.categoria}>{valor.categoria}</option>}
+          </select>
+        </Campo>
+        <Campo rotulo="Selo (opcional)" dica="Aparece no canto do cartão.">
+          <input className="campo" list="selos-vitrine" maxLength={40} value={valor.selo} onChange={(e) => aoMudar({ selo: e.target.value })} />
+          <datalist id="selos-vitrine">
+            {SELOS.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </Campo>
+      </div>
+    </div>
+  );
+}
+
+function Categorias({ senha }: { senha: string }) {
+  const { categorias, setCategorias, carregar } = useCategorias(senha);
+  const [nova, setNova] = useState("");
+  const [aberto, setAberto] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function salvar(lista: string[]) {
+    setErro("");
+    try {
+      const r = await chamar<{ categorias: string[] }>("/api/vendedor/catalogo", { metodo: "PUT", senha, corpo: { categorias: lista } });
+      setCategorias(r.categorias);
+      setNova("");
+    } catch (e) {
+      setErro((e as Error).message);
+      void carregar();
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-linha bg-fundo-2/90 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm">
+          <span className="font-semibold">Categorias da vitrine:</span> <span className="text-tinta-2">{categorias.join(" · ") || "—"}</span>
+        </p>
+        <button type="button" onClick={() => setAberto(!aberto)} className="rounded-full border border-linha-2 px-3 py-1 text-sm font-semibold">
+          {aberto ? "Fechar" : "Editar categorias"}
+        </button>
+      </div>
+      {aberto && (
+        <div className="mt-3 grid gap-3">
+          <ul className="flex flex-wrap gap-2">
+            {categorias.map((c, i) => (
+              <li key={c} className="flex items-center gap-1 rounded-full border border-linha-2 py-1 pr-1 pl-3 text-sm">
+                {c}
+                <button type="button" disabled={i === 0} onClick={() => void salvar([...categorias.slice(0, i - 1), c, categorias[i - 1], ...categorias.slice(i + 1)])} className="px-1 text-suave disabled:opacity-30" aria-label={`Mover ${c} para a esquerda`}>
+                  ←
+                </button>
+                <button type="button" onClick={() => void salvar(categorias.filter((x) => x !== c))} className="px-1 text-suave hover:text-alerta" aria-label={`Tirar ${c}`}>
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (nova.trim()) void salvar([...categorias, nova.trim()]);
+            }}
+          >
+            <input className="campo py-2" maxLength={40} placeholder="Nova categoria (ex.: Pele)" value={nova} onChange={(e) => setNova(e.target.value)} />
+            <button type="submit" className="btn-laranja shrink-0 px-4 py-2 text-sm">
+              Adicionar
+            </button>
+          </form>
+          <p className="text-xs text-suave">Tirar uma categoria não muda os produtos: os que estavam nela ficam em “Todos”.</p>
+          {erro && <p role="alert" className="text-sm text-alerta">{erro}</p>}
         </div>
       )}
     </section>

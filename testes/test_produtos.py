@@ -162,3 +162,34 @@ def test_ia_textos_e_foto(cliente, monkeypatch):
 
     # A landing page lista os produtos do catálogo
     assert "Pomada Modeladora Matte" in cliente.get("/lp-config.js").text
+
+
+def test_vitrine_destaque_categoria_selo(cliente):
+    _limpar()
+    with banco.engine.begin() as c:
+        c.execute(banco.pedidos.delete())
+    _criar(cliente, destaque=True, categoria="Cabelo", selo="Novo")
+    d = cliente.get("/api/vitrine").json()
+    kit, pomada = d["itens"]
+    assert kit["destaque"] is True and kit["categoria"] == "Barbear" and kit["comprar"].startswith("/checkout?oferta=")
+    assert pomada["destaque"] and pomada["categoria"] == "Cabelo" and pomada["selo"] == "Novo"
+    assert pomada["por_unidade_centavos"] == 3495 and pomada["comprar"] == "/checkout?produto=pomada-modeladora-matte&oferta=q1"
+    assert d["categorias"] == ["Barbear", "Cabelo"]  # só as que têm produto, na ordem da loja
+
+    # O kit: destaque, categoria e selo pela aba do kit; as categorias da loja
+    r = cliente.put("/api/vendedor/catalogo", json={"destaque": False, "categoria": "Kits", "selo": "Mais vendido",
+                                                    "categorias": ["Kits", "Cabelo", "Barba", "kits", " "]}, headers=VENDEDOR)
+    assert r.status_code == 200 and r.json()["categorias"] == ["Kits", "Cabelo", "Barba"]
+    assert r.json()["vitrine"] == {"destaque": False, "categoria": "Kits", "selo": "Mais vendido"}
+    assert cliente.get("/api/vitrine").json()["categorias"] == ["Kits", "Cabelo"]
+    assert cliente.put("/api/vendedor/catalogo", json={"categorias": []}, headers=VENDEDOR).status_code == 422
+
+    # Vendidos: unidades de pedidos pagos; a landing page mostra os destaques primeiro
+    frete = cliente.post("/api/frete", json={"cep": "20040-002", "produto": "pomada-modeladora-matte", "oferta": "q2"}).json()
+    dados = {"produto": "pomada-modeladora-matte", "oferta": "q2", "cep": "20040002", "frete_tipo": frete["opcoes"][0]["tipo"],
+             "nome": "Maria Souza", "cpf": "529.982.247-25", "telefone": "(21) 99999-8888", "numero": "10"}
+    nsu = cliente.post("/api/pedidos", json=dados).json()["order_nsu"]
+    cliente.post(f"/simulador/pagar/{nsu}", content="forma=pix",
+                 headers={"content-type": "application/x-www-form-urlencoded"}, follow_redirects=False)
+    assert cliente.get("/api/vitrine").json()["itens"][1]["vendidos"] == 2
+    assert '"selo": "Novo"' in cliente.get("/lp-config.js").text

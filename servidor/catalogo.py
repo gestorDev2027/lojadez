@@ -57,6 +57,19 @@ def produto() -> dict:
     return p
 
 
+CATEGORIAS_PADRAO = ["Barbear", "Cabelo", "Barba", "Kits"]
+
+
+def categorias() -> list[str]:
+    return list(_ajustes().get("categorias") or CATEGORIAS_PADRAO)
+
+
+def vitrine_kit() -> dict:
+    """Destaque, categoria e selo do kit de lâminas na vitrine."""
+    a = _ajustes()
+    return {"destaque": bool(a.get("destaque", True)), "categoria": a.get("categoria") or "Barbear", "selo": a.get("selo") or ""}
+
+
 def medidas() -> dict:
     p = produto()
     return {k: int(p[k]) for k in MEDIDAS_KIT}
@@ -141,6 +154,23 @@ def salvar(dados: dict) -> dict:
     for chave, (rotulo, minimo, maximo) in MEDIDAS_KIT.items():
         if chave in dados:
             novos[chave] = _inteiro(dados[chave], rotulo, minimo, maximo)
+    if "destaque" in dados:
+        novos["destaque"] = bool(dados["destaque"])
+    if "categoria" in dados:
+        novos["categoria"] = str(dados["categoria"] or "")[:40] or None
+    if "selo" in dados:
+        novos["selo"] = " ".join(str(dados["selo"] or "").split())[:40] or None
+    if "categorias" in dados:
+        lista = []
+        for nome in dados["categorias"] or []:
+            nome = " ".join(str(nome or "").split())[:40]
+            if nome and nome.lower() not in [x.lower() for x in lista]:
+                lista.append(nome)
+        if not lista:
+            raise ErroCatalogo("Deixe pelo menos uma categoria.")
+        if len(lista) > 12:
+            raise ErroCatalogo("Até 12 categorias.")
+        novos["categorias"] = lista
     if "ofertas" in dados:
         ids = {o["id"] for o in config.OFERTAS}
         ofertas_novas = {}
@@ -203,4 +233,5 @@ def url_foto() -> str:
 
 def resumo() -> dict:
     return {"produto": produto(), "ofertas": ofertas(so_ativas=False), "foto": url_foto(), "foto_enviada": foto() is not None,
-            "montar": montar(), "frete_gratis_a_partir": frete_gratis_a_partir()}
+            "montar": montar(), "frete_gratis_a_partir": frete_gratis_a_partir(), "vitrine": vitrine_kit(),
+            "categorias": categorias()}

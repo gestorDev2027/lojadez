@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { chamar, formatarCep, reais, type OpcaoFrete } from "../api";
-import { EdicaoDeFoto, SugestaoDeTextos, type EstadoIA } from "./VendedorProdutos";
+import { EdicaoDeFoto, NaVitrine, SugestaoDeTextos, type EstadoIA } from "./VendedorProdutos";
 
 // As abas "Produto e preços" e "Integrações" da área do vendedor. O que muda aqui vale na hora na loja.
 
@@ -30,6 +30,7 @@ type Catalogo = {
   foto_enviada: boolean;
   montar: { ativo: boolean; minimo: number; maximo: number; preco_kit_centavos: number };
   frete_gratis_a_partir: number;
+  vitrine: { destaque: boolean; categoria: string; selo: string };
 };
 
 const paraReais = (centavos: number) => (centavos / 100).toFixed(2).replace(".", ",");
@@ -51,6 +52,7 @@ export function AbaProduto({ senha }: { senha: string }) {
   const [textos, setTextos] = useState({ nome: "", chamada: "", descricao: "" });
   const [medidas, setMedidas] = useState({ peso_g: "", comprimento_cm: "", largura_cm: "", altura_cm: "" });
   const [ia, setIa] = useState<EstadoIA | null>(null);
+  const [naVitrine, setNaVitrine] = useState({ destaque: true, categoria: "Barbear", selo: "" });
   const [salvando, setSalvando] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
@@ -59,6 +61,7 @@ export function AbaProduto({ senha }: { senha: string }) {
     setRefis(String(c.produto.refis));
     setLaminas(String(c.produto.laminas_por_refil));
     setTextos({ nome: c.produto.nome, chamada: c.produto.chamada ?? "", descricao: c.produto.descricao ?? "" });
+    setNaVitrine(c.vitrine);
     setMedidas({
       peso_g: String(c.produto.peso_g),
       comprimento_cm: String(c.produto.comprimento_cm),
@@ -105,6 +108,7 @@ export function AbaProduto({ senha }: { senha: string }) {
           refis: Number(refis),
           laminas_por_refil: Number(laminas),
           ...textos,
+          ...naVitrine,
           peso_g: Number(medidas.peso_g),
           comprimento_cm: Number(medidas.comprimento_cm),
           largura_cm: Number(medidas.largura_cm),
@@ -191,6 +195,10 @@ export function AbaProduto({ senha }: { senha: string }) {
               aoUsar={(campos) => setTextos((t) => ({ ...t, ...campos }))}
             />
           </div>
+        </Cartao>
+
+        <Cartao titulo="Na vitrine">
+          <NaVitrine senha={senha} valor={naVitrine} aoMudar={(campos) => setNaVitrine((v) => ({ ...v, ...campos }))} />
         </Cartao>
 
         <Cartao titulo="O kit">

@@ -149,8 +149,16 @@ def foto_de_produto(slug: str):
 
 @app.get("/api/produtos")
 def vitrine():
-    """A lista da página /produtos: o kit de lâminas e os produtos ativos."""
+    """A lista da página /produtos: o kit de lâminas e os produtos ativos (destaque, categoria, selo, vendidos)."""
     return produtos.vitrine()
+
+
+@app.get("/api/vitrine")
+def vitrine_completa():
+    """A vitrine com as categorias da loja (as que têm produto) e os itens."""
+    itens = produtos.vitrine()
+    usadas = {i["categoria"] for i in itens}
+    return {"categorias": [c for c in catalogo.categorias() if c in usadas], "itens": itens}
 
 
 @app.get("/api/produtos/{slug}")
@@ -178,7 +186,8 @@ def lp_config():
                      "freteGratis": bool(o.get("frete_gratis")), "checkoutUrl": f"/checkout?oferta={o['id']}"} for o in catalogo.ofertas()],
         "ofertaPadrao": catalogo.oferta_padrao(),
         "produtos": [{"nome": p["nome"], "chamada": p["chamada"], "foto": p["foto"], "url": p["url"],
-                      "aPartirDe": p["a_partir_de_centavos"] / 100} for p in produtos.vitrine() if p["id"] != produtos.KIT],
+                      "aPartirDe": p["a_partir_de_centavos"] / 100, "selo": p["selo"]}
+                     for p in sorted(produtos.vitrine(), key=lambda i: not i["destaque"]) if p["id"] != produtos.KIT],
         "montar": {**catalogo.montar(), "precoKit": catalogo.montar()["preco_kit_centavos"] / 100},
         "freteGratisAPartir": catalogo.frete_gratis_a_partir(),
         "calculadora": {"barbeadasPorSemana": 5, "usosPorRefil": 5},

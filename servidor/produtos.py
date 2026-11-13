@@ -129,18 +129,40 @@ def publico(produto: dict) -> dict:
     }
 
 
+def _vendidos() -> dict[str, int]:
+    """Unidades vendidas (pedidos pagos ou enviados) por produto: o kit de lâminas fica sem produto_id."""
+    from sqlalchemy import func as f
+
+    p = banco.pedidos.c
+    with banco.engine.connect() as c:
+        linhas = c.execute(select(p.produto_id, f.sum(p.kits)).where(p.situacao.in_(("pago", "enviado")))
+                           .group_by(p.produto_id)).all()
+    return {(produto_id or KIT): int(n or 0) for produto_id, n in linhas}
+
+
+def _item(id_, nome, chamada, foto, url, lista, unidade, destaque, categoria, selo, vendidos, frete_a_partir, comprar):
+    menor = min(lista, key=lambda o: o["preco_centavos"], default=None)
+    por_unidade = min((round(o["preco_centavos"] / o["kits"]) for o in lista), default=0)
+    return {"id": id_, "nome": nome, "chamada": chamada, "foto": foto, "url": url, "comprar": comprar,
+            "a_partir_de_centavos": menor["preco_centavos"] if menor else 0, "por_unidade_centavos": por_unidade,
+            "unidade": unidade, "destaque": destaque, "categoria": categoria or "", "selo": selo or "",
+            "vendidos": vendidos, "frete_gratis_a_partir": frete_a_partir}
+
+
 def vitrine() -> list[dict]:
-    """A lista da página /produtos: o kit de lâminas primeiro, depois os produtos ativos."""
-    kit = catalogo.ofertas()
-    p = catalogo.produto()
-    itens = [{"id": KIT, "nome": p["nome"], "chamada": p.get("chamada") or f"{p['aparelhos']} aparelho + {p['refis']} refis por kit",
-              "foto": catalogo.url_foto(), "url": "/",
-              "a_partir_de_centavos": min((o["preco_centavos"] for o in kit), default=0)}]
+    """A vitrine (/produtos): o kit de lâminas e os produtos ativos, com destaque, categoria, selo e vendas."""
+    vendidos = _vendidos()
+    p, kit = catalogo.produto(), catalogo.ofertas()
+    v = catalogo.vitrine_kit()
+    itens = [_item(KIT, p["nome"], p.get("chamada") or f"{p['aparelhos']} aparelho + {p['refis']} refis por kit",
+                   catalogo.url_foto(), "/", kit, "kit", v["destaque"], v["categoria"], v["selo"], vendidos.get(KIT, 0),
+                   catalogo.frete_gratis_a_partir(), f"/checkout?oferta={catalogo.oferta_padrao()}")]
     for prod in listar():
         lista = ofertas(prod)
-        itens.append({"id": prod["slug"], "nome": prod["nome"], "chamada": prod.get("chamada") or "",
-                      "foto": url_foto(prod), "url": f"/p/{prod['slug']}",
-                      "a_partir_de_centavos": min((o["preco_centavos"] for o in lista), default=0)})
+        itens.append(_item(prod["slug"], prod["nome"], prod.get("chamada") or "", url_foto(prod), f"/p/{prod['slug']}",
+                           lista, prod["unidade"], bool(prod.get("destaque")), prod.get("categoria"), prod.get("selo"),
+                           vendidos.get(prod["slug"], 0), int(prod.get("frete_gratis_a_partir") or 0),
+                           f"/checkout?produto={prod['slug']}" + (f"&oferta={lista[0]['id']}" if lista else "")))
     return itens
 
 
@@ -181,6 +203,9 @@ def _conferir(dados: dict) -> dict:
         "largura_cm": _inteiro(dados.get("largura_cm"), "Largura (cm)", 1, 100),
         "altura_cm": _inteiro(dados.get("altura_cm"), "Altura (cm)", 1, 100),
         "frete_gratis_a_partir": _inteiro(dados.get("frete_gratis_a_partir", 0), "Frete grátis a partir de", 0, 100),
+        "destaque": bool(dados.get("destaque", False)),
+        "categoria": _texto(dados, "categoria", "A categoria", 0, 40) or None,
+        "selo": _texto(dados, "selo", "O selo", 0, 40) or None,
     }
     lista = dados.get("ofertas")
     if not isinstance(lista, list) or not 1 <= len(lista) <= MAXIMO_OFERTAS:
