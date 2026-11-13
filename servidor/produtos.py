@@ -5,13 +5,14 @@ ficam na tabela `produtos`, cada um com a página /p/<slug>, o checkout (/checko
 vender do kit: ofertas por quantidade (1, 2, 3...), o "monte o seu" (da maior oferta + 1 até o máximo, pelo preço por
 unidade) e o frete grátis a partir de N unidades. O id de cada oferta é "q<quantidade>" (q1, q2, q5...).
 
-Um produto não é apagado (os pedidos apontam para ele): fica inativo e some da loja.
+Um produto pode ficar inativo (some da loja) ou ser excluído. Excluir não mexe nos pedidos antigos (eles guardam a
+descrição e o SKU), mas é recusado enquanto houver pedido dele pago e ainda não enviado (o envio usa as medidas dele).
 """
 
 import re
 import unicodedata
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 
 from servidor import banco, catalogo
 
@@ -229,6 +230,22 @@ def salvar(dados: dict, slug: str | None = None, email: str | None = None) -> di
         c.execute(update(banco.produtos).where(banco.produtos.c.slug == slug).values(atualizado_em=agora, **valores))
     banco.registrar(email, "produto", f"Produto alterado: {slug}")
     return buscar(slug)
+
+
+def excluir(slug: str, email: str | None = None) -> None:
+    if not buscar(slug):
+        raise ErroProduto("Produto não encontrado.")
+    p = banco.pedidos.c
+    with banco.engine.connect() as c:
+        abertos = c.execute(select(func.count()).select_from(banco.pedidos)
+                            .where(p.produto_id == slug, p.situacao == "pago")).scalar_one()
+    if abertos:
+        raise ErroProduto(f"Este produto tem {abertos} pedido(s) pago(s) esperando envio. Envie primeiro ou deixe o "
+                          "produto fora de venda.")
+    with banco.engine.begin() as c:
+        c.execute(delete(banco.produtos).where(banco.produtos.c.slug == slug))
+        c.execute(delete(banco.fotos).where(banco.fotos.c.nome == _foto_nome(slug)))
+    banco.registrar(email, "produto", f"Produto excluído: {slug}")
 
 
 def salvar_foto(slug: str, tipo: str, dados: bytes) -> None:

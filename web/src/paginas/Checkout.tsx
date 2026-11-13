@@ -8,6 +8,7 @@ import {
   kitsMontadosDaUrl,
   ofertaMontada,
   reais,
+  refGuardado,
   type Cotacao,
   type Loja,
   type Oferta,
@@ -82,7 +83,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     setErro("");
     try {
       const r = await chamar<{ link_pagamento: string }>("/api/pedidos", {
-        corpo: { ...dados, oferta: ofertaId, produto: v.produto, cep: cotacao.endereco.cep, frete_tipo: freteTipo },
+        corpo: { ...dados, oferta: ofertaId, produto: v.produto, cep: cotacao.endereco.cep, frete_tipo: freteTipo, ref: refGuardado() },
       });
       window.location.href = r.link_pagamento;
     } catch (e) {

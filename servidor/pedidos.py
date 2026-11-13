@@ -8,7 +8,7 @@ import re
 import threading
 import uuid
 
-from servidor import banco, catalogo, config, infinitepay, loggi, produtos
+from servidor import afiliados, banco, catalogo, config, infinitepay, loggi, produtos
 
 log = logging.getLogger("loja.pedidos")
 
@@ -81,6 +81,16 @@ def _cotar(cep: str, oferta: dict) -> dict:
     return {**cotacao, "opcoes": opcoes, "frete_gratis": bool(oferta.get("frete_gratis"))}
 
 
+def _do_afiliado(ref, oferta: dict) -> dict:
+    """O afiliado do link (?ref=) que trouxe a venda, se valer para o produto, e a comissão fixada agora."""
+    afiliado = afiliados.atribuir(str(ref or "")[:40], oferta["produto_id"])
+    if not afiliado:
+        return {"afiliado_id": None, "afiliado_codigo": None, "comissao_pct": None, "comissao_centavos": None}
+    return {"afiliado_id": afiliado["id"], "afiliado_codigo": afiliado["codigo"],
+            "comissao_pct": float(afiliado["comissao_pct"]),
+            "comissao_centavos": afiliados.comissao(afiliado, oferta["preco_centavos"])}
+
+
 def cotar_frete(cep: str, oferta_id, produto_id=None) -> dict:
     oferta = _oferta(oferta_id, produto_id)
     cotacao = _cotar(cep, oferta)
@@ -120,6 +130,7 @@ def criar(dados: dict) -> dict:
         "order_nsu": str(uuid.uuid4()), "criado_em": banco.agora(), "situacao": "aguardando_pagamento",
         "sku": oferta["sku"], "oferta": oferta["id"], "produto": oferta["descricao"], "kits": oferta["kits"],
         "produto_id": oferta["produto_id"],
+        **_do_afiliado(dados.get("ref"), oferta),
         "preco_centavos": oferta["preco_centavos"], "frete_tipo": opcao["tipo"],
         "frete_descricao": f"Frete {'grátis ' if opcao['gratis'] else ''}Loggi {opcao['nome']} (até {opcao['prazo_dias']} dias úteis)",
         "frete_prazo_dias": opcao["prazo_dias"], "frete_centavos": opcao["centavos"],

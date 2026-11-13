@@ -269,6 +269,23 @@ function EditorProduto({
     }
   }
 
+  async function excluir() {
+    if (!produto) return;
+    const ok = window.confirm(
+      `Excluir “${produto.nome}”? A página /p/${produto.slug} sai do ar e o produto some da loja. Os pedidos antigos continuam no painel. Não dá para desfazer.`,
+    );
+    if (!ok) return;
+    setErro("");
+    setSalvando(true);
+    try {
+      await chamar(`/api/vendedor/produtos/${produto.slug}`, { metodo: "DELETE", senha });
+      aoVoltar(`“${produto.nome}” foi excluído.`);
+    } catch (falha) {
+      setErro((falha as Error).message);
+      setSalvando(false);
+    }
+  }
+
   async function subirFoto(arquivo: Blob, aviso = "Foto trocada.") {
     if (!produto) return;
     setAvisoFoto("");
@@ -459,6 +476,16 @@ function EditorProduto({
           <button type="button" onClick={() => aoVoltar()} className="rounded-full border border-linha-2 px-5 py-3 text-sm font-bold">
             Cancelar
           </button>
+          {produto && (
+            <button
+              type="button"
+              disabled={salvando}
+              onClick={() => void excluir()}
+              className="ml-auto rounded-full border border-red-400/40 px-5 py-3 text-sm font-bold text-red-300 hover:bg-red-400/10"
+            >
+              Excluir produto
+            </button>
+          )}
         </div>
       </div>
 

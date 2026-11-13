@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 import base64
 
-from servidor import acesso, banco, catalogo, config, configuracoes, ia, loggi, painel, pedidos, produtos, simulador
+from servidor import (acesso, afiliados, banco, catalogo, config, configuracoes, ia, loggi, painel, pedidos, produtos,
+                      simulador)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -46,6 +47,11 @@ def _erro_pedido(_: Request, erro: pedidos.ErroPedido):
 @app.exception_handler(acesso.ErroAcesso)
 def _erro_acesso(_: Request, erro: acesso.ErroAcesso):
     return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(afiliados.ErroAfiliado)
+def _erro_afiliado(_: Request, erro: afiliados.ErroAfiliado):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
 
 
 @app.exception_handler(ia.ErroIA)
@@ -197,6 +203,16 @@ async def frete(request: Request):
     return pedidos.cotar_frete(str(dados.get("cep") or ""), dados.get("oferta"), dados.get("produto"))
 
 
+@app.post("/api/afiliados/clique")
+async def clique_de_afiliado(request: Request):
+    """Conta uma visita pelo link de um afiliado (só a contagem do dia: nada do visitante)."""
+    _limitar(request, "clique", 30)
+    dados = await _json(request)
+    dia = datetime.now(painel.FUSO).date().isoformat()
+    return {"ok": afiliados.registrar_clique(str(dados.get("ref") or "")[:40], dia),
+            "dias": afiliados.DIAS_ATRIBUICAO}
+
+
 @app.post("/api/pedidos")
 async def criar_pedido(request: Request):
     _limitar(request, "pedido", 6)
@@ -327,10 +343,39 @@ async def vendedor_importar_configuracoes(request: Request):
 
 @app.get("/api/vendedor/painel")
 def vendedor_painel(request: Request, de: str | None = None, ate: str | None = None, visao: str = "vendas",
-                    produto: str | None = None, quantidade: int | None = None):
+                    produto: str | None = None, quantidade: int | None = None, afiliado: str | None = None):
     """A visão geral: indicadores do período e os recortes (produto → quantidade → afiliado)."""
     _vendedor(request)
-    return painel.visao_geral(de, ate, visao, produto, quantidade)
+    return painel.visao_geral(de, ate, visao, produto, quantidade, afiliado)
+
+
+# Afiliados: cadastro, links e desempenho.
+
+@app.get("/api/vendedor/afiliados")
+def vendedor_afiliados(request: Request, de: str | None = None, ate: str | None = None):
+    _vendedor(request)
+    return painel.resumo_afiliados(de, ate)
+
+
+@app.post("/api/vendedor/afiliados")
+async def vendedor_criar_afiliado(request: Request):
+    email = _vendedor(request)
+    return afiliados.para_vendedor(afiliados.salvar(await _json(request), None, email))
+
+
+@app.put("/api/vendedor/afiliados/{afiliado_id}")
+async def vendedor_salvar_afiliado(afiliado_id: int, request: Request):
+    email = _vendedor(request)
+    return afiliados.para_vendedor(afiliados.salvar(await _json(request), afiliado_id, email))
+
+
+@app.get("/api/vendedor/afiliados/{afiliado_id}")
+def vendedor_ficha_afiliado(afiliado_id: int, request: Request, de: str | None = None, ate: str | None = None):
+    _vendedor(request)
+    ficha = painel.ficha_afiliado(afiliado_id, de, ate)
+    if not ficha:
+        raise HTTPException(404, "Afiliado não encontrado.")
+    return ficha
 
 
 @app.get("/api/vendedor/pedidos")
@@ -438,6 +483,13 @@ async def vendedor_criar_produto(request: Request):
 async def vendedor_salvar_produto(slug: str, request: Request):
     email = _vendedor(request)
     return produtos.para_vendedor(produtos.salvar(await _json(request), slug, email))
+
+
+@app.delete("/api/vendedor/produtos/{slug}")
+def vendedor_excluir_produto(slug: str, request: Request):
+    email = _vendedor(request)
+    produtos.excluir(slug, email)
+    return {"ok": True}
 
 
 @app.put("/api/vendedor/produtos/{slug}/foto")

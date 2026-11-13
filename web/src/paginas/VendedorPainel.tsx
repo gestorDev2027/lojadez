@@ -14,6 +14,7 @@ type Linha = {
   quantidade: string;
   afiliado: string | null;
   valor_centavos: number;
+  comissao_centavos: number;
   frete_gratis: boolean;
   forma_pagamento: string | null;
   situacao: string;
@@ -27,6 +28,8 @@ type Indicadores = {
   fretes_gratis: number;
   fretes_gratis_centavos: number;
   liquida_centavos: number;
+  comissoes_centavos: number;
+  vendas_afiliados: number;
   pedidos: number;
   ticket_medio_centavos: number;
   aguardando: number;
@@ -44,6 +47,8 @@ type Painel = {
   por_quantidade: Grupo[];
   quantidade: number | null;
   por_afiliado: Grupo[];
+  afiliado: string | null;
+  afiliado_nome: string | null;
   pedidos: Linha[];
   pedidos_total: number;
   pedidos_valor_centavos: number;
@@ -84,7 +89,59 @@ const ATALHOS = [
   { id: "mes", rotulo: "Este mês" },
   { id: "ano", rotulo: "Este ano" },
 ];
-const dataCurta = (texto: string) => {
+export type Periodo = { de: string; ate: string };
+export const periodoInicial = () => atalho("mes");
+
+export function SeletorPeriodo({ periodo, aoMudar }: { periodo: Periodo; aoMudar: (p: Periodo) => void }) {
+  const [periodoId, setPeriodoId] = useState(() => ATALHOS.find((a) => JSON.stringify(atalho(a.id)) === JSON.stringify(periodo))?.id ?? "");
+  return (
+    <>
+      <div className="flex flex-wrap gap-1 rounded-xl border border-linha-2 bg-fundo-2 p-1" role="group" aria-label="Período">
+        {ATALHOS.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            aria-pressed={periodoId === a.id}
+            onClick={() => {
+              setPeriodoId(a.id);
+              aoMudar(atalho(a.id));
+            }}
+            className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${periodoId === a.id ? "bg-white/10 text-tinta" : "text-suave hover:text-tinta"}`}
+          >
+            {a.rotulo}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-1 rounded-xl border border-linha-2 bg-fundo-2 px-2 py-1 text-sm">
+        <input
+          type="date"
+          aria-label="De"
+          value={periodo.de}
+          max={periodo.ate}
+          onChange={(e) => {
+            setPeriodoId("");
+            aoMudar({ ...periodo, de: e.target.value || periodo.de });
+          }}
+          className="bg-transparent font-mono text-xs text-tinta [color-scheme:dark]"
+        />
+        <span className="text-suave">–</span>
+        <input
+          type="date"
+          aria-label="Até"
+          value={periodo.ate}
+          min={periodo.de}
+          onChange={(e) => {
+            setPeriodoId("");
+            aoMudar({ ...periodo, ate: e.target.value || periodo.ate });
+          }}
+          className="bg-transparent font-mono text-xs text-tinta [color-scheme:dark]"
+        />
+      </div>
+    </>
+  );
+}
+
+export const dataCurta = (texto: string) => {
   const [a, m, d] = texto.split("-");
   return `${d}/${m}${a !== String(new Date().getFullYear()) ? `/${a.slice(2)}` : ""}`;
 };
@@ -92,11 +149,11 @@ const dataCurta = (texto: string) => {
 // ───────── A tela ─────────
 
 export function VisaoGeral({ senha, aoAbrirPedido }: { senha: string; aoAbrirPedido: (nsu: string) => void }) {
-  const [periodoId, setPeriodoId] = useState("mes");
-  const [periodo, setPeriodo] = useState(atalho("mes"));
+  const [periodo, setPeriodo] = useState<Periodo>(periodoInicial);
   const [visao, setVisao] = useState<Visao>("vendas");
   const [produto, setProduto] = useState<string | null>(null);
   const [quantidade, setQuantidade] = useState<number | null>(null);
+  const [afiliado, setAfiliado] = useState<string | null>(null);
   const [dados, setDados] = useState<Painel | null>(null);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
@@ -105,18 +162,20 @@ export function VisaoGeral({ senha, aoAbrirPedido }: { senha: string; aoAbrirPed
     const q = new URLSearchParams({ de: periodo.de, ate: periodo.ate, visao });
     if (produto) q.set("produto", produto);
     if (quantidade !== null) q.set("quantidade", String(quantidade));
+    if (afiliado !== null) q.set("afiliado", afiliado);
     setCarregando(true);
     setErro("");
     chamar<Painel>(`/api/vendedor/painel?${q}`, { senha })
       .then(setDados)
       .catch((e: Error) => setErro(e.message))
       .finally(() => setCarregando(false));
-  }, [senha, periodo, visao, produto, quantidade]);
+  }, [senha, periodo, visao, produto, quantidade, afiliado]);
 
   const formatar = (valor: number) => (visao === "pedidos" ? String(valor) : reais(valor));
 
   function voltarUmNivel() {
-    if (quantidade !== null) setQuantidade(null);
+    if (afiliado !== null) setAfiliado(null);
+    else if (quantidade !== null) setQuantidade(null);
     else setProduto(null);
   }
 
@@ -129,47 +188,7 @@ export function VisaoGeral({ senha, aoAbrirPedido }: { senha: string; aoAbrirPed
           <p className="mt-1 text-sm text-suave">Clique numa barra para detalhar: produto → quantidade → afiliado → pedidos.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1 rounded-xl border border-linha-2 bg-fundo-2 p-1" role="group" aria-label="Período">
-            {ATALHOS.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                aria-pressed={periodoId === a.id}
-                onClick={() => {
-                  setPeriodoId(a.id);
-                  setPeriodo(atalho(a.id));
-                }}
-                className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${periodoId === a.id ? "bg-white/10 text-tinta" : "text-suave hover:text-tinta"}`}
-              >
-                {a.rotulo}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-1 rounded-xl border border-linha-2 bg-fundo-2 px-2 py-1 text-sm">
-            <input
-              type="date"
-              aria-label="De"
-              value={periodo.de}
-              max={periodo.ate}
-              onChange={(e) => {
-                setPeriodoId("");
-                setPeriodo((p) => ({ ...p, de: e.target.value || p.de }));
-              }}
-              className="bg-transparent font-mono text-xs text-tinta [color-scheme:dark]"
-            />
-            <span className="text-suave">–</span>
-            <input
-              type="date"
-              aria-label="Até"
-              value={periodo.ate}
-              min={periodo.de}
-              onChange={(e) => {
-                setPeriodoId("");
-                setPeriodo((p) => ({ ...p, ate: e.target.value || p.ate }));
-              }}
-              className="bg-transparent font-mono text-xs text-tinta [color-scheme:dark]"
-            />
-          </div>
+          <SeletorPeriodo periodo={periodo} aoMudar={setPeriodo} />
           <div className="flex rounded-xl border border-linha-2 bg-fundo-2 p-1" role="group" aria-label="Medir por">
             {VISOES.map((v) => (
               <button
@@ -189,20 +208,20 @@ export function VisaoGeral({ senha, aoAbrirPedido }: { senha: string; aoAbrirPed
       {/* Trilha do recorte */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Recorte" className="flex flex-wrap items-center gap-2 text-sm">
-          <Migalha ativa={!produto} onClick={() => (setProduto(null), setQuantidade(null))}>
+          <Migalha ativa={!produto && afiliado === null} onClick={() => (setProduto(null), setQuantidade(null), setAfiliado(null))}>
             <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
             </svg>
             Loja
           </Migalha>
           <Seta />
-          <Migalha ativa={false} onClick={() => (setProduto(null), setQuantidade(null))}>
+          <Migalha ativa={false} onClick={() => (setProduto(null), setQuantidade(null), setAfiliado(null))}>
             {dados ? `${dataCurta(dados.periodo.de)} – ${dataCurta(dados.periodo.ate)}` : "Período"}
           </Migalha>
           {produto && dados?.produto_nome && (
             <>
               <Seta />
-              <Migalha ativa={quantidade === null} onClick={() => setQuantidade(null)}>
+              <Migalha ativa={quantidade === null && afiliado === null} onClick={() => (setQuantidade(null), setAfiliado(null))}>
                 {dados.produto_nome}
               </Migalha>
             </>
@@ -210,13 +229,21 @@ export function VisaoGeral({ senha, aoAbrirPedido }: { senha: string; aoAbrirPed
           {quantidade !== null && dados && (
             <>
               <Seta />
-              <Migalha ativa onClick={() => undefined}>
+              <Migalha ativa={afiliado === null} onClick={() => setAfiliado(null)}>
                 {dados.por_quantidade.find((g) => g.id === quantidade)?.nome ?? `${quantidade}`}
               </Migalha>
             </>
           )}
+          {afiliado !== null && dados && (
+            <>
+              <Seta />
+              <Migalha ativa onClick={() => undefined}>
+                {dados.afiliado_nome ?? "Afiliado"}
+              </Migalha>
+            </>
+          )}
         </nav>
-        {produto && (
+        {(produto || afiliado !== null) && (
           <button type="button" onClick={voltarUmNivel} className="rounded-xl border border-linha-2 bg-fundo-2 px-3 py-1.5 text-sm font-semibold hover:border-laranja">
             ← Voltar um nível
           </button>
@@ -242,6 +269,7 @@ export function VisaoGeral({ senha, aoAbrirPedido }: { senha: string; aoAbrirPed
               aoEscolher={(id) => {
                 setProduto(String(id));
                 setQuantidade(null);
+                setAfiliado(null);
               }}
               liga
             />
@@ -256,6 +284,7 @@ export function VisaoGeral({ senha, aoAbrirPedido }: { senha: string; aoAbrirPed
               aoEscolher={(id) => {
                 if (!produto && dados.produto) setProduto(dados.produto);
                 setQuantidade(Number(id));
+                setAfiliado(null);
               }}
               liga
             />
@@ -264,11 +293,10 @@ export function VisaoGeral({ senha, aoAbrirPedido }: { senha: string; aoAbrirPed
               titulo={`${quantidade !== null ? dados.por_quantidade.find((g) => g.id === quantidade)?.nome ?? "" : produto ? dados.produto_nome : "Todas as vendas"} · por afiliado`}
               total={formatar(dados.por_afiliado.reduce((s, g) => s + g.valor, 0))}
               grupos={dados.por_afiliado}
-              escolhido={null}
+              escolhido={afiliado}
               formatar={formatar}
               vazio="Sem vendas neste recorte."
-              aoEscolher={() => undefined}
-              rodape={<p className="mt-3 text-xs text-suave">Os afiliados entram na próxima etapa: por enquanto toda venda é direta.</p>}
+              aoEscolher={(id) => setAfiliado(String(id))}
             />
           </div>
 
@@ -310,7 +338,8 @@ function Indicadores({ dados }: { dados: Painel }) {
         {i.unidades} {i.unidades === 1 ? "unidade vendida" : "unidades vendidas"}
       </Cartao>
       <Cartao rotulo="Receita líquida" valor={reais(i.liquida_centavos)} selo={`${pct(i.liquida_centavos, i.vendas_centavos)} das vendas`} tom="ok">
-        vendas − frete pago à Loggi
+        vendas − frete pago à Loggi − comissões ({reais(i.comissoes_centavos)}, {i.vendas_afiliados}{" "}
+        {i.vendas_afiliados === 1 ? "venda de afiliado" : "vendas de afiliados"})
       </Cartao>
       <Cartao
         rotulo="Frete pago pela loja"
@@ -327,7 +356,7 @@ function Indicadores({ dados }: { dados: Painel }) {
   );
 }
 
-function Cartao({ rotulo, valor, selo, tom, children }: { rotulo: string; valor: string; selo: string; tom: "ok" | "alerta" | "destaque" | "neutro"; children: ReactNode }) {
+export function Cartao({ rotulo, valor, selo, tom, children }: { rotulo: string; valor: string; selo: string; tom: "ok" | "alerta" | "destaque" | "neutro"; children: ReactNode }) {
   const cor = { ok: "bg-ok/15 text-ok", alerta: "bg-red-400/15 text-red-300", destaque: "bg-laranja/15 text-laranja-2", neutro: "bg-white/10 text-tinta-2" }[tom];
   return (
     <section className="rounded-2xl border border-linha bg-fundo-2/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,.04)]">
@@ -343,7 +372,7 @@ function Cartao({ rotulo, valor, selo, tom, children }: { rotulo: string; valor:
 
 // ───────── Colunas de barras ─────────
 
-function Coluna({
+export function Coluna({
   numero,
   titulo,
   total,
@@ -419,11 +448,12 @@ function Coluna({
 // ───────── Tabela do recorte ─────────
 
 function TabelaRecorte({ dados, aoAbrirPedido }: { dados: Painel; aoAbrirPedido: (nsu: string) => void }) {
-  const recorte = dados.quantidade !== null
+  const base = dados.quantidade !== null
     ? `${dados.produto_nome} · ${dados.por_quantidade.find((g) => g.id === dados.quantidade)?.nome ?? ""}`
     : dados.produto && dados.produto_nome
       ? dados.produto_nome
       : "todos os pedidos do período";
+  const recorte = dados.afiliado !== null ? `${base} · ${dados.afiliado_nome}` : base;
   const resto = dados.pedidos_total - dados.pedidos.length;
   return (
     <section className="rounded-2xl border border-linha bg-fundo-2/90 p-4">
@@ -470,7 +500,10 @@ function TabelaRecorte({ dados, aoAbrirPedido }: { dados: Painel; aoAbrirPedido:
                     {l.quantidade}
                     {l.frete_gratis && <span className="ml-2 font-mono text-[10px] font-bold text-ok">FRETE GRÁTIS</span>}
                   </td>
-                  <td className="px-2 py-2.5 text-tinta-2">{l.afiliado ?? "Direta"}</td>
+                  <td className="px-2 py-2.5 text-tinta-2">
+                    {l.afiliado ?? "Direta"}
+                    {l.comissao_centavos > 0 && <span className="block font-mono text-[10px] text-suave">comissão {reais(l.comissao_centavos)}</span>}
+                  </td>
                   <td className="px-2 py-2.5 text-tinta-2">{rotuloPagamento(l.forma_pagamento)}</td>
                   <td className="px-2 py-2.5 text-right font-mono font-bold">{reais(l.valor_centavos)}</td>
                   <td className="px-2 py-2.5">

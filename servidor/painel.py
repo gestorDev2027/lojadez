@@ -2,15 +2,15 @@
 (produto → quantidade → afiliado), com os pedidos do recorte embaixo.
 
 Conta como venda o pedido pago ou enviado. As datas são as do Brasil (UTC−3, sem horário de verão).
-Taxas da InfinitePay e comissões entram no financeiro (próximas etapas); aqui a receita líquida desconta o frete que a
-loja paga à Loggi (inclusive o dos fretes grátis).
+A receita líquida desconta o frete que a loja paga à Loggi (inclusive o dos fretes grátis) e as comissões dos afiliados;
+as taxas da InfinitePay entram no financeiro (próxima etapa).
 """
 
 from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 
-from servidor import banco, catalogo, pedidos as regras, produtos
+from servidor import afiliados, banco, catalogo, pedidos as regras, produtos
 
 FUSO = timezone(timedelta(hours=-3))
 VENDIDOS = ("pago", "enviado")
@@ -71,8 +71,12 @@ def frete_da_loja(p: dict) -> int:
     return int(custo if custo is not None else p["frete_centavos"])
 
 
+def comissao(p: dict) -> int:
+    return int(p.get("comissao_centavos") or 0)
+
+
 def liquido(p: dict) -> int:
-    return cobrado(p) - frete_da_loja(p)
+    return cobrado(p) - frete_da_loja(p) - comissao(p)
 
 
 def _valor(p: dict, visao: str) -> int:
@@ -101,6 +105,18 @@ def nome_produto(chave: str) -> str:
     return prod["nome"] if prod else chave
 
 
+_afiliados: dict[str, str] = {}
+
+
+def nome_afiliado(codigo: str | None) -> str:
+    if not codigo:
+        return "Venda direta"
+    if codigo not in _afiliados:
+        a = afiliados.buscar_codigo(codigo)
+        _afiliados[codigo] = a["nome"] if a else codigo
+    return _afiliados[codigo]
+
+
 def titulo_quantidade(chave: str, n: int) -> str:
     prod = _produto(chave)
     if prod:
@@ -115,6 +131,7 @@ def _indicadores(lista: list[dict]) -> dict:
     gratis = [p for p in vendidos if p["frete_centavos"] == 0 and frete_da_loja(p) > 0]
     vendas = sum(cobrado(p) for p in vendidos)
     frete = sum(frete_da_loja(p) for p in vendidos)
+    comissoes = sum(comissao(p) for p in vendidos)
     aguardando = [p for p in lista if p["situacao"] == "aguardando_pagamento"]
     return {
         "vendas_centavos": vendas,
@@ -123,7 +140,9 @@ def _indicadores(lista: list[dict]) -> dict:
         "frete_loja_centavos": frete,
         "fretes_gratis": len(gratis),
         "fretes_gratis_centavos": sum(frete_da_loja(p) for p in gratis),
-        "liquida_centavos": vendas - frete,
+        "comissoes_centavos": comissoes,
+        "vendas_afiliados": sum(1 for p in vendidos if p.get("afiliado_id")),
+        "liquida_centavos": vendas - frete - comissoes,
         "pedidos": len(vendidos),
         "ticket_medio_centavos": round(vendas / len(vendidos)) if vendidos else 0,
         "aguardando": len(aguardando),
@@ -162,17 +181,19 @@ def _linha(p: dict) -> dict:
         "order_nsu": p["order_nsu"], "criado_em": p["criado_em"].isoformat() if p["criado_em"] else None,
         "cliente": (p["nome"] or "").split(" ")[0], "cidade": f"{p['cidade']}/{p['uf']}",
         "produto": nome_produto(_chave_produto(p)), "quantidade": titulo_quantidade(_chave_produto(p), int(p["kits"])),
-        "afiliado": None, "valor_centavos": cobrado(p), "frete_gratis": p["frete_centavos"] == 0,
+        "afiliado": nome_afiliado(p.get("afiliado_codigo")) if p.get("afiliado_codigo") else None,
+        "valor_centavos": cobrado(p), "comissao_centavos": comissao(p), "frete_gratis": p["frete_centavos"] == 0,
         "forma_pagamento": p.get("forma_pagamento"), "situacao": p["situacao"],
         "tem_envio": bool(p.get("loggi_key")) or bool(p.get("codigo_rastreio")),
     }
 
 
 def visao_geral(de: str | None = None, ate: str | None = None, visao: str = "vendas", produto: str | None = None,
-                quantidade: int | None = None) -> dict:
+                quantidade: int | None = None, afiliado: str | None = None) -> dict:
     if visao not in VISOES:
         raise ErroPainel("Visão inválida.")
     _nomes.clear()
+    _afiliados.clear()
     inicio, fim = periodo(de, ate)
     dias = (fim - inicio).days + 1
     lista = _pedidos(inicio, fim)
@@ -186,10 +207,11 @@ def visao_geral(de: str | None = None, ate: str | None = None, visao: str = "ven
     por_quantidade = _agrupar(do_produto, lambda p: int(p["kits"]),
                               lambda n: titulo_quantidade(produto_escolhido or produtos.KIT, n), visao)
     recorte = [p for p in do_produto if quantidade is None or int(p["kits"]) == quantidade] if produto else vendidos
-    # Afiliados entram na próxima etapa: por enquanto toda venda é direta.
-    por_afiliado = _agrupar(recorte, lambda p: "direta", lambda _: "Venda direta", visao)
+    por_afiliado = _agrupar(recorte, lambda p: p.get("afiliado_codigo") or "", nome_afiliado, visao)
 
     tabela = recorte if produto else lista  # sem recorte: todos os pedidos do período (inclusive aguardando)
+    if afiliado is not None:  # coluna 3: as vendas de um afiliado ("" = venda direta)
+        tabela = [p for p in recorte if (p.get("afiliado_codigo") or "") == afiliado]
     ordenada = sorted(tabela, key=lambda p: cobrado(p), reverse=True)
     return {
         "periodo": {"de": inicio.isoformat(), "ate": fim.isoformat(), "dias": dias},
@@ -202,7 +224,62 @@ def visao_geral(de: str | None = None, ate: str | None = None, visao: str = "ven
         "por_quantidade": por_quantidade,
         "quantidade": quantidade,
         "por_afiliado": por_afiliado,
+        "afiliado": afiliado,
+        "afiliado_nome": nome_afiliado(afiliado) if afiliado is not None else None,
         "pedidos": [_linha(p) for p in ordenada[:LINHAS]],
         "pedidos_total": len(ordenada),
         "pedidos_valor_centavos": sum(cobrado(p) for p in ordenada),
+    }
+
+
+# ───────── Afiliados: o resumo da lista e a ficha de cada um ─────────
+
+def _do_afiliado(lista: list[dict], afiliado_id: int) -> list[dict]:
+    return [p for p in lista if p.get("afiliado_id") == afiliado_id]
+
+
+def _numeros_afiliado(vendidos: list[dict], cliques: int) -> dict:
+    vendas = sum(cobrado(p) for p in vendidos)
+    return {"vendas_centavos": vendas, "produtos_centavos": sum(int(p["preco_centavos"]) for p in vendidos),
+            "pedidos": len(vendidos), "comissao_centavos": sum(comissao(p) for p in vendidos), "cliques": cliques,
+            "conversao_pct": round(len(vendidos) / cliques * 100, 1) if cliques else None,
+            "ticket_medio_centavos": round(vendas / len(vendidos)) if vendidos else 0}
+
+
+def resumo_afiliados(de: str | None = None, ate: str | None = None) -> dict:
+    """A lista de afiliados com os números do período (vendas pagas, comissão, cliques)."""
+    inicio, fim = periodo(de, ate)
+    vendidos = [p for p in _pedidos(inicio, fim) if p["situacao"] in VENDIDOS]
+    contagem = afiliados.cliques(inicio.isoformat(), fim.isoformat())
+    lista = []
+    for a in afiliados.listar():
+        lista.append({**afiliados.para_vendedor(a), **_numeros_afiliado(_do_afiliado(vendidos, a["id"]), contagem.get(a["id"], 0))})
+    lista.sort(key=lambda a: (not a["ativo"], -a["vendas_centavos"], a["nome"]))
+    com_afiliado = [p for p in vendidos if p.get("afiliado_id")]
+    return {
+        "periodo": {"de": inicio.isoformat(), "ate": fim.isoformat()},
+        "afiliados": lista,
+        "totais": {**_numeros_afiliado(com_afiliado, sum(contagem.values())),
+                   "vendas_loja_centavos": sum(cobrado(p) for p in vendidos), "ativos": sum(1 for a in lista if a["ativo"])},
+    }
+
+
+def ficha_afiliado(afiliado_id: int, de: str | None = None, ate: str | None = None) -> dict | None:
+    """Um afiliado: os links, os números do período, as vendas por produto e a tabela das vendas."""
+    a = afiliados.buscar(afiliado_id)
+    if not a:
+        return None
+    _nomes.clear()
+    inicio, fim = periodo(de, ate)
+    lista = _do_afiliado(_pedidos(inicio, fim), afiliado_id)
+    vendidos = [p for p in lista if p["situacao"] in VENDIDOS]
+    cliques = afiliados.cliques(inicio.isoformat(), fim.isoformat()).get(afiliado_id, 0)
+    ordenada = sorted(lista, key=lambda p: p["criado_em"], reverse=True)
+    return {
+        "periodo": {"de": inicio.isoformat(), "ate": fim.isoformat()},
+        "afiliado": afiliados.para_vendedor(a),
+        "numeros": _numeros_afiliado(vendidos, cliques),
+        "por_produto": _agrupar(vendidos, _chave_produto, nome_produto, "vendas"),
+        "vendas": [_linha(p) for p in ordenada[:100]],
+        "vendas_total": len(ordenada),
     }
