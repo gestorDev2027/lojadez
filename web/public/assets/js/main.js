@@ -308,6 +308,7 @@
     moreList.innerHTML = outros.map((p, i) => `
       <a class="more__item reveal" href="${esc(p.url)}" style="--rd:${i * 0.1}s">
         <img src="${esc(p.foto)}" alt="" loading="lazy" width="400" height="400">
+        ${p.selo ? `<span class="more__seal">${esc(p.selo)}</span>` : ''}
         <span class="more__name">${esc(p.nome)}</span>
         ${p.chamada ? `<span class="more__desc">${esc(p.chamada)}</span>` : ''}
         <span class="more__price mono"><small>a partir de</small> ${brl(p.aPartirDe)}</span>

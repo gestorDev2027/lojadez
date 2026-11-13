@@ -58,7 +58,22 @@ export type ProdutoPublico = {
   oferta_padrao: string;
 };
 
-export type ItemVitrine = { id: string; nome: string; chamada: string; foto: string; url: string; a_partir_de_centavos: number };
+export type ItemVitrine = {
+  id: string;
+  nome: string;
+  chamada: string;
+  foto: string;
+  url: string;
+  comprar: string;
+  a_partir_de_centavos: number;
+  por_unidade_centavos: number;
+  unidade: string;
+  destaque: boolean;
+  categoria: string;
+  selo: string;
+  vendidos: number;
+  frete_gratis_a_partir: number;
+};
 
 export function vitrineDoKit(loja: Loja): Vitrine {
   const p = loja.produto;
