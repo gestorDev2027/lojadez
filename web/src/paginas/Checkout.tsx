@@ -16,7 +16,7 @@ import {
   type Vitrine,
 } from "../api";
 
-// O checkout: 1) o kit, 2) o frete pelo CEP (Loggi), 3) os dados de entrega. O servidor recalcula preço e frete na hora de
+// O checkout: 1) o kit, 2) entrega e contato (o CEP calcula o frete sozinho; nome, celular e CPF numa linha). O servidor recalcula preço e frete na hora de
 // criar o pedido e devolve o link de pagamento da InfinitePay.
 export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitrine }) {
   const daUrl = new URLSearchParams(window.location.search).get("oferta");
@@ -33,6 +33,9 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
   const lembrados = lerCliente();
   const [dados, setDados] = useState({ nome: "", cpf: "", email: "", telefone: "", rua: "", numero: "", complemento: "", bairro: "", ...lembrados.dados });
   const [lembrar, setLembrar] = useState(true);
+  const [temLembrados, setTemLembrados] = useState(Boolean(lembrados.dados?.nome));
+  const [mostrarEmail, setMostrarEmail] = useState(Boolean(lembrados.dados?.email));
+  const [tocados, setTocados] = useState<Record<string, boolean>>({});
   const [alterarRua, setAlterarRua] = useState(false);
   const [cupomTexto, setCupomTexto] = useState("");
   const [cupom, setCupom] = useState<CupomAplicado | null>(null);
@@ -54,7 +57,9 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     try {
       const c = await chamar<Cotacao>("/api/frete", { corpo: { cep: cepUsado, oferta: id, produto: v.produto, cupom: codigoCupom } });
       setCotacao(c);
-      setFreteTipo((atual) => (c.opcoes.some((o) => o.tipo === atual) ? atual : c.opcoes[0].tipo));
+      // Já vem marcada a opção grátis ou a mais barata; a pessoa só troca se quiser.
+      const maisBarata = [...c.opcoes].sort((a, b) => a.centavos - b.centavos || a.prazo_dias - b.prazo_dias)[0];
+      setFreteTipo((atual) => (c.opcoes.some((o) => o.tipo === atual) ? atual : maisBarata.tipo));
       // A rua e o bairro do CEP, sem apagar o que a pessoa já escreveu.
       setDados((d) =>
         d.rua && cepUsado.replace(/\D/g, "") === (lembrados.cep ?? "").replace(/\D/g, "")
@@ -123,7 +128,16 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
   async function pagar(e: FormEvent) {
     e.preventDefault();
     if (!cotacao || !opcao) {
-      setErro("Calcule o frete antes de pagar.");
+      setErroFrete("Digite o CEP para calcular o frete.");
+      const campoCep = document.getElementById("cep");
+      campoCep?.scrollIntoView({ behavior: "smooth", block: "center" });
+      campoCep?.focus({ preventScroll: true });
+      return;
+    }
+    const problema = erroDoCampo("cpf", dados.cpf) || erroDoCampo("telefone", dados.telefone);
+    if (problema) {
+      setTocados({ cpf: true, telefone: true });
+      setErro(problema);
       return;
     }
     setEnviando(true);
@@ -142,7 +156,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
   }
 
   return (
-    <form onSubmit={pagar} className="mx-auto grid max-w-6xl gap-6 px-4 py-6 md:py-10 lg:grid-cols-[1fr_380px] lg:items-start">
+    <form onSubmit={pagar} className="mx-auto grid max-w-6xl gap-6 px-4 pt-6 pb-28 md:pt-10 lg:grid-cols-[1fr_380px] lg:items-start lg:pb-10">
       <div className="grid gap-5">
         <div>
           <p className="font-mono text-xs tracking-widest text-laranja-2">FINALIZAR COMPRA</p>
@@ -176,153 +190,206 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
           </div>
         </Etapa>
 
-        {/* 2. O frete */}
-        <Etapa numero="02" titulo="Entrega">
-          <div className="flex gap-2">
-            <label className="sr-only" htmlFor="cep">
-              CEP de entrega
-            </label>
-            <input
-              id="cep"
-              className="campo font-mono"
-              inputMode="numeric"
-              autoComplete="postal-code"
-              placeholder="00000-000"
-              value={cep}
-              onChange={(e) => setCep(formatarCep(e.target.value))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void cotar();
-                }
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => void cotar()}
-              disabled={cotando}
-              className="shrink-0 rounded-[14px] border border-linha-2 px-5 font-bold transition hover:border-laranja hover:text-laranja-2 disabled:opacity-50"
-            >
-              {cotando ? "Calculando…" : "Calcular"}
-            </button>
-          </div>
-          <a
-            href="https://buscacepinter.correios.com.br/app/endereco/index.php"
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 inline-block text-sm text-suave underline-offset-4 hover:underline"
-          >
-            Não sei meu CEP
-          </a>
-          {erroFrete && (
-            <p role="alert" className="mt-2 text-sm text-alerta">
-              {erroFrete}
-            </p>
-          )}
-          {cotacao && (
-            <fieldset className="mt-4">
-              <legend className="mb-2 text-sm text-suave">
-                Entrega em <strong className="text-tinta">{cotacao.endereco.cidade}/{cotacao.endereco.uf}</strong> pela Loggi
-              </legend>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {cotacao.opcoes.map((o) => (
-                  <label
-                    key={o.tipo}
-                    className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-4 transition ${
-                      o.tipo === freteTipo ? "border-laranja bg-laranja/10" : "border-linha-2 hover:border-linha-2 hover:bg-white/[.03]"
-                    }`}
-                  >
-                    <span className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name="frete"
-                        value={o.tipo}
-                        checked={o.tipo === freteTipo}
-                        onChange={() => setFreteTipo(o.tipo)}
-                        className="size-4 accent-laranja"
-                        aria-label={`${o.nome}, até ${o.prazo_dias} dias úteis, ${o.gratis ? "frete grátis" : reais(o.centavos)}`}
-                      />
-                      <span>
-                        <span className="block font-bold">{o.nome}</span>
-                        <span className="block font-mono text-xs text-suave">
-                          até {o.prazo_dias} {o.prazo_dias === 1 ? "dia útil" : "dias úteis"}
+        {/* 2. Entrega e contato: tudo num bloco só */}
+        <Etapa numero="02" titulo="Entrega e contato">
+          <div className="grid gap-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold" htmlFor="cep">
+                CEP de entrega
+              </label>
+              <div className="relative">
+                <input
+                  id="cep"
+                  className="campo pr-32 font-mono"
+                  inputMode="numeric"
+                  autoComplete="postal-code"
+                  placeholder="00000-000"
+                  value={cep}
+                  onChange={(e) => {
+                    const novo = formatarCep(e.target.value);
+                    setCep(novo);
+                    // Com os 8 números, o frete é calculado sozinho (sem botão).
+                    const digitos = novo.replace(/\D/g, "");
+                    if (digitos.length === 8 && digitos !== cotacao?.endereco.cep.replace(/\D/g, "")) void cotar(ofertaId, novo);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void cotar();
+                    }
+                  }}
+                />
+                <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center font-mono text-xs text-suave" aria-live="polite">
+                  {cotando ? "calculando…" : cotacao ? `${cotacao.endereco.cidade}/${cotacao.endereco.uf}` : ""}
+                </span>
+              </div>
+              {!cotacao && (
+                <a
+                  href="https://buscacepinter.correios.com.br/app/endereco/index.php"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1.5 inline-block text-xs text-suave underline-offset-4 hover:underline"
+                >
+                  Não sei meu CEP
+                </a>
+              )}
+              {erroFrete && (
+                <p role="alert" className="mt-2 text-sm text-alerta">
+                  {erroFrete}
+                </p>
+              )}
+            </div>
+
+            {cotacao && (
+              <fieldset>
+                <legend className="mb-2 text-sm font-semibold">Frete pela Loggi</legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {cotacao.opcoes.map((o) => (
+                    <label
+                      key={o.tipo}
+                      className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition ${
+                        o.tipo === freteTipo ? "border-laranja bg-laranja/10" : "border-linha-2 hover:bg-white/[.03]"
+                      }`}
+                    >
+                      <span className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="frete"
+                          value={o.tipo}
+                          checked={o.tipo === freteTipo}
+                          onChange={() => setFreteTipo(o.tipo)}
+                          className="size-4 accent-laranja"
+                          aria-label={`${o.nome}, até ${o.prazo_dias} dias úteis, ${o.gratis ? "frete grátis" : reais(o.centavos)}`}
+                        />
+                        <span>
+                          <span className="block font-bold">{o.nome}</span>
+                          <span className="block font-mono text-xs text-suave">
+                            até {o.prazo_dias} {o.prazo_dias === 1 ? "dia útil" : "dias úteis"}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                    {o.gratis ? (
-                      <span className="text-right">
-                        <span className="block font-mono font-bold text-ok">Grátis</span>
-                        <s className="block font-mono text-xs text-suave">{reais(o.custo_centavos)}</s>
-                      </span>
-                    ) : (
-                      <span className="font-mono font-bold">{reais(o.centavos)}</span>
-                    )}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          )}
-          {cotacao && (
-            <div className="mt-4 grid gap-3 rounded-2xl border border-linha-2 p-4">
-              <p className="text-sm">
-                <span className="text-suave">Entregar em </span>
-                <strong>
-                  {dados.rua || "rua não encontrada"}
-                  {dados.bairro ? `, ${dados.bairro}` : ""}
-                </strong>
-                <span className="text-suave">
-                  {" "}
-                  · {cotacao.endereco.cidade}/{cotacao.endereco.uf} · CEP {formatarCep(cotacao.endereco.cep)}
-                </span>{" "}
-                {!alterarRua && (
-                  <button type="button" onClick={() => setAlterarRua(true)} className="text-laranja-2 underline-offset-4 hover:underline">
-                    alterar
-                  </button>
+                      {o.gratis ? (
+                        <span className="text-right">
+                          <span className="block font-mono font-bold text-ok">Grátis</span>
+                          <s className="block font-mono text-xs text-suave">{reais(o.custo_centavos)}</s>
+                        </span>
+                      ) : (
+                        <span className="font-mono font-bold">{reais(o.centavos)}</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+
+            {cotacao && (
+              <div className="grid gap-3">
+                <p className="text-sm">
+                  <span className="text-suave">Entregar em </span>
+                  <strong>
+                    {dados.rua || "rua não encontrada"}
+                    {dados.bairro ? `, ${dados.bairro}` : ""}
+                  </strong>
+                  <span className="text-suave"> · CEP {formatarCep(cotacao.endereco.cep)}</span>{" "}
+                  {!alterarRua && (
+                    <button type="button" onClick={() => setAlterarRua(true)} className="text-laranja-2 underline-offset-4 hover:underline">
+                      alterar
+                    </button>
+                  )}
+                </p>
+                {alterarRua && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Campo rotulo="Rua">
+                      <input className="campo" required autoComplete="address-line1" value={dados.rua} onChange={mudar("rua")} />
+                    </Campo>
+                    <Campo rotulo="Bairro">
+                      <input className="campo" required autoComplete="address-level3" value={dados.bairro} onChange={mudar("bairro")} />
+                    </Campo>
+                  </div>
                 )}
-              </p>
-              {alterarRua && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Campo rotulo="Rua">
-                    <input className="campo" required autoComplete="address-line1" value={dados.rua} onChange={mudar("rua")} />
+                <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
+                  <Campo rotulo="Número">
+                    <input className="campo" required inputMode="numeric" value={dados.numero} onChange={mudar("numero")} />
                   </Campo>
-                  <Campo rotulo="Bairro">
-                    <input className="campo" required autoComplete="address-level3" value={dados.bairro} onChange={mudar("bairro")} />
+                  <Campo rotulo="Complemento">
+                    <input className="campo" autoComplete="address-line2" placeholder="Apto, bloco… (opcional)" value={dados.complemento} onChange={mudar("complemento")} />
                   </Campo>
                 </div>
-              )}
-              <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
-                <Campo rotulo="Número">
-                  <input className="campo" required inputMode="numeric" value={dados.numero} onChange={mudar("numero")} />
-                </Campo>
-                <Campo rotulo="Complemento (opcional)">
-                  <input className="campo" autoComplete="address-line2" placeholder="Apto, bloco, casa…" value={dados.complemento} onChange={mudar("complemento")} />
-                </Campo>
               </div>
-            </div>
-          )}
-        </Etapa>
+            )}
 
-        {/* 3. Os dados */}
-        <Etapa numero="03" titulo="Seus dados">
-          <div className="grid gap-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Campo rotulo="Nome completo" dica="De quem vai receber.">
+            <div className="grid gap-3 border-t border-linha pt-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+              <Campo rotulo="Nome de quem recebe">
                 <input className="campo" required autoComplete="name" value={dados.nome} onChange={mudar("nome")} />
               </Campo>
-              <Campo rotulo="CPF" dica="A Loggi pede o CPF de quem recebe.">
-                <input className="campo font-mono" required inputMode="numeric" autoComplete="off" value={dados.cpf} onChange={mudar("cpf")} />
+              <Campo rotulo="Celular" erro={tocados.telefone ? erroDoCampo("telefone", dados.telefone) : ""}>
+                <input
+                  className="campo font-mono"
+                  required
+                  inputMode="tel"
+                  autoComplete="tel-national"
+                  placeholder="(00) 00000-0000"
+                  value={dados.telefone}
+                  onChange={mudar("telefone")}
+                  onBlur={() => setTocados((t) => ({ ...t, telefone: true }))}
+                />
               </Campo>
-              <Campo rotulo="Celular (WhatsApp)" dica="Para a entrega e o rastreio.">
-                <input className="campo font-mono" required inputMode="tel" autoComplete="tel-national" value={dados.telefone} onChange={mudar("telefone")} />
-              </Campo>
-              <Campo rotulo="E-mail (opcional)">
-                <input className="campo" type="email" autoComplete="email" value={dados.email} onChange={mudar("email")} />
+              <Campo
+                rotulo="CPF"
+                erro={tocados.cpf || dados.cpf.replace(/\D/g, "").length === 11 ? erroDoCampo("cpf", dados.cpf) : ""}
+                certo={cpfValido(dados.cpf)}
+              >
+                <input
+                  className="campo font-mono"
+                  required
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="000.000.000-00"
+                  value={dados.cpf}
+                  onChange={mudar("cpf")}
+                  onBlur={() => setTocados((t) => ({ ...t, cpf: true }))}
+                />
               </Campo>
             </div>
-            <label className="flex items-center gap-2 text-sm text-tinta-2">
-              <input type="checkbox" checked={lembrar} onChange={(e) => setLembrar(e.target.checked)} className="size-4 accent-laranja" />
-              Lembrar meus dados neste aparelho para a próxima compra
-            </label>
+            <p className="-mt-2 text-xs text-suave">O celular é para o rastreio; o CPF, a Loggi pede de quem recebe.</p>
+
+            {mostrarEmail ? (
+              <Campo rotulo="E-mail para o comprovante (opcional)">
+                <input className="campo" type="email" autoComplete="email" value={dados.email} onChange={mudar("email")} />
+              </Campo>
+            ) : (
+              <button type="button" onClick={() => setMostrarEmail(true)} className="justify-self-start text-sm text-laranja-2 underline-offset-4 hover:underline">
+                + Receber o comprovante por e-mail
+              </button>
+            )}
+
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-tinta-2">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={lembrar} onChange={(e) => setLembrar(e.target.checked)} className="size-4 accent-laranja" />
+                Lembrar meus dados para a próxima compra
+              </label>
+              <span className="text-xs text-suave">
+                Ficam só neste aparelho
+                {temLembrados && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      className="underline-offset-4 hover:text-tinta hover:underline"
+                      onClick={() => {
+                        guardarCliente(null);
+                        setTemLembrados(false);
+                        setLembrar(false);
+                        setMostrarEmail(false);
+                        setDados((d) => ({ ...d, nome: "", cpf: "", email: "", telefone: "", numero: "", complemento: "" }));
+                      }}
+                    >
+                      esquecer
+                    </button>
+                  </>
+                )}
+              </span>
+            </div>
           </div>
         </Etapa>
       </div>
@@ -433,6 +500,19 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
           </a>
         )}
       </aside>
+
+      {/* No celular: o total e o botão sempre à mão, sem rolar até o resumo. */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-linha-2 bg-fundo/95 px-4 py-3 backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-6xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="font-mono text-[11px] text-suave">{opcao ? (opcao.gratis ? "Total · frete grátis" : "Total com frete") : "Total sem o frete"}</p>
+            <p className="font-display text-2xl leading-none font-extrabold">{reais(oferta.preco_centavos - (cupom?.desconto_centavos ?? 0) + (opcao?.centavos ?? 0))}</p>
+          </div>
+          <button type="submit" disabled={enviando} className="btn-laranja shrink-0 px-5 py-3 text-sm">
+            {enviando ? "Abrindo…" : opcao ? "Pagar" : "Calcular frete"}
+          </button>
+        </div>
+      </div>
     </form>
   );
 }
@@ -536,14 +616,45 @@ function CartaoOferta({ oferta: o, vitrine: v, ativa, onClick }: { oferta: Ofert
   );
 }
 
-function Campo({ rotulo, dica, children }: { rotulo: string; dica?: string; children: ReactNode }) {
+function Campo({ rotulo, dica, erro, certo, children }: { rotulo: string; dica?: string; erro?: string; certo?: boolean; children: ReactNode }) {
   return (
-    <label className="grid gap-1.5 text-sm font-semibold">
-      {rotulo}
+    <label className="grid content-start gap-1.5 text-sm font-semibold">
+      <span className="flex items-center justify-between gap-2">
+        {rotulo}
+        {certo && !erro && (
+          <span className="font-mono text-xs text-ok" aria-label="confere">
+            ✓
+          </span>
+        )}
+      </span>
       {children}
-      {dica && <span className="text-xs font-normal text-suave">{dica}</span>}
+      {erro ? (
+        <span role="alert" className="text-xs font-normal text-alerta">
+          {erro}
+        </span>
+      ) : (
+        dica && <span className="text-xs font-normal text-suave">{dica}</span>
+      )}
     </label>
   );
+}
+
+// O CPF com os dígitos verificadores conferidos (o servidor confere de novo).
+function cpfValido(cpf: string) {
+  const d = cpf.replace(/\D/g, "");
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  for (const n of [9, 10]) {
+    let soma = 0;
+    for (let i = 0; i < n; i++) soma += Number(d[i]) * (n + 1 - i);
+    if (((soma * 10) % 11) % 10 !== Number(d[n])) return false;
+  }
+  return true;
+}
+
+function erroDoCampo(campo: "cpf" | "telefone", valor: string) {
+  const d = valor.replace(/\D/g, "");
+  if (campo === "cpf") return cpfValido(valor) ? "" : d.length < 11 ? "Faltam números no CPF." : "Esse CPF não confere. Veja se digitou certo.";
+  return d.length >= 10 ? "" : "Digite o celular com DDD.";
 }
 
 function Linha({ rotulo, valor }: { rotulo: string; valor: string }) {
