@@ -7,7 +7,7 @@ COPY web/ ./
 RUN npm run build
 
 # Etapa 2: o servidor (FastAPI), que serve a API e o site.
-FROM python:3.13-slim
+FROM python:3.14-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 COPY requirements.txt ./

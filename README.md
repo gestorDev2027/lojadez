@@ -120,8 +120,21 @@ Faça o primeiro teste com um pedido pequeno e pago por você.
 
 ## Publicar no Render
 
-O `render.yaml` cria o serviço (Docker) com uma variável só: o `DATABASE_URL` do Supabase (abaixo). O resto vem da aba
-Configurações. Use o plano `starter` ou acima: no free o site dorme, e o webhook pode chegar com ele dormindo.
+O `render.yaml` (Blueprint) cria um serviço Docker: o `Dockerfile` compila o painel (Node) e roda o servidor (Python).
+Use o plano `starter` ou acima: no free o site dorme, e o aviso de pagamento da InfinitePay pode chegar com ele dormindo.
+
+1. **Antes:** na loja do computador, em `/vendedor` → Configurações, use **“Levar o .env para o banco”**. As chaves
+   (Loggi, InfinitePay, Gemini) vão para o Vault do Supabase, e o Render lê tudo do banco.
+2. **Render** → New → **Blueprint** → escolha o repositório → preencha as variáveis pedidas: `DATABASE_URL` (o mesmo
+   do `.env`), `LOJA_ADMIN_EMAIL` e `LOJA_ADMIN_SENHA` (o acesso ao `/vendedor`) → **Apply**.
+3. **Depois de no ar:** em `/vendedor` → Configurações → **Endereço do site** = o endereço do Render (ex.:
+   `https://loja-laminas.onrender.com`) ou o seu domínio, com `https`. É com ele que a InfinitePay manda o aviso de
+   pagamento (webhook) e que os links dos afiliados são montados.
+4. **Domínio próprio:** Render → o serviço → Settings → **Custom Domains** → adicione o domínio e crie no registro do
+   domínio o CNAME que o Render mostrar. O `https` vem sozinho. Depois troque o Endereço do site (passo 3).
+5. Cada merge na `main` publica de novo sozinho (Auto-Deploy).
+
+A loja do computador e a do Render usam o mesmo banco (Supabase): pedidos, produtos e configurações são os mesmos.
 
 ## Banco no Supabase
 

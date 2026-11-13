@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 import base64
 
 from servidor import (acesso, afiliados, banco, catalogo, config, configuracoes, cupons, ia, loggi, painel, pedidos,
-                      produtos, simulador)
+                      produtos, repasses, simulador)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -47,6 +47,11 @@ def _erro_pedido(_: Request, erro: pedidos.ErroPedido):
 @app.exception_handler(acesso.ErroAcesso)
 def _erro_acesso(_: Request, erro: acesso.ErroAcesso):
     return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(repasses.ErroRepasse)
+def _erro_repasse(_: Request, erro: repasses.ErroRepasse):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
 
 
 @app.exception_handler(cupons.ErroCupom)
@@ -377,6 +382,42 @@ def vendedor_painel(request: Request, de: str | None = None, ate: str | None = N
     """A visão geral: indicadores do período e os recortes (produto → quantidade → afiliado)."""
     _vendedor(request)
     return painel.visao_geral(de, ate, visao, produto, quantidade, afiliado)
+
+
+# Repasses: o pagamento das comissões aos afiliados (o Pix é feito fora da loja; aqui fica o registro).
+
+@app.get("/api/vendedor/repasses")
+def vendedor_repasses(request: Request):
+    _vendedor(request)
+    return repasses.resumo()
+
+
+@app.post("/api/vendedor/repasses")
+async def vendedor_pagar_repasse(request: Request):
+    email = _vendedor(request)
+    dados = await _json(request)
+    try:
+        afiliado_id = int(dados.get("afiliado_id"))
+    except (TypeError, ValueError):
+        raise repasses.ErroRepasse("Escolha o afiliado.")
+    return repasses.pagar(afiliado_id, dados.get("pedidos") or None, str(dados.get("pago_em") or ""),
+                          str(dados.get("observacao") or ""), email)
+
+
+@app.delete("/api/vendedor/repasses/{repasse_id}")
+def vendedor_desfazer_repasse(repasse_id: int, request: Request):
+    email = _vendedor(request)
+    repasses.desfazer(repasse_id, email)
+    return {"ok": True}
+
+
+@app.get("/api/vendedor/repasses/{repasse_id}")
+def vendedor_comprovante_repasse(repasse_id: int, request: Request):
+    _vendedor(request)
+    dados = repasses.comprovante(repasse_id)
+    if not dados:
+        raise HTTPException(404, "Repasse não encontrado.")
+    return dados
 
 
 # Cupons de desconto (inclusive de afiliados).

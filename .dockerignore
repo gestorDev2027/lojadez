@@ -1,0 +1,16 @@
+# O que NÃO vai para a imagem do Render (o Dockerfile instala e compila tudo lá dentro).
+.git
+.env
+.env.*
+!.env.example
+.venv
+dados
+testes
+**/__pycache__
+**/*.pyc
+.pytest_cache
+web/node_modules
+web/dist
+*.zip
+Claude outputs
+.claude

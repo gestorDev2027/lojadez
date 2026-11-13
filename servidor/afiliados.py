@@ -65,8 +65,15 @@ def atribuir(codigo: str | None, produto_id: str | None) -> dict | None:
     return afiliado if afiliado and pode_vender(afiliado, produto_id) else None
 
 
-def comissao(afiliado: dict, preco_centavos: int) -> int:
-    return round(preco_centavos * float(afiliado["comissao_pct"]) / 100)
+def comissao_pct(afiliado: dict, produto_id: str | None = None) -> float:
+    """A comissão (%) do afiliado para o produto: a do produto, se houver, senão a geral."""
+    proprias = afiliado.get("comissoes_produto") or {}
+    valor = proprias.get(produto_id or produtos.KIT)
+    return float(valor if valor is not None else afiliado["comissao_pct"])
+
+
+def comissao(afiliado: dict, preco_centavos: int, produto_id: str | None = None) -> int:
+    return round(preco_centavos * comissao_pct(afiliado, produto_id) / 100)
 
 
 def links(afiliado: dict) -> list[dict]:
@@ -137,7 +144,19 @@ def _conferir(dados: dict) -> dict:
     lista = [str(x) for x in (dados.get("produtos") or []) if str(x) in validos]
     if not todos and not lista:
         raise ErroAfiliado("Escolha pelo menos um produto (ou marque “todos os produtos”).")
+    proprias = {}
+    for produto_id, valor in (dados.get("comissoes_produto") or {}).items():
+        if str(produto_id) not in validos or str(valor).strip() in ("", "None"):
+            continue
+        try:
+            v = round(float(str(valor).replace(",", ".")), 2)
+        except ValueError:
+            raise ErroAfiliado("Comissão por produto: use um número.")
+        if not 0 <= v <= 90:
+            raise ErroAfiliado("Comissão por produto: de 0% a 90%.")
+        proprias[str(produto_id)] = v
     return {
+        "comissoes_produto": proprias,
         "nome": _texto(dados, "nome", "o nome", 80, 3),
         "documento": documento or None, "email": email.lower() if email else None, "telefone": telefone or None,
         "chave_pix": _texto(dados, "chave_pix", "a chave Pix", 140),

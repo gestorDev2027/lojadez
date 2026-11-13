@@ -114,8 +114,9 @@ def _do_afiliado(ref, oferta: dict, cupom: dict | None = None, campanha=None) ->
         return {"afiliado_id": None, "afiliado_codigo": None, "comissao_pct": None, "comissao_centavos": None,
                 "campanha_codigo": None}
     return {"afiliado_id": afiliado["id"], "afiliado_codigo": afiliado["codigo"],
-            "comissao_pct": float(afiliado["comissao_pct"]),
-            "comissao_centavos": afiliados.comissao(afiliado, oferta["preco_centavos"] - (cupom or {}).get("desconto_centavos", 0)),
+            "comissao_pct": afiliados.comissao_pct(afiliado, oferta["produto_id"]),
+            "comissao_centavos": afiliados.comissao(afiliado, oferta["preco_centavos"] - (cupom or {}).get("desconto_centavos", 0),
+                                                    oferta["produto_id"]),
             "campanha_codigo": _campanha_do(afiliado, campanha)}
 
 

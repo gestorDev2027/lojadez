@@ -4,6 +4,7 @@ import { chamar, formatarCpf, formatarTelefone, reais, type Loja, type ProdutoPu
 import { Tabela, type ColunaTabela } from "./Tabela";
 import { Campo } from "./VendedorAjustes";
 import { Cartao, Coluna, Selo, SeletorPeriodo, periodoInicial, rotuloPagamento, type Periodo } from "./VendedorPainel";
+import { Comprovante, CORES_SITUACAO, dataBr, type LinhaComissao, type Repasse } from "./VendedorRepasses";
 
 // A aba "Afiliados": a lista com os números do período, a ficha de cada afiliado (links prontos, desempenho e vendas)
 // e o cadastro. A venda conta para o afiliado quando o cliente chega pelo link dele (?ref=) e compra em até 30 dias.
@@ -22,6 +23,7 @@ type Afiliado = {
   produtos: string[];
   ativo: boolean;
   observacoes: string | null;
+  comissoes_produto: Record<string, number> | null;
   links: Link[];
 };
 type Numeros = {
@@ -60,6 +62,12 @@ type Ficha = {
   cupons: { codigo: string; descricao: string; ativo: boolean }[];
   campanhas: Campanha[];
   destinos: Record<string, string>;
+  saldo: {
+    somas: { a_liberar: number; disponivel: number; paga: number; cancelada: number };
+    comissoes: LinhaComissao[];
+    repasses: Repasse[];
+    dias_liberacao: number;
+  };
 };
 type Campanha = {
   id: number;
@@ -370,6 +378,11 @@ function FichaAfiliado({
       {aviso && <p role="status" className="text-ok">{aviso}</p>}
       {erro && <p role="alert" className="text-alerta">{erro}</p>}
 
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+        <ControleDoAfiliado senha={senha} afiliado={a} aoSalvar={() => setVersao((n) => n + 1)} />
+        <SaldoDoAfiliado senha={senha} saldo={ficha.saldo} />
+      </div>
+
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Cartao rotulo="Vendas" valor={reais(n.vendas_centavos)} selo={`ticket ${reais(n.ticket_medio_centavos)}`} tom="destaque">
           {n.pedidos} {n.pedidos === 1 ? "pedido pago" : "pedidos pagos"}
@@ -517,7 +530,7 @@ function EditorAfiliado({
       const salvo = await chamar<Afiliado>(afiliado ? `/api/vendedor/afiliados/${afiliado.id}` : "/api/vendedor/afiliados", {
         metodo: afiliado ? "PUT" : "POST",
         senha,
-        corpo: { ...f, comissao_pct: f.comissao_pct.replace(",", ".") },
+        corpo: { ...f, comissao_pct: f.comissao_pct.replace(",", "."), comissoes_produto: afiliado?.comissoes_produto ?? {} },
       });
       aoSalvar(salvo);
     } catch (falha) {
@@ -826,5 +839,209 @@ function JanelaQr({ campanha, afiliado, aoFechar }: { campanha: Campanha; afilia
         </div>
       </div>
     </div>
+  );
+}
+
+// ───────── Controle: ativo, comissão geral, produtos liberados e comissão por produto ─────────
+
+type ProdutoOpcaoFicha = { id: string; nome: string; foto: string };
+
+function Chave({ ligada, aoMudar, rotulo }: { ligada: boolean; aoMudar: (v: boolean) => void; rotulo: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={ligada}
+      aria-label={rotulo}
+      onClick={() => aoMudar(!ligada)}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition ${ligada ? "bg-laranja" : "bg-white/15"}`}
+    >
+      <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${ligada ? "left-[22px]" : "left-0.5"}`} />
+    </button>
+  );
+}
+
+function ControleDoAfiliado({ senha, afiliado: a, aoSalvar }: { senha: string; afiliado: Afiliado; aoSalvar: () => void }) {
+  const [ativo, setAtivo] = useState(a.ativo);
+  const [geral, setGeral] = useState(String(a.comissao_pct).replace(".", ","));
+  const [todos, setTodos] = useState(a.todos_produtos);
+  const [liberados, setLiberados] = useState<string[]>(a.produtos);
+  const [proprias, setProprias] = useState<Record<string, string>>(
+    Object.fromEntries(Object.entries(a.comissoes_produto ?? {}).map(([k, v]) => [k, String(v).replace(".", ",")])),
+  );
+  const [opcoes, setOpcoes] = useState<ProdutoOpcaoFicha[]>([]);
+  const [salvando, setSalvando] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  useEffect(() => {
+    chamar<{ itens: { id: string; nome: string; foto: string }[] }>("/api/vitrine")
+      .then((v) => setOpcoes(v.itens.map((i) => ({ id: i.id, nome: i.nome, foto: i.foto }))))
+      .catch(() => undefined);
+  }, []);
+
+  const mudou =
+    ativo !== a.ativo ||
+    geral.replace(",", ".") !== String(a.comissao_pct) ||
+    todos !== a.todos_produtos ||
+    JSON.stringify([...liberados].sort()) !== JSON.stringify([...a.produtos].sort()) ||
+    JSON.stringify(proprias) !==
+      JSON.stringify(Object.fromEntries(Object.entries(a.comissoes_produto ?? {}).map(([k, v]) => [k, String(v).replace(".", ",")])));
+
+  async function salvar() {
+    setAviso(null);
+    setSalvando(true);
+    try {
+      await chamar(`/api/vendedor/afiliados/${a.id}`, {
+        metodo: "PUT",
+        senha,
+        corpo: {
+          ...a,
+          ativo,
+          comissao_pct: geral.replace(",", "."),
+          todos_produtos: todos,
+          produtos: liberados,
+          comissoes_produto: Object.fromEntries(Object.entries(proprias).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.replace(",", ".")])),
+        },
+      });
+      setAviso({ ok: true, texto: "Salvo. Já vale para as próximas vendas." });
+      aoSalvar();
+    } catch (e) {
+      setAviso({ ok: false, texto: (e as Error).message });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <section className="grid content-start gap-4 rounded-2xl border border-linha bg-fundo-2/90 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-mono text-[11px] font-bold tracking-[.14em] text-tinta-2 uppercase">Controle do afiliado</h2>
+        <label className="flex items-center gap-2 text-sm font-semibold">
+          {ativo ? "Ativo" : "Desligado"}
+          <Chave ligada={ativo} aoMudar={setAtivo} rotulo="Afiliado ativo" />
+        </label>
+      </div>
+      <label className="flex flex-wrap items-center gap-3 rounded-xl border border-linha-2 p-3 text-sm">
+        <span className="font-semibold">Comissão geral</span>
+        <span className="flex items-center gap-1">
+          <input className="campo w-24 py-2 text-right font-mono" inputMode="decimal" value={geral} onChange={(e) => setGeral(e.target.value)} />%
+        </span>
+        <span className="text-xs text-suave">sobre os produtos, sem o frete. Vale onde não houver comissão própria.</span>
+      </label>
+
+      <div className="grid gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold">Produtos liberados</p>
+          <label className="flex items-center gap-2 text-sm">
+            Todos os produtos
+            <Chave ligada={todos} aoMudar={setTodos} rotulo="Todos os produtos" />
+          </label>
+        </div>
+        <ul className="grid gap-2">
+          {opcoes.map((p) => {
+            const liberado = todos || liberados.includes(p.id);
+            return (
+              <li key={p.id} className={`flex items-center gap-3 rounded-xl border p-2 ${liberado ? "border-linha-2" : "border-linha opacity-60"}`}>
+                <img src={p.foto} alt="" className="size-10 shrink-0 rounded-lg object-cover" />
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">{p.nome}</span>
+                <span className="flex items-center gap-1 text-xs text-suave">
+                  <input
+                    className="campo w-20 px-2 py-1.5 text-right font-mono text-sm"
+                    inputMode="decimal"
+                    placeholder={geral || "—"}
+                    aria-label={`Comissão de ${p.nome} (%)`}
+                    disabled={!liberado}
+                    value={proprias[p.id] ?? ""}
+                    onChange={(e) => setProprias((x) => ({ ...x, [p.id]: e.target.value }))}
+                  />
+                  %
+                </span>
+                <Chave
+                  ligada={liberado}
+                  rotulo={`Liberar ${p.nome}`}
+                  aoMudar={(v) => {
+                    if (todos) {
+                      setTodos(false);
+                      setLiberados(opcoes.map((o) => o.id).filter((id) => id !== p.id || v));
+                    } else setLiberados(v ? [...liberados, p.id] : liberados.filter((x) => x !== p.id));
+                  }}
+                />
+              </li>
+            );
+          })}
+        </ul>
+        <p className="text-xs text-suave">Vazio no %: usa a comissão geral. Os links para divulgar acompanham os produtos liberados.</p>
+      </div>
+      {aviso && <p role={aviso.ok ? "status" : "alert"} className={`text-sm ${aviso.ok ? "text-ok" : "text-alerta"}`}>{aviso.texto}</p>}
+      <button type="button" disabled={!mudou || salvando} onClick={() => void salvar()} className="btn-laranja justify-self-start px-6 py-2.5 text-sm disabled:opacity-40">
+        {salvando ? "Salvando…" : mudou ? "Salvar mudanças" : "Tudo salvo"}
+      </button>
+    </section>
+  );
+}
+
+// ───────── Saldo: a liberar, disponível, pago; as comissões e os repasses ─────────
+
+function SaldoDoAfiliado({ senha, saldo }: { senha: string; saldo: Ficha["saldo"] }) {
+  const [comprovante, setComprovante] = useState<number | null>(null);
+  const [verTodas, setVerTodas] = useState(false);
+  const linhas = verTodas ? saldo.comissoes : saldo.comissoes.slice(0, 6);
+  return (
+    <section className="grid content-start gap-3 rounded-2xl border border-linha bg-fundo-2/90 p-4">
+      <h2 className="font-mono text-[11px] font-bold tracking-[.14em] text-tinta-2 uppercase">Saldo de comissões</h2>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-xl bg-sky-400/10 p-2">
+          <p className="font-mono text-[10px] text-sky-300 uppercase">A liberar</p>
+          <p className="font-mono text-lg font-bold text-sky-300">{reais(saldo.somas.a_liberar)}</p>
+        </div>
+        <div className="rounded-xl bg-ok/10 p-2">
+          <p className="font-mono text-[10px] text-ok uppercase">Disponível</p>
+          <p className="font-mono text-lg font-bold text-ok">{reais(saldo.somas.disponivel)}</p>
+        </div>
+        <div className="rounded-xl bg-white/[.05] p-2">
+          <p className="font-mono text-[10px] text-suave uppercase">Já pago</p>
+          <p className="font-mono text-lg font-bold">{reais(saldo.somas.paga)}</p>
+        </div>
+      </div>
+      <p className="text-xs text-suave">
+        A comissão fica a liberar por {saldo.dias_liberacao} dias depois do pagamento. Pague em <strong>Repasses</strong>.
+      </p>
+      {saldo.comissoes.length > 0 && (
+        <ul className="grid gap-1 text-sm">
+          {linhas.map((l) => (
+            <li key={l.order_nsu} className="flex items-center justify-between gap-2 border-t border-linha pt-1.5">
+              <span className="min-w-0 truncate">
+                <span className="font-mono text-xs text-suave">{dataBr(l.criado_em)}</span> {l.cliente} ·{" "}
+                <span className="text-tinta-2">{l.produto}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="font-mono font-semibold">{reais(l.comissao_centavos)}</span>
+                <span className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${CORES_SITUACAO[l.situacao]}`}>{l.situacao_rotulo}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {saldo.comissoes.length > 6 && (
+        <button type="button" onClick={() => setVerTodas(!verTodas)} className="justify-self-start text-xs text-laranja-2 hover:underline">
+          {verTodas ? "Ver menos" : `Ver todas (${saldo.comissoes.length})`}
+        </button>
+      )}
+      {saldo.repasses.length > 0 && (
+        <div className="grid gap-1 border-t border-linha pt-2">
+          <p className="text-sm font-semibold">Repasses feitos</p>
+          {saldo.repasses.map((r) => (
+            <p key={r.id} className="flex items-center justify-between gap-2 text-sm">
+              <span className="font-mono text-xs">{dataBr(r.pago_em)}</span>
+              <span className="font-mono font-bold">{reais(r.valor_centavos)}</span>
+              <button type="button" onClick={() => setComprovante(r.id)} className="text-xs text-laranja-2 hover:underline">
+                comprovante
+              </button>
+            </p>
+          ))}
+        </div>
+      )}
+      {comprovante !== null && <Comprovante senha={senha} id={comprovante} aoFechar={() => setComprovante(null)} />}
+    </section>
   );
 }
