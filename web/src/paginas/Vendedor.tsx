@@ -389,6 +389,9 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
             {p.produto}
           </p>
           <p className="text-sm text-suave">{p.frete_descricao}</p>
+          {p.frete_centavos === 0 && p.frete_custo_centavos ? (
+            <p className="text-xs text-suave">Frete pago pela loja na Loggi: {reais(p.frete_custo_centavos)}</p>
+          ) : null}
         </div>
         <div className="text-right">
           <p className="text-lg font-bold">{reais(p.total_centavos)}</p>

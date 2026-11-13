@@ -170,7 +170,7 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
                         checked={o.tipo === freteTipo}
                         onChange={() => setFreteTipo(o.tipo)}
                         className="size-4 accent-laranja"
-                        aria-label={`${o.nome}, até ${o.prazo_dias} dias úteis, ${reais(o.centavos)}`}
+                        aria-label={`${o.nome}, até ${o.prazo_dias} dias úteis, ${o.gratis ? "frete grátis" : reais(o.centavos)}`}
                       />
                       <span>
                         <span className="block font-bold">{o.nome}</span>
@@ -179,7 +179,14 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
                         </span>
                       </span>
                     </span>
-                    <span className="font-mono font-bold">{reais(o.centavos)}</span>
+                    {o.gratis ? (
+                      <span className="text-right">
+                        <span className="block font-mono font-bold text-ok">Grátis</span>
+                        <s className="block font-mono text-xs text-suave">{reais(o.custo_centavos)}</s>
+                      </span>
+                    ) : (
+                      <span className="font-mono font-bold">{reais(o.centavos)}</span>
+                    )}
                   </label>
                 ))}
               </div>
@@ -245,7 +252,7 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
           </div>
           <dl className="grid gap-2 p-4 text-sm">
             <Linha rotulo="Kit" valor={reais(oferta.preco_centavos)} />
-            <Linha rotulo={opcao ? `Frete ${opcao.nome}` : "Frete"} valor={opcao ? reais(opcao.centavos) : "Calcule pelo CEP"} />
+            <Linha rotulo={opcao ? `Frete ${opcao.nome}` : "Frete"} valor={opcao ? (opcao.gratis ? "Grátis" : reais(opcao.centavos)) : oferta.frete_gratis ? "Grátis · calcule o prazo" : "Calcule pelo CEP"} />
             <div className="mt-2 flex items-end justify-between border-t border-linha pt-3">
               <dt className="font-bold">Total</dt>
               <dd className="font-display text-4xl leading-none font-extrabold">
@@ -335,6 +342,7 @@ function CartaoOferta({ oferta: o, loja, ativa, onClick }: { oferta: Oferta; loj
       </span>
       <span className="mt-2 font-mono text-lg font-bold">{reais(o.preco_centavos)}</span>
       <span className="font-mono text-[11px] text-suave">{reais(Math.round(o.preco_centavos / refis))} por refil</span>
+      {o.frete_gratis && <span className="mt-1 font-mono text-[11px] font-bold uppercase text-ok">Frete grátis</span>}
     </button>
   );
 }

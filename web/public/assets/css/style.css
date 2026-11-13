@@ -676,6 +676,7 @@ svg { display: block; }
 .offer__now small { font-size: .38em; color: var(--orange-2); margin-right: 4px; vertical-align: .9em; }
 .offer__meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px dashed var(--line-2); font-size: 13px; color: var(--ink-2); }
 .offer__meta b { color: var(--orange-2); }
+.offer__frete { margin: 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #4ade80; }
 .offer__save { font-size: 12px; font-weight: 800; color: #120700; background: #e7eaee; padding: 4px 8px; border-radius: 6px; text-transform: uppercase; }
 .offer__foot { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
 .offer.is-selected .offer__foot { color: var(--orange-2); }

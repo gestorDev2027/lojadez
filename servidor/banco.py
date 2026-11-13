@@ -24,7 +24,8 @@ pedidos = Table(
     Column("frete_tipo", String(40), nullable=False),
     Column("frete_descricao", Text, nullable=False),
     Column("frete_prazo_dias", Integer),
-    Column("frete_centavos", Integer, nullable=False),
+    Column("frete_centavos", Integer, nullable=False),  # o que o comprador paga de frete (0 no frete grátis)
+    Column("frete_custo_centavos", Integer),  # o que a Loggi cobra da loja (no frete grátis, a loja paga)
     Column("total_centavos", Integer, nullable=False),
     # o comprador
     Column("nome", Text, nullable=False),
@@ -58,7 +59,7 @@ pedidos = Table(
 
 # Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
 COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP WITH TIME ZONE", "envio_erro": "TEXT",
-                          "desconto_pix": "DOUBLE PRECISION"}}
+                          "desconto_pix": "DOUBLE PRECISION", "frete_custo_centavos": "INTEGER"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
