@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 
-from servidor import afiliados, banco, catalogo, pedidos as regras, produtos
+from servidor import afiliados, banco, catalogo, cupons, pedidos as regras, produtos
 
 FUSO = timezone(timedelta(hours=-3))
 VENDIDOS = ("pago", "enviado")
@@ -145,6 +145,8 @@ def _indicadores(lista: list[dict]) -> dict:
         "fretes_gratis": len(gratis),
         "fretes_gratis_centavos": sum(frete_da_loja(p) for p in gratis),
         "comissoes_centavos": comissoes,
+        "descontos_centavos": sum(int(p.get("desconto_cupom_centavos") or 0) for p in vendidos),
+        "vendas_com_cupom": sum(1 for p in vendidos if p.get("cupom_codigo")),
         "vendas_afiliados": sum(1 for p in vendidos if p.get("afiliado_id")),
         "liquida_centavos": vendas - frete - comissoes + retido - frete_perdido,
         "reembolsos": len(reembolsos),
@@ -190,7 +192,7 @@ def _linha(p: dict) -> dict:
         "cliente": (p["nome"] or "").split(" ")[0], "cidade": f"{p['cidade']}/{p['uf']}",
         "produto": nome_produto(_chave_produto(p)), "quantidade": titulo_quantidade(_chave_produto(p), int(p["kits"])),
         "afiliado": nome_afiliado(p.get("afiliado_codigo")) if p.get("afiliado_codigo") else None,
-        "valor_centavos": cobrado(p), "comissao_centavos": comissao(p), "frete_gratis": p["frete_centavos"] == 0,
+        "valor_centavos": cobrado(p), "comissao_centavos": comissao(p), "cupom": p.get("cupom_codigo"), "frete_gratis": p["frete_centavos"] == 0,
         "forma_pagamento": p.get("forma_pagamento"), "situacao": p["situacao"],
         "tem_envio": bool(p.get("loggi_key")) or bool(p.get("codigo_rastreio")),
     }
@@ -290,4 +292,6 @@ def ficha_afiliado(afiliado_id: int, de: str | None = None, ate: str | None = No
         "por_produto": _agrupar(vendidos, _chave_produto, nome_produto, "vendas"),
         "vendas": [_linha(p) for p in ordenada[:100]],
         "vendas_total": len(ordenada),
+        "cupons": [{"codigo": c["codigo"], "descricao": cupons.descricao(c), "ativo": c["ativo"]}
+                   for c in cupons.listar() if c.get("afiliado_id") == afiliado_id],
     }

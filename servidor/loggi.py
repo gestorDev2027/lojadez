@@ -13,6 +13,7 @@ Loggi (sempre em /v1/companies/{company_id}):
 import base64
 import math
 import re
+import secrets
 import threading
 import time
 
@@ -236,7 +237,7 @@ def corpo_envio(pedido: dict) -> dict:
     medidas, conteudo = _do_produto(pedido)
     caixa = pacote(pedido["kits"], pedido["preco_centavos"], medidas)
     destinatario = {
-        "name": pedido["nome"][:128], "federalTaxId": pedido["cpf"], "email": pedido["email"][:300],
+        "name": pedido["nome"][:128], "federalTaxId": pedido["cpf"], "email": (pedido.get("email") or "")[:300],
         "phoneNumber": pedido["telefone"][:16],
         "address": {
             "instructions": (pedido.get("complemento") or "Entregar ao destinatário")[:300],
@@ -249,7 +250,8 @@ def corpo_envio(pedido: dict) -> dict:
         "shipFrom": remetente() if config.LOGGI_AMBIENTE != "simulado" else {"name": "Loja (simulado)"},
         "shipTo": destinatario,
         "packages": [{
-            "sequence": pedido["order_nsu"],
+            # um código novo a cada envio: com o mesmo, a Loggi devolve o pacote antigo (mesmo já cancelado)
+            "sequence": f"{pedido['order_nsu'][:29]}-{secrets.token_hex(3)}",
             "freightType": pedido["frete_tipo"] if pedido["frete_tipo"] in ROTULOS else "FREIGHT_TYPE_ECONOMIC",
             "weightG": caixa["peso_g"], "lengthCm": caixa["comprimento_cm"], "widthCm": caixa["largura_cm"],
             "heightCm": caixa["altura_cm"],
@@ -311,6 +313,18 @@ def cancelar_envio(loggi_key: str) -> str | None:
         return r.json().get("warning_message") or None
     except ValueError:
         return None
+
+
+def ja_cancelado(tracking_code: str | None) -> bool:
+    """O pacote já está cancelado na Loggi? (cancelar de novo dá erro 400)"""
+    if not tracking_code or config.LOGGI_AMBIENTE == "simulado":
+        return False
+    try:
+        r = rastrear(tracking_code)
+    except ErroFrete:
+        return False
+    texto = f"{r.get('situacao') or ''} {r.get('descricao') or ''}".lower()
+    return "cancel" in texto or "interrompido" in texto
 
 
 def rastrear(tracking_code: str) -> dict:

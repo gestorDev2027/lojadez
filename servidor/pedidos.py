@@ -8,7 +8,7 @@ import re
 import threading
 import uuid
 
-from servidor import afiliados, banco, catalogo, config, infinitepay, loggi, produtos
+from servidor import afiliados, banco, catalogo, config, cupons, infinitepay, loggi, produtos
 
 log = logging.getLogger("loja.pedidos")
 
@@ -68,7 +68,7 @@ def _texto(dados: dict, campo: str, rotulo: str, minimo: int = 1, maximo: int = 
     return valor
 
 
-def _cotar(cep: str, oferta: dict) -> dict:
+def _cotar(cep: str, oferta: dict, frete_gratis_extra: bool = False) -> dict:
     """A cotação da Loggi. Com frete grátis na oferta, a opção mais barata sai por 0 para o comprador (a loja paga); as
     outras ele paga normalmente. Cada opção leva o custo da Loggi em custo_centavos."""
     try:
@@ -76,24 +76,54 @@ def _cotar(cep: str, oferta: dict) -> dict:
     except loggi.ErroFrete as erro:
         raise ErroPedido(str(erro))
     opcoes = [{**o, "custo_centavos": o["centavos"], "gratis": False} for o in cotacao["opcoes"]]
-    if oferta.get("frete_gratis") and opcoes:  # as opções já vêm da mais barata para a mais cara
+    gratis = bool(oferta.get("frete_gratis")) or frete_gratis_extra  # pela quantidade ou por um cupom de frete
+    if gratis and opcoes:  # as opções já vêm da mais barata para a mais cara
         opcoes[0] = {**opcoes[0], "centavos": 0, "gratis": True}
-    return {**cotacao, "opcoes": opcoes, "frete_gratis": bool(oferta.get("frete_gratis"))}
+    return {**cotacao, "opcoes": opcoes, "frete_gratis": gratis}
 
 
-def _do_afiliado(ref, oferta: dict) -> dict:
-    """O afiliado do link (?ref=) que trouxe a venda, se valer para o produto, e a comissão fixada agora."""
-    afiliado = afiliados.atribuir(str(ref or "")[:40], oferta["produto_id"])
+def _cupom(codigo, oferta: dict) -> dict | None:
+    """O cupom conferido para esta oferta (None sem cupom); cupom inválido vira ErroPedido."""
+    if not str(codigo or "").strip():
+        return None
+    try:
+        return cupons.aplicar(str(codigo), oferta["produto_id"], oferta["preco_centavos"])
+    except cupons.ErroCupom as erro:
+        raise ErroPedido(str(erro))
+
+
+def validar_cupom(codigo, oferta_id, produto_id=None) -> dict:
+    """A prévia do cupom no checkout (o servidor confere de novo ao criar o pedido)."""
+    oferta = _oferta(oferta_id, produto_id)
+    aplicado = _cupom(codigo, oferta)
+    if not aplicado:
+        raise ErroPedido("Digite o cupom.")
+    return {"codigo": aplicado["cupom"]["codigo"], "descricao": aplicado["descricao"],
+            "desconto_centavos": aplicado["desconto_centavos"], "frete_gratis": aplicado["frete_gratis"]}
+
+
+def _do_afiliado(ref, oferta: dict, cupom: dict | None = None) -> dict:
+    """O afiliado que trouxe a venda e a comissão fixada agora (sobre os produtos com o desconto do cupom).
+    O cupom de um afiliado vale sobre o link (quem digitou o cupom dele veio por ele)."""
+    afiliado = None
+    if cupom and cupom["cupom"].get("afiliado_id"):
+        do_cupom = afiliados.buscar(cupom["cupom"]["afiliado_id"])
+        afiliado = do_cupom if do_cupom and afiliados.pode_vender(do_cupom, oferta["produto_id"]) else None
+    afiliado = afiliado or afiliados.atribuir(str(ref or "")[:40], oferta["produto_id"])
     if not afiliado:
         return {"afiliado_id": None, "afiliado_codigo": None, "comissao_pct": None, "comissao_centavos": None}
     return {"afiliado_id": afiliado["id"], "afiliado_codigo": afiliado["codigo"],
             "comissao_pct": float(afiliado["comissao_pct"]),
-            "comissao_centavos": afiliados.comissao(afiliado, oferta["preco_centavos"])}
+            "comissao_centavos": afiliados.comissao(afiliado, oferta["preco_centavos"] - (cupom or {}).get("desconto_centavos", 0))}
 
 
-def cotar_frete(cep: str, oferta_id, produto_id=None) -> dict:
+def cotar_frete(cep: str, oferta_id, produto_id=None, cupom=None) -> dict:
     oferta = _oferta(oferta_id, produto_id)
-    cotacao = _cotar(cep, oferta)
+    try:  # um cupom de frete grátis já aparece na cotação; cupom inválido aqui só não muda nada
+        frete_do_cupom = bool(cupom) and cupons.aplicar(str(cupom), oferta["produto_id"], oferta["preco_centavos"])["frete_gratis"]
+    except cupons.ErroCupom:
+        frete_do_cupom = False
+    cotacao = _cotar(cep, oferta, frete_do_cupom)
     produto = oferta["preco_centavos"]
     return {**cotacao, "produto_centavos": produto,
             "opcoes": [{**o, "total_centavos": produto + o["centavos"]} for o in cotacao["opcoes"]]}
@@ -107,8 +137,8 @@ def criar(dados: dict) -> dict:
     cpf = re.sub(r"\D", "", str(dados.get("cpf") or ""))
     if not cpf_valido(cpf):
         raise ErroPedido("CPF inválido.")
-    email = _texto(dados, "email", "o e-mail", maximo=200).lower()
-    if not EMAIL.match(email):
+    email = _texto(dados, "email", "o e-mail", maximo=200, obrigatorio=False).lower()  # opcional: a InfinitePay pede o dela
+    if email and not EMAIL.match(email):
         raise ErroPedido("E-mail inválido.")
     telefone = re.sub(r"\D", "", str(dados.get("telefone") or ""))
     if len(telefone) not in (10, 11):
@@ -116,7 +146,9 @@ def criar(dados: dict) -> dict:
     numero = _texto(dados, "numero", "o número", maximo=20)
     complemento = _texto(dados, "complemento", "o complemento", maximo=80, obrigatorio=False)
 
-    cotacao = _cotar(str(dados.get("cep") or ""), oferta)
+    cupom = _cupom(dados.get("cupom"), oferta)
+    desconto = cupom["desconto_centavos"] if cupom else 0
+    cotacao = _cotar(str(dados.get("cep") or ""), oferta, bool(cupom and cupom["frete_gratis"]))
     opcao = next((o for o in cotacao["opcoes"] if o["tipo"] == dados.get("frete_tipo")), None)
     if not opcao:
         raise ErroPedido("Esta opção de frete não está mais disponível. Calcule o frete de novo.", 409)
@@ -130,12 +162,13 @@ def criar(dados: dict) -> dict:
         "order_nsu": str(uuid.uuid4()), "criado_em": banco.agora(), "situacao": "aguardando_pagamento",
         "sku": oferta["sku"], "oferta": oferta["id"], "produto": oferta["descricao"], "kits": oferta["kits"],
         "produto_id": oferta["produto_id"],
-        **_do_afiliado(dados.get("ref"), oferta),
+        **_do_afiliado(dados.get("ref"), oferta, cupom),
+        "cupom_codigo": cupom["cupom"]["codigo"] if cupom else None, "desconto_cupom_centavos": desconto or None,
         "preco_centavos": oferta["preco_centavos"], "frete_tipo": opcao["tipo"],
         "frete_descricao": f"Frete {'grátis ' if opcao['gratis'] else ''}Loggi {opcao['nome']} (até {opcao['prazo_dias']} dias úteis)",
         "frete_prazo_dias": opcao["prazo_dias"], "frete_centavos": opcao["centavos"],
         "frete_custo_centavos": opcao["custo_centavos"],
-        "total_centavos": oferta["preco_centavos"] + opcao["centavos"], "desconto_pix": config.desconto_pix() or None,
+        "total_centavos": oferta["preco_centavos"] - desconto + opcao["centavos"], "desconto_pix": config.desconto_pix() or None,
         "nome": nome, "cpf": cpf, "email": email, "telefone": telefone, "cep": endereco["cep"], "rua": rua, "numero": numero,
         "complemento": complemento or None, "bairro": bairro, "cidade": endereco["cidade"], "uf": endereco["uf"],
     }
@@ -217,6 +250,7 @@ def publico(pedido: dict) -> dict:
         "link_pagamento": pedido["link_pagamento"] if pedido["situacao"] == "aguardando_pagamento" else None,
         "valor_pago_centavos": pedido.get("valor_pago_centavos"), "desconto_pix": pedido.get("desconto_pix"),
         "tem_envio_loggi": bool(pedido.get("loggi_key")), "produto_id": pedido.get("produto_id"),
+        "cupom_codigo": pedido.get("cupom_codigo"), "desconto_cupom_centavos": pedido.get("desconto_cupom_centavos"),
     }
 
 
@@ -277,8 +311,12 @@ def pedir_reembolso(order_nsu: str, motivo: str, detalhe: str = "", valor_centav
             loggi.cancelar_envio(pedido["loggi_key"])
             mudar.update({"loggi_key": None, "envio_criado_em": None, "codigo_rastreio": None})
             aviso_loggi = "O envio na Loggi foi cancelado."
-        except loggi.ErroFrete as erro:  # já em rota ou entregue: o frete fica como custo da loja
-            aviso_loggi = f"O envio na Loggi não foi cancelado ({erro}). Se o pacote já saiu, combine a devolução com o cliente."
+        except loggi.ErroFrete as erro:
+            if loggi.ja_cancelado(pedido.get("codigo_rastreio")):
+                mudar.update({"loggi_key": None, "envio_criado_em": None, "codigo_rastreio": None})
+                aviso_loggi = "O envio na Loggi já estava cancelado."
+            else:  # já em rota ou entregue: o frete fica como custo da loja
+                aviso_loggi = f"O envio na Loggi não foi cancelado ({erro}). Se o pacote já saiu, combine a devolução com o cliente."
     if not banco.alterar(order_nsu, mudar, so_se_situacao=("pago", "enviado")):
         raise ErroPedido("O pedido mudou enquanto isso. Atualize e tente de novo.", 409)
     banco.registrar(email, "reembolso", f"Reembolso pedido: {order_nsu[:8]} · {valor / 100:.2f} · {texto}")
@@ -371,7 +409,9 @@ def cancelar_envio_loggi(order_nsu: str) -> dict:
     try:
         aviso = loggi.cancelar_envio(pedido["loggi_key"])
     except loggi.ErroFrete as erro:
-        raise ErroPedido(str(erro), 502)
+        if not loggi.ja_cancelado(pedido.get("codigo_rastreio")):
+            raise ErroPedido(str(erro), 502)
+        aviso = "Este envio já estava cancelado na Loggi. Agora dá para criar um envio novo."
     banco.alterar(order_nsu, {"loggi_key": None, "envio_criado_em": None, "codigo_rastreio": None,
                               "situacao": "pago" if pedido["situacao"] == "enviado" else pedido["situacao"]})
     return {**banco.buscar(order_nsu), "aviso_loggi": aviso}

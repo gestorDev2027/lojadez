@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   chamar,
   ErroApi,
@@ -24,19 +24,26 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     v.ofertas.some((o) => o.id === daUrl) || montadosDaUrl ? daUrl! : v.oferta_padrao || v.ofertas[0].id,
   );
   const [kitsMontados, setKitsMontados] = useState(montadosDaUrl ?? v.montar.minimo);
-  const [cep, setCep] = useState("");
+  const [cep, setCep] = useState(() => lerCliente().cep ?? "");
   const [cotacao, setCotacao] = useState<Cotacao | null>(null);
   const [freteTipo, setFreteTipo] = useState("");
   const [cotando, setCotando] = useState(false);
   const [erroFrete, setErroFrete] = useState("");
-  const [dados, setDados] = useState({ nome: "", cpf: "", email: "", telefone: "", rua: "", numero: "", complemento: "", bairro: "" });
+  const lembrados = lerCliente();
+  const [dados, setDados] = useState({ nome: "", cpf: "", email: "", telefone: "", rua: "", numero: "", complemento: "", bairro: "", ...lembrados.dados });
+  const [lembrar, setLembrar] = useState(true);
+  const [alterarRua, setAlterarRua] = useState(false);
+  const [cupomTexto, setCupomTexto] = useState("");
+  const [cupom, setCupom] = useState<CupomAplicado | null>(null);
+  const [erroCupom, setErroCupom] = useState("");
+  const [validandoCupom, setValidandoCupom] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
 
   const oferta = v.ofertas.find((o) => o.id === ofertaId) ?? ofertaMontada(v, kitsMontados);
   const opcao = cotacao?.opcoes.find((o) => o.tipo === freteTipo) ?? null;
 
-  async function cotar(id = ofertaId, cepUsado = cep) {
+  async function cotar(id = ofertaId, cepUsado = cep, codigoCupom = cupom?.codigo) {
     if (cepUsado.replace(/\D/g, "").length !== 8) {
       setErroFrete("Digite o CEP com 8 números.");
       return;
@@ -44,11 +51,16 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     setCotando(true);
     setErroFrete("");
     try {
-      const c = await chamar<Cotacao>("/api/frete", { corpo: { cep: cepUsado, oferta: id, produto: v.produto } });
+      const c = await chamar<Cotacao>("/api/frete", { corpo: { cep: cepUsado, oferta: id, produto: v.produto, cupom: codigoCupom } });
       setCotacao(c);
       setFreteTipo((atual) => (c.opcoes.some((o) => o.tipo === atual) ? atual : c.opcoes[0].tipo));
       // A rua e o bairro do CEP, sem apagar o que a pessoa já escreveu.
-      setDados((d) => ({ ...d, rua: d.rua || c.endereco.rua, bairro: d.bairro || c.endereco.bairro }));
+      setDados((d) =>
+        d.rua && cepUsado.replace(/\D/g, "") === (lembrados.cep ?? "").replace(/\D/g, "")
+          ? { ...d, rua: d.rua || c.endereco.rua, bairro: d.bairro || c.endereco.bairro }
+          : { ...d, rua: c.endereco.rua, bairro: c.endereco.bairro },
+      );
+      if (!c.endereco.rua || !c.endereco.bairro) setAlterarRua(true); // CEP geral da cidade: a pessoa escreve a rua
     } catch (e) {
       setCotacao(null);
       setErroFrete((e as Error).message);
@@ -63,7 +75,41 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     url.searchParams.set("oferta", id);
     window.history.replaceState(null, "", url);
     if (cotacao) void cotar(id); // o frete muda com o peso
+    if (cupom) void aplicarCupom(cupom.codigo, id);
   }
+
+  async function aplicarCupom(codigo = cupomTexto, id = ofertaId) {
+    const limpo = codigo.trim().toUpperCase();
+    if (!limpo) return;
+    setValidandoCupom(true);
+    setErroCupom("");
+    try {
+      const c = await chamar<CupomAplicado>("/api/cupons/validar", { corpo: { cupom: limpo, oferta: id, produto: v.produto } });
+      setCupom(c);
+      setCupomTexto(c.codigo);
+      if (cotacao && c.frete_gratis !== cupom?.frete_gratis) void cotar(id, cep, c.codigo);
+    } catch (e) {
+      setCupom(null);
+      setErroCupom((e as Error).message);
+      if (cotacao && cupom?.frete_gratis) void cotar(id, cep, undefined);
+    } finally {
+      setValidandoCupom(false);
+    }
+  }
+
+  function tirarCupom() {
+    const tinhaFrete = cupom?.frete_gratis;
+    setCupom(null);
+    setCupomTexto("");
+    setErroCupom("");
+    if (cotacao && tinhaFrete) void cotar(ofertaId, cep, undefined);
+  }
+
+  // Quem já comprou neste aparelho: o frete é calculado sozinho para o CEP lembrado.
+  useEffect(() => {
+    if (lembrados.cep && (lembrados.cep.replace(/\D/g, "").length === 8)) void cotar(ofertaId, lembrados.cep);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const mudar = (campo: keyof typeof dados) => (e: { target: { value: string } }) => {
     const v = e.target.value;
@@ -83,8 +129,9 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     setErro("");
     try {
       const r = await chamar<{ link_pagamento: string }>("/api/pedidos", {
-        corpo: { ...dados, oferta: ofertaId, produto: v.produto, cep: cotacao.endereco.cep, frete_tipo: freteTipo, ref: refGuardado() },
+        corpo: { ...dados, oferta: ofertaId, produto: v.produto, cep: cotacao.endereco.cep, frete_tipo: freteTipo, ref: refGuardado(), cupom: cupom?.codigo },
       });
+      guardarCliente(lembrar ? { dados, cep: cotacao.endereco.cep } : null);
       window.location.href = r.link_pagamento;
     } catch (e) {
       setErro((e as Error).message);
@@ -214,48 +261,68 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
               </div>
             </fieldset>
           )}
+          {cotacao && (
+            <div className="mt-4 grid gap-3 rounded-2xl border border-linha-2 p-4">
+              <p className="text-sm">
+                <span className="text-suave">Entregar em </span>
+                <strong>
+                  {dados.rua || "rua não encontrada"}
+                  {dados.bairro ? `, ${dados.bairro}` : ""}
+                </strong>
+                <span className="text-suave">
+                  {" "}
+                  · {cotacao.endereco.cidade}/{cotacao.endereco.uf} · CEP {formatarCep(cotacao.endereco.cep)}
+                </span>{" "}
+                {!alterarRua && (
+                  <button type="button" onClick={() => setAlterarRua(true)} className="text-laranja-2 underline-offset-4 hover:underline">
+                    alterar
+                  </button>
+                )}
+              </p>
+              {alterarRua && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Campo rotulo="Rua">
+                    <input className="campo" required autoComplete="address-line1" value={dados.rua} onChange={mudar("rua")} />
+                  </Campo>
+                  <Campo rotulo="Bairro">
+                    <input className="campo" required autoComplete="address-level3" value={dados.bairro} onChange={mudar("bairro")} />
+                  </Campo>
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
+                <Campo rotulo="Número">
+                  <input className="campo" required inputMode="numeric" value={dados.numero} onChange={mudar("numero")} />
+                </Campo>
+                <Campo rotulo="Complemento (opcional)">
+                  <input className="campo" autoComplete="address-line2" placeholder="Apto, bloco, casa…" value={dados.complemento} onChange={mudar("complemento")} />
+                </Campo>
+              </div>
+            </div>
+          )}
         </Etapa>
 
         {/* 3. Os dados */}
-        <Etapa numero="03" titulo="Seus dados" apagada={!cotacao}>
-          <fieldset disabled={!cotacao} className="grid gap-4">
-            {!cotacao && <p className="text-sm text-suave">Calcule o frete para preencher o endereço.</p>}
+        <Etapa numero="03" titulo="Seus dados">
+          <div className="grid gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Campo rotulo="Nome completo">
+              <Campo rotulo="Nome completo" dica="De quem vai receber.">
                 <input className="campo" required autoComplete="name" value={dados.nome} onChange={mudar("nome")} />
               </Campo>
               <Campo rotulo="CPF" dica="A Loggi pede o CPF de quem recebe.">
-                <input className="campo font-mono" required inputMode="numeric" value={dados.cpf} onChange={mudar("cpf")} />
+                <input className="campo font-mono" required inputMode="numeric" autoComplete="off" value={dados.cpf} onChange={mudar("cpf")} />
               </Campo>
-              <Campo rotulo="E-mail">
-                <input className="campo" required type="email" autoComplete="email" value={dados.email} onChange={mudar("email")} />
-              </Campo>
-              <Campo rotulo="Celular com DDD">
+              <Campo rotulo="Celular (WhatsApp)" dica="Para a entrega e o rastreio.">
                 <input className="campo font-mono" required inputMode="tel" autoComplete="tel-national" value={dados.telefone} onChange={mudar("telefone")} />
               </Campo>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-[1fr_130px]">
-              <Campo rotulo="Rua">
-                <input className="campo" required autoComplete="address-line1" value={dados.rua} onChange={mudar("rua")} />
-              </Campo>
-              <Campo rotulo="Número">
-                <input className="campo" required value={dados.numero} onChange={mudar("numero")} />
+              <Campo rotulo="E-mail (opcional)">
+                <input className="campo" type="email" autoComplete="email" value={dados.email} onChange={mudar("email")} />
               </Campo>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Campo rotulo="Complemento (opcional)">
-                <input className="campo" autoComplete="address-line2" value={dados.complemento} onChange={mudar("complemento")} />
-              </Campo>
-              <Campo rotulo="Bairro">
-                <input className="campo" required value={dados.bairro} onChange={mudar("bairro")} />
-              </Campo>
-            </div>
-            {cotacao && (
-              <p className="font-mono text-xs text-suave">
-                CEP {formatarCep(cotacao.endereco.cep)} · {cotacao.endereco.cidade}/{cotacao.endereco.uf}
-              </p>
-            )}
-          </fieldset>
+            <label className="flex items-center gap-2 text-sm text-tinta-2">
+              <input type="checkbox" checked={lembrar} onChange={(e) => setLembrar(e.target.checked)} className="size-4 accent-laranja" />
+              Lembrar meus dados neste aparelho para a próxima compra
+            </label>
+          </div>
         </Etapa>
       </div>
 
@@ -271,18 +338,61 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
           </div>
           <dl className="grid gap-2 p-4 text-sm">
             <Linha rotulo={v.rotulo} valor={reais(oferta.preco_centavos)} />
+            {cupom && cupom.desconto_centavos > 0 && (
+              <Linha rotulo={`Cupom ${cupom.codigo}`} valor={`− ${reais(cupom.desconto_centavos)}`} />
+            )}
             <Linha rotulo={opcao ? `Frete ${opcao.nome}` : "Frete"} valor={opcao ? (opcao.gratis ? "Grátis" : reais(opcao.centavos)) : oferta.frete_gratis ? "Grátis · calcule o prazo" : "Calcule pelo CEP"} />
+            <div className="mt-1">
+              {cupom ? (
+                <p className="flex items-center justify-between gap-2 rounded-xl bg-ok/10 px-3 py-2 text-ok">
+                  <span>
+                    <strong className="font-mono">{cupom.codigo}</strong> · {cupom.descricao}
+                  </span>
+                  <button type="button" onClick={tirarCupom} className="text-xs text-suave hover:text-tinta">
+                    tirar
+                  </button>
+                </p>
+              ) : (
+                <div className="flex gap-2">
+                  <label className="sr-only" htmlFor="cupom">
+                    Cupom de desconto
+                  </label>
+                  <input
+                    id="cupom"
+                    className="campo py-2 font-mono text-sm uppercase"
+                    placeholder="Cupom de desconto"
+                    value={cupomTexto}
+                    onChange={(e) => setCupomTexto(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ""))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void aplicarCupom();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={validandoCupom || !cupomTexto}
+                    onClick={() => void aplicarCupom()}
+                    className="shrink-0 rounded-[14px] border border-linha-2 px-4 text-sm font-bold hover:border-laranja disabled:opacity-40"
+                  >
+                    {validandoCupom ? "…" : "Aplicar"}
+                  </button>
+                </div>
+              )}
+              {erroCupom && <p role="alert" className="mt-1 text-xs text-alerta">{erroCupom}</p>}
+            </div>
             <div className="mt-2 flex items-end justify-between border-t border-linha pt-3">
               <dt className="font-bold">Total</dt>
               <dd className="font-display text-4xl leading-none font-extrabold">
-                {reais(oferta.preco_centavos + (opcao?.centavos ?? 0))}
+                {reais(oferta.preco_centavos - (cupom?.desconto_centavos ?? 0) + (opcao?.centavos ?? 0))}
               </dd>
             </div>
             {loja.desconto_pix > 0 && (
               <div className="flex justify-between gap-3 rounded-xl bg-ok/10 px-3 py-2 text-ok">
                 <dt>No Pix ({loja.desconto_pix.toLocaleString("pt-BR")}% off)</dt>
                 <dd className="font-bold">
-                  {reais(Math.round((oferta.preco_centavos + (opcao?.centavos ?? 0)) * (1 - loja.desconto_pix / 100)))}
+                  {reais(Math.round((oferta.preco_centavos - (cupom?.desconto_centavos ?? 0) + (opcao?.centavos ?? 0)) * (1 - loja.desconto_pix / 100)))}
                 </dd>
               </div>
             )}
@@ -442,4 +552,28 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: string }) {
       <dd className="text-right font-mono">{valor}</dd>
     </div>
   );
+}
+
+type CupomAplicado = { codigo: string; descricao: string; desconto_centavos: number; frete_gratis: boolean };
+type Lembrados = {
+  dados?: Partial<{ nome: string; cpf: string; email: string; telefone: string; rua: string; numero: string; complemento: string; bairro: string }>;
+  cep?: string;
+};
+
+// Os dados do cliente ficam só neste aparelho (localStorage), se ele deixar marcado "lembrar".
+const CHAVE_CLIENTE = "loja-cliente";
+function lerCliente(): Lembrados {
+  try {
+    return (JSON.parse(localStorage.getItem(CHAVE_CLIENTE) ?? "null") as Lembrados | null) ?? {};
+  } catch {
+    return {};
+  }
+}
+function guardarCliente(valor: Lembrados | null) {
+  try {
+    if (valor) localStorage.setItem(CHAVE_CLIENTE, JSON.stringify(valor));
+    else localStorage.removeItem(CHAVE_CLIENTE);
+  } catch {
+    /* sem armazenamento: não lembra */
+  }
 }

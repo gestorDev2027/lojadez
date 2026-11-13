@@ -50,12 +50,14 @@ def _telefone(telefone: str) -> str:
 
 def montar_corpo(pedido: dict) -> dict:
     corpo = {
-        "items": [{"quantity": 1, "price": pedido["preco_centavos"], "description": pedido["produto"]}]
+        "items": [{"quantity": 1, "price": pedido["preco_centavos"] - (pedido.get("desconto_cupom_centavos") or 0),
+                   "description": pedido["produto"] + (f" (cupom {pedido['cupom_codigo']})" if pedido.get("cupom_codigo") else "")}]
         + ([{"quantity": 1, "price": pedido["frete_centavos"], "description": pedido["frete_descricao"]}]
            if pedido["frete_centavos"] > 0 else []),  # frete grátis: a loja paga a Loggi, o comprador não vê a linha
         "order_nsu": pedido["order_nsu"],
         "redirect_url": f"{config.SITE_URL}/obrigado",
-        "customer": {"name": pedido["nome"], "email": pedido["email"], "phone_number": _telefone(pedido["telefone"])},
+        "customer": {"name": pedido["nome"], "phone_number": _telefone(pedido["telefone"]),
+                     **({"email": pedido["email"]} if pedido.get("email") else {})},
         "address": {"cep": pedido["cep"], "street": pedido["rua"], "neighborhood": pedido["bairro"],
                     "number": pedido["numero"], "complement": pedido.get("complemento") or ""},
     }

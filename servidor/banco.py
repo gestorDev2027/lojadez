@@ -66,6 +66,9 @@ pedidos = Table(
     Column("reembolso_centavos", Integer),
     Column("reembolso_pedido_em", DateTime(timezone=True)),
     Column("reembolsado_em", DateTime(timezone=True)),
+    # cupom usado no pedido e o desconto que ele deu (sobre os produtos; o total já vem com o desconto)
+    Column("cupom_codigo", String(30)),
+    Column("desconto_cupom_centavos", Integer),
 )
 
 # Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
@@ -74,7 +77,8 @@ COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP 
                           "produto_id": "VARCHAR(60)", "afiliado_id": "INTEGER", "afiliado_codigo": "VARCHAR(30)",
                           "comissao_pct": "DOUBLE PRECISION", "comissao_centavos": "INTEGER",
                           "reembolso_motivo": "TEXT", "reembolso_centavos": "INTEGER",
-                          "reembolso_pedido_em": "TIMESTAMP WITH TIME ZONE", "reembolsado_em": "TIMESTAMP WITH TIME ZONE"}}
+                          "reembolso_pedido_em": "TIMESTAMP WITH TIME ZONE", "reembolsado_em": "TIMESTAMP WITH TIME ZONE",
+                          "cupom_codigo": "VARCHAR(30)", "desconto_cupom_centavos": "INTEGER"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -101,6 +105,26 @@ afiliados = Table(
     Column("produtos", JSON, nullable=False),  # ids liberados quando não são todos ("kit-laminas", "pomada-...")
     Column("ativo", Boolean, nullable=False, default=True),
     Column("observacoes", Text),
+    Column("criado_em", DateTime(timezone=True), nullable=False),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False),
+)
+
+# Cupons de desconto (percentual, valor fixo ou frete grátis), que podem ser de um afiliado.
+cupons = Table(
+    "cupons", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("codigo", String(30), nullable=False, unique=True, index=True),  # em maiúsculas
+    Column("tipo", String(20), nullable=False),  # percentual | valor | frete
+    Column("valor", Float, nullable=False),  # % (percentual) ou centavos (valor); 0 no frete
+    Column("inicio", String(10)),  # AAAA-MM-DD (vazio: já vale)
+    Column("fim", String(10)),  # AAAA-MM-DD (vazio: não vence)
+    Column("limite_usos", Integer),  # vazio: sem limite
+    Column("minimo_centavos", Integer),  # valor mínimo dos produtos
+    Column("todos_produtos", Boolean, nullable=False, default=True),
+    Column("produtos", JSON, nullable=False),
+    Column("afiliado_id", Integer),  # cupom de afiliado: a venda (e a comissão) é dele
+    Column("ativo", Boolean, nullable=False, default=True),
+    Column("descricao_interna", Text),  # só o vendedor vê (ex.: "campanha Black Friday")
     Column("criado_em", DateTime(timezone=True), nullable=False),
     Column("atualizado_em", DateTime(timezone=True), nullable=False),
 )

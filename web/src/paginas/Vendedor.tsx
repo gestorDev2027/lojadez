@@ -5,6 +5,7 @@ import { rotuloPagamento, Selo, VisaoGeral } from "./VendedorPainel";
 import { AbaIntegracoes, AbaProduto } from "./VendedorAjustes";
 import { AbaAfiliados } from "./VendedorAfiliados";
 import { AbaConfiguracoes } from "./VendedorConfiguracoes";
+import { AbaCupons } from "./VendedorCupons";
 import { AbaProdutos } from "./VendedorProdutos";
 
 // A área do vendedor: entra com e-mail e senha; a sessão (um token, vale 12 horas) fica só nesta aba do navegador.
@@ -37,15 +38,15 @@ function lerSenha() {
   }
 }
 
-type Aba = "visao" | "pedidos" | "produto" | "produtos" | "afiliados" | "integracoes" | "configuracoes";
+type Aba = "visao" | "pedidos" | "produto" | "produtos" | "afiliados" | "cupons" | "integracoes" | "configuracoes";
 
-const MENU: { id: Aba | "cupons" | "financeiro"; rotulo: string; icone: string; breve?: boolean }[] = [
+const MENU: { id: Aba | "financeiro"; rotulo: string; icone: string; breve?: boolean }[] = [
   { id: "visao", rotulo: "Visão geral", icone: "M4 13h6V4H4zM14 20h6V11h-6zM4 20h6v-3H4zM14 7h6V4h-6z" },
   { id: "pedidos", rotulo: "Pedidos", icone: "M6 3h12l2 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7zM4 7h16M9 11h6" },
   { id: "produto", rotulo: "Kit de lâminas", icone: "M4 7l8-4 8 4v10l-8 4-8-4zM4 7l8 4 8-4M12 11v10" },
   { id: "produtos", rotulo: "Produtos", icone: "M3 9h18l-2 11H5zM8 9V6a4 4 0 0 1 8 0v3" },
   { id: "afiliados", rotulo: "Afiliados", icone: "M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" },
-  { id: "cupons", rotulo: "Cupons", icone: "M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 0 0-4V4H3zM10 4v16", breve: true },
+  { id: "cupons", rotulo: "Cupons", icone: "M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 0 0-4V4H3zM10 4v16" },
   { id: "financeiro", rotulo: "Financeiro", icone: "M4 19V5M4 19h16M8 15l4-4 3 3 5-6", breve: true },
   { id: "integracoes", rotulo: "Integrações", icone: "M9 7V3M15 7V3M7 7h10v5a5 5 0 0 1-10 0zM12 17v4" },
   { id: "configuracoes", rotulo: "Configurações", icone: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z" },
@@ -167,6 +168,8 @@ export function PaginaVendedor() {
           <AbaProdutos senha={senha} />
         ) : aba === "afiliados" ? (
           <AbaAfiliados senha={senha} />
+        ) : aba === "cupons" ? (
+          <AbaCupons senha={senha} />
         ) : aba === "integracoes" ? (
           <AbaIntegracoes senha={senha} />
         ) : (
