@@ -187,6 +187,7 @@
           ${o.selo ? `<span class="offer__seal">${esc(o.selo)}</span>` : ''}
           <h3 class="offer__title">${esc(o.titulo)}</h3>
           <p class="offer__desc">${aparelhos} ${aparelhos > 1 ? 'aparelhos' : 'aparelho'} + ${o.refisTotal} refis</p>
+          ${o.freteGratis ? '<p class="offer__frete">Frete grátis</p>' : ''}
           <div class="offer__stack" aria-hidden="true">${imgs}</div>
           <div class="offer__price">
             <span class="offer__from">${o.de ? `de ${brl(o.de)}` : ''}</span>

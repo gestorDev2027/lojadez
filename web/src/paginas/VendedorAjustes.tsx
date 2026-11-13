@@ -3,7 +3,15 @@ import { chamar, formatarCep, reais, type OpcaoFrete } from "../api";
 
 // As abas "Produto e preços" e "Integrações" da área do vendedor. O que muda aqui vale na hora na loja.
 
-type OfertaAjuste = { id: string; titulo: string; kits: number; preco_centavos: number; selo: string; ativa: boolean };
+type OfertaAjuste = {
+  id: string;
+  titulo: string;
+  kits: number;
+  preco_centavos: number;
+  selo: string;
+  ativa: boolean;
+  frete_gratis: boolean;
+};
 type Catalogo = {
   produto: { refis: number; laminas_por_refil: number; aparelhos: number; nome: string };
   ofertas: OfertaAjuste[];
@@ -56,7 +64,7 @@ export function AbaProduto({ senha }: { senha: string }) {
           refis: Number(refis),
           laminas_por_refil: Number(laminas),
           ofertas: Object.fromEntries(
-            ofertas.map((o) => [o.id, { preco_centavos: paraCentavos(o.preco), selo: o.selo, ativa: o.ativa }]),
+            ofertas.map((o) => [o.id, { preco_centavos: paraCentavos(o.preco), selo: o.selo, ativa: o.ativa, frete_gratis: o.frete_gratis }]),
           ),
         },
       });
@@ -134,6 +142,20 @@ export function AbaProduto({ senha }: { senha: string }) {
                   <Campo rotulo="Selo (opcional)">
                     <input className="campo" maxLength={40} value={o.selo} onChange={(e) => mudar({ selo: e.target.value })} />
                   </Campo>
+                  <label className="flex items-start gap-2 text-sm sm:col-span-3">
+                    <input
+                      type="checkbox"
+                      checked={o.frete_gratis}
+                      onChange={(e) => mudar({ frete_gratis: e.target.checked })}
+                      className="mt-0.5 size-4 accent-laranja"
+                    />
+                    <span>
+                      <span className="font-semibold">Frete grátis</span>
+                      <span className="block text-xs text-suave">
+                        A entrega mais barata da Loggi sai por R$ 0 para o cliente; a loja paga o frete na conta da Loggi.
+                      </span>
+                    </span>
+                  </label>
                 </div>
               );
             })}

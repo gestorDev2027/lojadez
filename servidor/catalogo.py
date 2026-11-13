@@ -2,7 +2,7 @@
 
 Os padrões vêm do .env (servidor/config.py); o que o vendedor grava fica na tabela `ajustes` e vale sobre eles:
 - refis por kit e lâminas por refil;
-- preço e selo de cada oferta (1, 2 e 3 kits) e se ela aparece;
+- preço e selo de cada oferta (1, 2 e 3 kits), se ela aparece e se o frete é grátis (a loja paga a Loggi);
 - a foto do kit (tabela `fotos`), usada na landing page e no checkout.
 """
 
@@ -49,7 +49,7 @@ def ofertas(so_ativas: bool = True) -> list[dict]:
     a = _ajustes().get("ofertas") or {}
     saida = []
     for padrao in config.OFERTAS:
-        o = {**padrao, "ativa": True, **{k: v for k, v in (a.get(padrao["id"]) or {}).items() if k in ("preco_centavos", "selo", "ativa")}}
+        o = {**padrao, "ativa": True, **{k: v for k, v in (a.get(padrao["id"]) or {}).items() if k in ("preco_centavos", "selo", "ativa", "frete_gratis")}}
         if o["ativa"] or not so_ativas:
             saida.append(o)
     return saida
@@ -91,6 +91,7 @@ def salvar(dados: dict) -> dict:
                 "preco_centavos": _inteiro(valores.get("preco_centavos"), f"Preço de {oid}", 100, 10_000_000),
                 "selo": " ".join(str(valores.get("selo") or "").split())[:40],
                 "ativa": bool(valores.get("ativa", True)),
+                "frete_gratis": bool(valores.get("frete_gratis", False)),
             }
         if not any(v["ativa"] for v in ofertas_novas.values()):
             raise ErroCatalogo("Deixe pelo menos uma oferta ativa.")

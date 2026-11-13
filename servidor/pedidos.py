@@ -56,10 +56,16 @@ def _texto(dados: dict, campo: str, rotulo: str, minimo: int = 1, maximo: int = 
 
 
 def _cotar(cep: str, oferta: dict) -> dict:
+    """A cotação da Loggi. Com frete grátis na oferta, a opção mais barata sai por 0 para o comprador (a loja paga); as
+    outras ele paga normalmente. Cada opção leva o custo da Loggi em custo_centavos."""
     try:
-        return loggi.cotar(cep, oferta["kits"], oferta["preco_centavos"])
+        cotacao = loggi.cotar(cep, oferta["kits"], oferta["preco_centavos"])
     except loggi.ErroFrete as erro:
         raise ErroPedido(str(erro))
+    opcoes = [{**o, "custo_centavos": o["centavos"], "gratis": False} for o in cotacao["opcoes"]]
+    if oferta.get("frete_gratis") and opcoes:  # as opções já vêm da mais barata para a mais cara
+        opcoes[0] = {**opcoes[0], "centavos": 0, "gratis": True}
+    return {**cotacao, "opcoes": opcoes, "frete_gratis": bool(oferta.get("frete_gratis"))}
 
 
 def cotar_frete(cep: str, oferta_id) -> dict:
@@ -101,8 +107,9 @@ def criar(dados: dict) -> dict:
         "order_nsu": str(uuid.uuid4()), "criado_em": banco.agora(), "situacao": "aguardando_pagamento",
         "sku": config.PRODUTO["sku"], "oferta": oferta["id"], "produto": descricao_oferta(oferta), "kits": oferta["kits"],
         "preco_centavos": oferta["preco_centavos"], "frete_tipo": opcao["tipo"],
-        "frete_descricao": f"Frete Loggi {opcao['nome']} (até {opcao['prazo_dias']} dias úteis)",
+        "frete_descricao": f"Frete {'grátis ' if opcao['gratis'] else ''}Loggi {opcao['nome']} (até {opcao['prazo_dias']} dias úteis)",
         "frete_prazo_dias": opcao["prazo_dias"], "frete_centavos": opcao["centavos"],
+        "frete_custo_centavos": opcao["custo_centavos"],
         "total_centavos": oferta["preco_centavos"] + opcao["centavos"], "desconto_pix": config.desconto_pix() or None,
         "nome": nome, "cpf": cpf, "email": email, "telefone": telefone, "cep": endereco["cep"], "rua": rua, "numero": numero,
         "complemento": complemento or None, "bairro": bairro, "cidade": endereco["cidade"], "uf": endereco["uf"],

@@ -1,7 +1,15 @@
 // As chamadas à API da loja (servidor Python). Os preços estão sempre em centavos.
 
 export type Produto = { sku: string; ean: string; nome: string; aparelhos: number; refis: number; laminas_por_refil: number };
-export type Oferta = { id: string; titulo: string; kits: number; preco_centavos: number; selo: string; descricao: string };
+export type Oferta = {
+  id: string;
+  titulo: string;
+  kits: number;
+  preco_centavos: number;
+  selo: string;
+  descricao: string;
+  frete_gratis: boolean;
+};
 export type Loja = {
   nome: string;
   whatsapp: string;
@@ -16,7 +24,9 @@ export type Endereco = { cep: string; rua: string; bairro: string; cidade: strin
 export type OpcaoFrete = {
   tipo: string;
   nome: string;
-  centavos: number;
+  centavos: number; // o que o comprador paga (0 no frete grátis)
+  custo_centavos: number; // o que a Loggi cobra da loja
+  gratis: boolean;
   prazo_dias: number;
   total_centavos: number;
 };
@@ -83,6 +93,7 @@ export type PedidoVendedor = Omit<PedidoPublico, "primeiro_nome" | "situacao"> &
   loggi_key: string | null;
   envio_criado_em: string | null;
   envio_erro: string | null;
+  frete_custo_centavos: number | null; // o que a Loggi cobra da loja
 };
 
 export type Rastreio = {

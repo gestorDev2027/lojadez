@@ -186,15 +186,15 @@ def aplicar(sobrepor: dict | None = None) -> None:
 
 aplicar()
 
-# As ofertas: quantos kits e o preço de cada pacote (em centavos). São os PADRÕES: o vendedor muda refis, preços e
+# As ofertas: quantos kits, o preço de cada pacote (em centavos) e se o frete é grátis (a loja paga a Loggi). São os PADRÕES: o vendedor muda refis, preços e
 # foto pela área do vendedor (servidor/catalogo.py), e o que ele grava vale sobre estes valores.
 OFERTAS = [
     {"id": "kit1", "titulo": "1 Kit", "kits": 1, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT1_CENTAVOS") or "", 2390),
-     "selo": ""},
+     "selo": "", "frete_gratis": False},
     {"id": "kit2", "titulo": "2 Kits", "kits": 2, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT2_CENTAVOS") or "", 4490),
-     "selo": "Recomendado"},
+     "selo": "Recomendado", "frete_gratis": False},
     {"id": "kit3", "titulo": "3 Kits", "kits": 3, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT3_CENTAVOS") or "", 6290),
-     "selo": "Menor preço por refil"},
+     "selo": "Menor preço por refil", "frete_gratis": True},
 ]
 OFERTA_PADRAO = "kit2"
 
