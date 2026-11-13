@@ -190,17 +190,22 @@ def aplicar(sobrepor: dict | None = None) -> None:
 
 aplicar()
 
-# As ofertas: quantos kits, o preço de cada pacote (em centavos) e se o frete é grátis (a loja paga a Loggi). São os PADRÕES: o vendedor muda refis, preços e
+# As ofertas: quantos kits e o preço de cada pacote (em centavos). São os PADRÕES: o vendedor muda refis, preços e
 # foto pela área do vendedor (servidor/catalogo.py), e o que ele grava vale sobre estes valores.
 OFERTAS = [
     {"id": "kit1", "titulo": "1 Kit", "kits": 1, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT1_CENTAVOS") or "", 2390),
-     "selo": "", "frete_gratis": False},
+     "selo": ""},
     {"id": "kit2", "titulo": "2 Kits", "kits": 2, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT2_CENTAVOS") or "", 4490),
-     "selo": "Recomendado", "frete_gratis": False},
+     "selo": "Recomendado"},
     {"id": "kit3", "titulo": "3 Kits", "kits": 3, "preco_centavos": _inteiro(os.getenv("OFERTA_KIT3_CENTAVOS") or "", 6290),
-     "selo": "Menor preço por refil", "frete_gratis": True},
+     "selo": "Menor preço por refil"},
 ]
 OFERTA_PADRAO = "kit2"
+# "Monte o seu kit": de MONTAR_MINIMO kits até o máximo, cada kit pelo preço da faixa "4 ou mais". O frete é grátis a partir
+# de FRETE_GRATIS_A_PARTIR kits (0: nunca); a loja paga a Loggi. Tudo isso muda em Produto e preços.
+MONTAR_MINIMO = 4
+MONTAR_PADRAO = {"ativo": True, "maximo": 10, "preco_kit_centavos": 1990}
+FRETE_GRATIS_A_PARTIR = 4
 
 
 def desconto_pix() -> float:

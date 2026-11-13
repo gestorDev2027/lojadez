@@ -5,19 +5,24 @@ import {
   formatarCep,
   formatarCpf,
   formatarTelefone,
+  kitsMontadosDaUrl,
+  ofertaMontada,
   reais,
   type Cotacao,
   type Loja,
   type Oferta,
+  type Vitrine,
 } from "../api";
 
 // O checkout: 1) o kit, 2) o frete pelo CEP (Loggi), 3) os dados de entrega. O servidor recalcula preço e frete na hora de
 // criar o pedido e devolve o link de pagamento da InfinitePay.
-export function PaginaCheckout({ loja }: { loja: Loja }) {
+export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitrine }) {
   const daUrl = new URLSearchParams(window.location.search).get("oferta");
+  const montadosDaUrl = v.ofertas.some((o) => o.id === daUrl) ? null : kitsMontadosDaUrl(v, daUrl);
   const [ofertaId, setOfertaId] = useState(
-    loja.ofertas.some((o) => o.id === daUrl) ? daUrl! : loja.oferta_padrao || loja.ofertas[0].id,
+    v.ofertas.some((o) => o.id === daUrl) || montadosDaUrl ? daUrl! : v.oferta_padrao || v.ofertas[0].id,
   );
+  const [kitsMontados, setKitsMontados] = useState(montadosDaUrl ?? v.montar.minimo);
   const [cep, setCep] = useState("");
   const [cotacao, setCotacao] = useState<Cotacao | null>(null);
   const [freteTipo, setFreteTipo] = useState("");
@@ -27,7 +32,7 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
 
-  const oferta = loja.ofertas.find((o) => o.id === ofertaId)!;
+  const oferta = v.ofertas.find((o) => o.id === ofertaId) ?? ofertaMontada(v, kitsMontados);
   const opcao = cotacao?.opcoes.find((o) => o.tipo === freteTipo) ?? null;
 
   async function cotar(id = ofertaId, cepUsado = cep) {
@@ -38,7 +43,7 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
     setCotando(true);
     setErroFrete("");
     try {
-      const c = await chamar<Cotacao>("/api/frete", { corpo: { cep: cepUsado, oferta: id } });
+      const c = await chamar<Cotacao>("/api/frete", { corpo: { cep: cepUsado, oferta: id, produto: v.produto } });
       setCotacao(c);
       setFreteTipo((atual) => (c.opcoes.some((o) => o.tipo === atual) ? atual : c.opcoes[0].tipo));
       // A rua e o bairro do CEP, sem apagar o que a pessoa já escreveu.
@@ -77,7 +82,7 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
     setErro("");
     try {
       const r = await chamar<{ link_pagamento: string }>("/api/pedidos", {
-        corpo: { ...dados, oferta: ofertaId, cep: cotacao.endereco.cep, frete_tipo: freteTipo },
+        corpo: { ...dados, oferta: ofertaId, produto: v.produto, cep: cotacao.endereco.cep, frete_tipo: freteTipo },
       });
       window.location.href = r.link_pagamento;
     } catch (e) {
@@ -98,11 +103,27 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
         </div>
 
         {/* 1. O kit */}
-        <Etapa numero="01" titulo="Escolha o kit">
-          <div role="radiogroup" aria-label="Kits" className="grid gap-3 sm:grid-cols-3">
-            {loja.ofertas.map((o) => (
-              <CartaoOferta key={o.id} oferta={o} loja={loja} ativa={o.id === ofertaId} onClick={() => escolherOferta(o.id)} />
+        <Etapa numero="01" titulo={v.etapa}>
+          {v.produto && <p className="-mt-2 mb-3 font-semibold text-tinta-2">{v.nome}</p>}
+          <div
+            role="radiogroup"
+            aria-label="Quantidade"
+            className={`grid gap-3 sm:grid-cols-2 ${v.ofertas.length + (v.montar.ativo ? 1 : 0) >= 4 ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}
+          >
+            {v.ofertas.map((o) => (
+              <CartaoOferta key={o.id} oferta={o} vitrine={v} ativa={o.id === ofertaId} onClick={() => escolherOferta(o.id)} />
             ))}
+            {v.montar.ativo && (
+              <CartaoMontar
+                vitrine={v}
+                kits={kitsMontados}
+                ativa={!v.ofertas.some((o) => o.id === ofertaId)}
+                aoEscolher={(kits) => {
+                  setKitsMontados(kits);
+                  escolherOferta(`${v.prefixo}${kits}`);
+                }}
+              />
+            )}
           </div>
         </Etapa>
 
@@ -241,17 +262,14 @@ export function PaginaCheckout({ loja }: { loja: Loja }) {
       <aside className="lg:sticky lg:top-24">
         <div className="overflow-hidden rounded-[22px] border border-linha-2 bg-cartao">
           <div className="flex items-center gap-4 border-b border-linha p-4">
-            <img src={loja.foto} alt="" className="size-20 rounded-xl object-cover" />
+            <img src={v.foto} alt="" className="size-20 rounded-xl object-cover" />
             <div>
               <p className="font-display text-2xl leading-none font-extrabold uppercase">{oferta.titulo}</p>
-              <p className="mt-1 text-sm text-tinta-2">
-                {oferta.kits * loja.produto.aparelhos} {oferta.kits > 1 ? "aparelhos" : "aparelho"} + {oferta.kits * loja.produto.refis}{" "}
-                refis de {loja.produto.laminas_por_refil} lâminas
-              </p>
+              <p className="mt-1 text-sm text-tinta-2">{v.resumo(oferta.kits)}</p>
             </div>
           </div>
           <dl className="grid gap-2 p-4 text-sm">
-            <Linha rotulo="Kit" valor={reais(oferta.preco_centavos)} />
+            <Linha rotulo={v.rotulo} valor={reais(oferta.preco_centavos)} />
             <Linha rotulo={opcao ? `Frete ${opcao.nome}` : "Frete"} valor={opcao ? (opcao.gratis ? "Grátis" : reais(opcao.centavos)) : oferta.frete_gratis ? "Grátis · calcule o prazo" : "Calcule pelo CEP"} />
             <div className="mt-2 flex items-end justify-between border-t border-linha pt-3">
               <dt className="font-bold">Total</dt>
@@ -319,8 +337,69 @@ function Etapa({ numero, titulo, apagada = false, children }: { numero: string; 
   );
 }
 
-function CartaoOferta({ oferta: o, loja, ativa, onClick }: { oferta: Oferta; loja: Loja; ativa: boolean; onClick: () => void }) {
-  const refis = o.kits * loja.produto.refis;
+// "Monte o seu": da maior oferta + 1 até o máximo, com − e +. O preço é o da faixa (o servidor recalcula).
+function CartaoMontar({ vitrine: v, kits, ativa, aoEscolher }: { vitrine: Vitrine; kits: number; ativa: boolean; aoEscolher: (kits: number) => void }) {
+  const o = ofertaMontada(v, kits);
+  const avulso = v.ofertas.find((x) => x.kits === 1)?.preco_centavos ?? 0;
+  const economia = avulso * kits - o.preco_centavos;
+  const { minimo, maximo } = v.montar;
+  return (
+    <div
+      role="radio"
+      aria-checked={ativa}
+      aria-label={`Monte o seu: ${o.titulo}, ${reais(o.preco_centavos)}`}
+      tabIndex={0}
+      onClick={() => aoEscolher(kits)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          aoEscolher(kits);
+        }
+      }}
+      className={`relative flex cursor-pointer flex-col items-start gap-1 rounded-2xl border p-4 text-left transition ${
+        ativa ? "border-laranja bg-laranja/10 shadow-[0_10px_30px_-12px_rgba(255,106,19,.6)]" : "border-dashed border-linha-2 hover:bg-white/[.03]"
+      }`}
+    >
+      <span className="font-display text-2xl leading-none font-extrabold uppercase">Monte o seu</span>
+      <span className="mt-1 flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="Menos um"
+          disabled={kits <= minimo}
+          onClick={(e) => {
+            e.stopPropagation();
+            aoEscolher(kits - 1);
+          }}
+          className="grid size-8 place-items-center rounded-full border border-linha-2 font-bold disabled:opacity-40"
+        >
+          −
+        </button>
+        <span className="min-w-14 text-center font-mono text-sm font-bold" aria-live="polite">
+          {o.titulo.toLowerCase()}
+        </span>
+        <button
+          type="button"
+          aria-label="Mais um"
+          disabled={kits >= maximo}
+          onClick={(e) => {
+            e.stopPropagation();
+            aoEscolher(kits + 1);
+          }}
+          className="grid size-8 place-items-center rounded-full border border-linha-2 font-bold disabled:opacity-40"
+        >
+          +
+        </button>
+      </span>
+      <span className="text-xs text-tinta-2">{v.detalhe(kits)}</span>
+      <span className="mt-2 font-mono text-lg font-bold">{reais(o.preco_centavos)}</span>
+      <span className="font-mono text-[11px] text-suave">{v.porUnidade(kits, o.preco_centavos)}</span>
+      {economia > 0 && <span className="font-mono text-[11px] text-tinta-2">Economize {reais(economia)}</span>}
+      {o.frete_gratis && <span className="mt-1 font-mono text-[11px] font-bold uppercase text-ok">Frete grátis</span>}
+    </div>
+  );
+}
+
+function CartaoOferta({ oferta: o, vitrine: v, ativa, onClick }: { oferta: Oferta; vitrine: Vitrine; ativa: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -337,11 +416,9 @@ function CartaoOferta({ oferta: o, loja, ativa, onClick }: { oferta: Oferta; loj
         </span>
       )}
       <span className="font-display text-2xl leading-none font-extrabold uppercase">{o.titulo}</span>
-      <span className="text-xs text-tinta-2">
-        {o.kits * loja.produto.aparelhos} {o.kits > 1 ? "aparelhos" : "aparelho"} + {refis} refis
-      </span>
+      <span className="text-xs text-tinta-2">{v.detalhe(o.kits)}</span>
       <span className="mt-2 font-mono text-lg font-bold">{reais(o.preco_centavos)}</span>
-      <span className="font-mono text-[11px] text-suave">{reais(Math.round(o.preco_centavos / refis))} por refil</span>
+      <span className="font-mono text-[11px] text-suave">{v.porUnidade(o.kits, o.preco_centavos)}</span>
       {o.frete_gratis && <span className="mt-1 font-mono text-[11px] font-bold uppercase text-ok">Frete grátis</span>}
     </button>
   );

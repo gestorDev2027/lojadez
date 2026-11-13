@@ -10,13 +10,14 @@ type OfertaAjuste = {
   preco_centavos: number;
   selo: string;
   ativa: boolean;
-  frete_gratis: boolean;
 };
 type Catalogo = {
   produto: { refis: number; laminas_por_refil: number; aparelhos: number; nome: string };
   ofertas: OfertaAjuste[];
   foto: string;
   foto_enviada: boolean;
+  montar: { ativo: boolean; minimo: number; maximo: number; preco_kit_centavos: number };
+  frete_gratis_a_partir: number;
 };
 
 const paraReais = (centavos: number) => (centavos / 100).toFixed(2).replace(".", ",");
@@ -31,6 +32,10 @@ export function AbaProduto({ senha }: { senha: string }) {
   const [refis, setRefis] = useState("");
   const [laminas, setLaminas] = useState("");
   const [ofertas, setOfertas] = useState<(OfertaAjuste & { preco: string })[]>([]);
+  const [montarAtivo, setMontarAtivo] = useState(true);
+  const [montarMaximo, setMontarMaximo] = useState("");
+  const [montarPreco, setMontarPreco] = useState("");
+  const [freteGratis, setFreteGratis] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
@@ -39,6 +44,10 @@ export function AbaProduto({ senha }: { senha: string }) {
     setRefis(String(c.produto.refis));
     setLaminas(String(c.produto.laminas_por_refil));
     setOfertas(c.ofertas.map((o) => ({ ...o, preco: paraReais(o.preco_centavos) })));
+    setMontarAtivo(c.montar.ativo);
+    setMontarMaximo(String(c.montar.maximo));
+    setMontarPreco(paraReais(c.montar.preco_kit_centavos));
+    setFreteGratis(String(c.frete_gratis_a_partir));
   }
 
   useEffect(() => {
@@ -54,6 +63,10 @@ export function AbaProduto({ senha }: { senha: string }) {
       setAviso({ ok: false, texto: `Preço inválido em ${invalida.titulo}.` });
       return;
     }
+    if (!(paraCentavos(montarPreco) >= 100)) {
+      setAviso({ ok: false, texto: "Preço por kit inválido no “Monte o seu kit”." });
+      return;
+    }
     setSalvando(true);
     setAviso(null);
     try {
@@ -64,8 +77,10 @@ export function AbaProduto({ senha }: { senha: string }) {
           refis: Number(refis),
           laminas_por_refil: Number(laminas),
           ofertas: Object.fromEntries(
-            ofertas.map((o) => [o.id, { preco_centavos: paraCentavos(o.preco), selo: o.selo, ativa: o.ativa, frete_gratis: o.frete_gratis }]),
+            ofertas.map((o) => [o.id, { preco_centavos: paraCentavos(o.preco), selo: o.selo, ativa: o.ativa }]),
           ),
+          montar: { ativo: montarAtivo, maximo: Number(montarMaximo), preco_kit_centavos: paraCentavos(montarPreco) },
+          frete_gratis_a_partir: Number(freteGratis || 0),
         },
       });
       preencher(c);
@@ -142,24 +157,64 @@ export function AbaProduto({ senha }: { senha: string }) {
                   <Campo rotulo="Selo (opcional)">
                     <input className="campo" maxLength={40} value={o.selo} onChange={(e) => mudar({ selo: e.target.value })} />
                   </Campo>
-                  <label className="flex items-start gap-2 text-sm sm:col-span-3">
-                    <input
-                      type="checkbox"
-                      checked={o.frete_gratis}
-                      onChange={(e) => mudar({ frete_gratis: e.target.checked })}
-                      className="mt-0.5 size-4 accent-laranja"
-                    />
-                    <span>
-                      <span className="font-semibold">Frete grátis</span>
-                      <span className="block text-xs text-suave">
-                        A entrega mais barata da Loggi sai por R$ 0 para o cliente; a loja paga o frete na conta da Loggi.
-                      </span>
-                    </span>
-                  </label>
                 </div>
               );
             })}
           </div>
+        </Cartao>
+
+        <Cartao titulo="Monte o seu kit e frete grátis">
+          {(() => {
+            const minimo = catalogo.montar.minimo;
+            const precoKit = paraCentavos(montarPreco);
+            const avulso = paraCentavos(ofertas.find((o) => o.kits === 1)?.preco ?? "");
+            const exemplo = minimo + 1;
+            const limite = Number(freteGratis || 0);
+            return (
+              <div className="grid gap-4">
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" checked={montarAtivo} onChange={(e) => setMontarAtivo(e.target.checked)} className="mt-0.5 size-4 accent-laranja" />
+                  <span>
+                    <span className="font-semibold">Mostrar o “Monte o seu kit”</span>
+                    <span className="block text-xs text-suave">
+                      Um card com − e + no checkout e na página, de {minimo} kits até o máximo, cada kit pelo preço abaixo.
+                    </span>
+                  </span>
+                </label>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Campo
+                    rotulo={`Preço por kit (${minimo} ou mais)`}
+                    dica={
+                      precoKit >= 100
+                        ? `${exemplo} kits = ${reais(precoKit * exemplo)}${avulso > precoKit ? ` (economiza ${reais((avulso - precoKit) * exemplo)})` : ""}`
+                        : undefined
+                    }
+                  >
+                    <input className="campo font-mono" inputMode="decimal" value={montarPreco} onChange={(e) => setMontarPreco(e.target.value)} />
+                  </Campo>
+                  <Campo rotulo="Máximo de kits" dica={`De ${minimo} a 30.`}>
+                    <input
+                      className="campo font-mono"
+                      inputMode="numeric"
+                      value={montarMaximo}
+                      onChange={(e) => setMontarMaximo(e.target.value.replace(/\D/g, ""))}
+                    />
+                  </Campo>
+                  <Campo
+                    rotulo="Frete grátis a partir de (kits)"
+                    dica={limite ? `De ${limite} kits para cima, a loja paga o frete na Loggi.` : "0: nenhum pedido tem frete grátis."}
+                  >
+                    <input
+                      className="campo font-mono"
+                      inputMode="numeric"
+                      value={freteGratis}
+                      onChange={(e) => setFreteGratis(e.target.value.replace(/\D/g, ""))}
+                    />
+                  </Campo>
+                </div>
+              </div>
+            );
+          })()}
         </Cartao>
 
         {aviso && (

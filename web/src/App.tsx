@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
-import { chamar, type Loja } from "./api";
+import { chamar, vitrineDoKit, type Loja } from "./api";
 import { PaginaCheckout } from "./paginas/Checkout";
 import { PaginaObrigado } from "./paginas/Obrigado";
+import { CheckoutDoProduto, PaginaProduto, PaginaVitrine } from "./paginas/Produto";
 import { PaginaVendedor } from "./paginas/Vendedor";
 
-// O app React cuida de três páginas: o checkout (/checkout), a volta do pagamento (/obrigado) e o vendedor (/vendedor).
-// A landing page (/) é estática: public/loja.html.
+// O app React cuida do checkout (/checkout, do kit ou de um produto com ?produto=), da volta do pagamento (/obrigado), do
+// vendedor (/vendedor), da vitrine (/produtos) e da página de cada produto (/p/<slug>).
+// A landing page do kit de lâminas (/) é estática: public/loja.html.
 export function App() {
   const [loja, setLoja] = useState<Loja | null>(null);
   const [erro, setErro] = useState("");
   const caminho = window.location.pathname.replace(/\/+$/, "") || "/";
+  const produtoDoCheckout = new URLSearchParams(window.location.search).get("produto");
+  const slugDaPagina = caminho.startsWith("/p/") ? decodeURIComponent(caminho.slice(3)) : "";
 
   useEffect(() => {
     chamar<Loja>("/api/loja")
@@ -32,8 +36,14 @@ export function App() {
           <PaginaObrigado loja={loja} />
         ) : caminho === "/vendedor" ? (
           <PaginaVendedor />
+        ) : caminho === "/produtos" ? (
+          <PaginaVitrine loja={loja} />
+        ) : slugDaPagina ? (
+          <PaginaProduto loja={loja} slug={slugDaPagina} />
+        ) : produtoDoCheckout && produtoDoCheckout !== "kit-laminas" ? (
+          <CheckoutDoProduto loja={loja} slug={produtoDoCheckout} />
         ) : (
-          <PaginaCheckout loja={loja} />
+          <PaginaCheckout loja={loja} vitrine={vitrineDoKit(loja)} />
         )}
       </main>
       <footer className="border-t border-linha">

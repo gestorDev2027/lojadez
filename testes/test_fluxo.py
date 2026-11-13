@@ -51,7 +51,8 @@ def cliente():
     modulo._chamadas.clear()  # o limite por IP vale entre testes também
     acesso._erros.clear()
     with TestClient(app) as c:  # ao subir, o servidor cria as tabelas
-        banco.gravar_ajustes({"refis": None, "laminas_por_refil": None, "ofertas": None})  # volta aos padrões
+        banco.gravar_ajustes({"refis": None, "laminas_por_refil": None, "ofertas": None, "montar": None,
+                              "frete_gratis_a_partir": None})  # volta aos padrões
         banco.gravar_foto("kit", None, None)
         with banco.engine.begin() as conexao:  # a configuração volta ao .env de teste
             conexao.execute(banco.configuracoes.delete())
@@ -80,36 +81,63 @@ def test_frete_tem_duas_opcoes_com_total(cliente):
     assert corpo["opcoes"][0]["total_centavos"] == corpo["produto_centavos"] + corpo["opcoes"][0]["centavos"]
 
 
-def test_frete_gratis_no_kit_de_3(cliente):
+def _dados(oferta, frete_tipo):
+    return {"oferta": oferta, "cep": "20040002", "frete_tipo": frete_tipo, "nome": "Maria Souza",
+            "cpf": "529.982.247-25", "email": "maria@exemplo.com", "telefone": "(21) 99999-8888", "numero": "10"}
+
+
+def test_kit_de_3_paga_frete_e_de_4_em_diante_e_gratis(cliente):
     from servidor import infinitepay
 
-    assert '"freteGratis":true' in cliente.get("/lp-config.js").text.replace(" ", "")  # o selo na landing page
-    frete = cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit3"}).json()
-    barata, cara = frete["opcoes"]
-    assert frete["frete_gratis"] and barata["gratis"] and barata["centavos"] == 0 and barata["custo_centavos"] > 0
-    assert not cara["gratis"] and cara["centavos"] == cara["custo_centavos"] > 0  # a outra opção o cliente paga
-    assert barata["total_centavos"] == frete["produto_centavos"]
+    # 3 kits: o cliente paga o frete
+    assert not any(o["gratis"] for o in cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit3"}).json()["opcoes"])
+    loja = cliente.get("/api/loja").json()
+    assert loja["frete_gratis_a_partir"] == 4 and loja["montar"] == {"ativo": True, "minimo": 4, "maximo": 10,
+                                                                      "preco_kit_centavos": 1990}
+    assert not any(o["frete_gratis"] for o in loja["ofertas"])
 
-    dados = {"oferta": "kit3", "cep": "20040002", "frete_tipo": barata["tipo"], "nome": "Maria Souza",
-             "cpf": "529.982.247-25", "email": "maria@exemplo.com", "telefone": "(21) 99999-8888", "numero": "10"}
-    r = cliente.post("/api/pedidos", json=dados)
+    # "Monte o seu": 5 kits pelo preço da faixa, com frete grátis só na opção mais barata
+    frete = cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit5"}).json()
+    barata, cara = frete["opcoes"]
+    assert frete["produto_centavos"] == 5 * 1990
+    assert frete["frete_gratis"] and barata["gratis"] and barata["centavos"] == 0 and barata["custo_centavos"] > 0
+    assert not cara["gratis"] and cara["centavos"] == cara["custo_centavos"] > 0
+    r = cliente.post("/api/pedidos", json=_dados("kit5", barata["tipo"]))
     assert r.status_code == 200, r.text
     pedido = banco.buscar(r.json()["order_nsu"])
+    assert pedido["kits"] == 5 and pedido["preco_centavos"] == 5 * 1990 and "5 Kits (5 aparelhos + 95 refis)" in pedido["produto"]
     assert pedido["frete_centavos"] == 0 and pedido["total_centavos"] == pedido["preco_centavos"]
     assert pedido["frete_custo_centavos"] == barata["custo_centavos"]  # o que a loja paga na Loggi
     assert pedido["frete_descricao"].startswith("Frete grátis Loggi")
-    itens = infinitepay.montar_corpo(pedido)["items"]
-    assert [i["price"] for i in itens] == [pedido["preco_centavos"]]  # sem a linha do frete na InfinitePay
+    assert [i["price"] for i in infinitepay.montar_corpo(pedido)["items"]] == [pedido["preco_centavos"]]
 
-    # Sem frete grátis no kit 2 (o padrão), e o vendedor desliga no kit 3 pela tela
-    assert not any(o["gratis"] for o in cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit2"}).json()["opcoes"])
+    # Fora dos limites do "monte o seu": recusa
+    for fora in ("kit11", "kit0", "kit99999", "kitx"):
+        assert cliente.post("/api/frete", json={"cep": "20040-002", "oferta": fora}).status_code == 422
+
+
+def test_vendedor_muda_o_monte_o_seu_e_o_frete_gratis(cliente):
     catalogo = cliente.get("/api/vendedor/catalogo", headers=VENDEDOR).json()
-    ofertas = {o["id"]: {"preco_centavos": o["preco_centavos"], "selo": o["selo"], "ativa": o["ativa"],
-                         "frete_gratis": False} for o in catalogo["ofertas"]}
-    assert cliente.put("/api/vendedor/catalogo", json={"ofertas": ofertas}, headers=VENDEDOR).status_code == 200
-    assert not any(o["gratis"] for o in cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit3"}).json()["opcoes"])
+    ofertas = {o["id"]: {"preco_centavos": o["preco_centavos"], "selo": o["selo"], "ativa": o["ativa"]} for o in catalogo["ofertas"]}
+    corpo = {"ofertas": ofertas, "montar": {"ativo": True, "maximo": 6, "preco_kit_centavos": 1850}, "frete_gratis_a_partir": 3}
+    r = cliente.put("/api/vendedor/catalogo", json=corpo, headers=VENDEDOR)
+    assert r.status_code == 200, r.text
+    assert r.json()["montar"]["maximo"] == 6 and r.json()["frete_gratis_a_partir"] == 3
+    assert cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit3"}).json()["opcoes"][0]["gratis"]
+    assert cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit6"}).json()["produto_centavos"] == 6 * 1850
+    assert cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit7"}).status_code == 422
     lp = cliente.get("/lp-config.js").text.replace(" ", "")
-    assert '"freteGratis":true' not in lp and '"freteGratis":false' in lp
+    assert '"freteGratisAPartir":3' in lp and '"precoKit":18.5' in lp
+
+    # Sem frete grátis (0) e sem o "monte o seu"
+    corpo = {"montar": {"ativo": False, "maximo": 6, "preco_kit_centavos": 1850}, "frete_gratis_a_partir": 0}
+    assert cliente.put("/api/vendedor/catalogo", json=corpo, headers=VENDEDOR).status_code == 200
+    assert not cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit3"}).json()["opcoes"][0]["gratis"]
+    assert cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit5"}).status_code == 422
+    # Valores fora do permitido
+    for errado in ({"frete_gratis_a_partir": -1}, {"montar": {"maximo": 2, "preco_kit_centavos": 1850}},
+                   {"montar": {"maximo": 6, "preco_kit_centavos": 10}}):
+        assert cliente.put("/api/vendedor/catalogo", json=errado, headers=VENDEDOR).status_code == 422
 
 
 def test_frete_recusa_cep_e_oferta_invalidos(cliente):

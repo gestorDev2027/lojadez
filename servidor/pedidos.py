@@ -8,7 +8,7 @@ import re
 import threading
 import uuid
 
-from servidor import banco, catalogo, config, infinitepay, loggi
+from servidor import banco, catalogo, config, infinitepay, loggi, produtos
 
 log = logging.getLogger("loja.pedidos")
 
@@ -22,11 +22,24 @@ class ErroPedido(Exception):
 EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,24}$", re.I)
 
 
-def _oferta(oferta_id) -> dict:
-    oferta = catalogo.oferta(str(oferta_id or ""))
+def _oferta(oferta_id, produto_id=None) -> dict:
+    """A oferta escolhida, já com o que o pedido precisa do produto: produto_id, sku, descrição e medidas da caixa.
+    Sem produto_id (ou com o do kit), é o kit de lâminas da landing page."""
+    produto_id = str(produto_id or "").strip()
+    if not produto_id or produto_id == produtos.KIT:
+        oferta = catalogo.oferta(str(oferta_id or ""))
+        if not oferta:
+            raise ErroPedido("Escolha um dos kits.")
+        return {**oferta, "produto_id": None, "sku": config.PRODUTO["sku"], "descricao": descricao_oferta(oferta),
+                "medidas": None}
+    produto = produtos.buscar(produto_id, so_ativo=True)
+    if not produto:
+        raise ErroPedido("Este produto não está mais à venda.")
+    oferta = produtos.oferta(produto, str(oferta_id or ""))
     if not oferta:
-        raise ErroPedido("Escolha um dos kits.")
-    return oferta
+        raise ErroPedido("Escolha uma das quantidades.")
+    return {**oferta, "produto_id": produto["slug"], "sku": produto.get("sku") or produto["slug"],
+            "descricao": produtos.descricao_pedido(produto, oferta), "medidas": produtos.medidas(produto)}
 
 
 def descricao_oferta(oferta: dict) -> str:
@@ -59,7 +72,7 @@ def _cotar(cep: str, oferta: dict) -> dict:
     """A cotação da Loggi. Com frete grátis na oferta, a opção mais barata sai por 0 para o comprador (a loja paga); as
     outras ele paga normalmente. Cada opção leva o custo da Loggi em custo_centavos."""
     try:
-        cotacao = loggi.cotar(cep, oferta["kits"], oferta["preco_centavos"])
+        cotacao = loggi.cotar(cep, oferta["kits"], oferta["preco_centavos"], oferta.get("medidas"))
     except loggi.ErroFrete as erro:
         raise ErroPedido(str(erro))
     opcoes = [{**o, "custo_centavos": o["centavos"], "gratis": False} for o in cotacao["opcoes"]]
@@ -68,8 +81,8 @@ def _cotar(cep: str, oferta: dict) -> dict:
     return {**cotacao, "opcoes": opcoes, "frete_gratis": bool(oferta.get("frete_gratis"))}
 
 
-def cotar_frete(cep: str, oferta_id) -> dict:
-    oferta = _oferta(oferta_id)
+def cotar_frete(cep: str, oferta_id, produto_id=None) -> dict:
+    oferta = _oferta(oferta_id, produto_id)
     cotacao = _cotar(cep, oferta)
     produto = oferta["preco_centavos"]
     return {**cotacao, "produto_centavos": produto,
@@ -77,7 +90,7 @@ def cotar_frete(cep: str, oferta_id) -> dict:
 
 
 def criar(dados: dict) -> dict:
-    oferta = _oferta(dados.get("oferta"))
+    oferta = _oferta(dados.get("oferta"), dados.get("produto"))
     nome = _texto(dados, "nome", "o nome completo", minimo=5)
     if len(nome.split()) < 2:
         raise ErroPedido("Informe nome e sobrenome.")
@@ -105,7 +118,8 @@ def criar(dados: dict) -> dict:
 
     pedido = {
         "order_nsu": str(uuid.uuid4()), "criado_em": banco.agora(), "situacao": "aguardando_pagamento",
-        "sku": config.PRODUTO["sku"], "oferta": oferta["id"], "produto": descricao_oferta(oferta), "kits": oferta["kits"],
+        "sku": oferta["sku"], "oferta": oferta["id"], "produto": oferta["descricao"], "kits": oferta["kits"],
+        "produto_id": oferta["produto_id"],
         "preco_centavos": oferta["preco_centavos"], "frete_tipo": opcao["tipo"],
         "frete_descricao": f"Frete {'grátis ' if opcao['gratis'] else ''}Loggi {opcao['nome']} (até {opcao['prazo_dias']} dias úteis)",
         "frete_prazo_dias": opcao["prazo_dias"], "frete_centavos": opcao["centavos"],
@@ -191,7 +205,7 @@ def publico(pedido: dict) -> dict:
         "recibo_url": pedido["recibo_url"], "codigo_rastreio": pedido["codigo_rastreio"],
         "link_pagamento": pedido["link_pagamento"] if pedido["situacao"] == "aguardando_pagamento" else None,
         "valor_pago_centavos": pedido.get("valor_pago_centavos"), "desconto_pix": pedido.get("desconto_pix"),
-        "tem_envio_loggi": bool(pedido.get("loggi_key")),
+        "tem_envio_loggi": bool(pedido.get("loggi_key")), "produto_id": pedido.get("produto_id"),
     }
 
 

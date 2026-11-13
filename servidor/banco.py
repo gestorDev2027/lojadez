@@ -1,9 +1,9 @@
-"""O banco: uma tabela de pedidos. SQLite local (dados/loja.db) ou Postgres pelo DATABASE_URL."""
+"""O banco: os pedidos, o catálogo e o painel. SQLite local (dados/loja.db) ou Postgres pelo DATABASE_URL."""
 
 from datetime import datetime, timezone
 
-from sqlalchemy import (JSON, Column, DateTime, Float, Integer, LargeBinary, MetaData, String, Table, Text, create_engine, delete,
-                        insert, select, update)
+from sqlalchemy import (JSON, Boolean, Column, DateTime, Float, Integer, LargeBinary, MetaData, String, Table, Text, create_engine,
+                        delete, insert, select, update)
 
 from servidor import config
 
@@ -55,11 +55,13 @@ pedidos = Table(
     Column("envio_criado_em", DateTime(timezone=True)),
     Column("desconto_pix", Float),  # o % de desconto no Pix que valia quando o pedido foi criado
     Column("envio_erro", Text),  # por que o envio automático na Loggi falhou (o vendedor cria à mão)
+    Column("produto_id", String(60)),  # o produto do catálogo (vazio: o kit de lâminas da landing page)
 )
 
 # Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
 COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP WITH TIME ZONE", "envio_erro": "TEXT",
-                          "desconto_pix": "DOUBLE PRECISION", "frete_custo_centavos": "INTEGER"}}
+                          "desconto_pix": "DOUBLE PRECISION", "frete_custo_centavos": "INTEGER",
+                          "produto_id": "VARCHAR(60)"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -71,6 +73,31 @@ ajustes = Table(
 )
 
 # Fotos enviadas pelo vendedor (ficam no banco: o disco do Render é apagado a cada publicação).
+# Os produtos do catálogo, além do kit de lâminas (que tem a landing page própria e fica em `ajustes`).
+produtos = Table(
+    "produtos", metadata,
+    Column("slug", String(30), primary_key=True),  # o endereço: /p/<slug>
+    Column("nome", Text, nullable=False),
+    Column("chamada", Text),  # uma frase curta, embaixo do nome
+    Column("descricao", Text),  # o texto da página do produto
+    Column("sku", String(60)),
+    Column("ativo", Boolean, nullable=False, default=True),
+    Column("ordem", Integer, nullable=False, default=0),
+    Column("unidade", String(30), nullable=False),  # "unidade", "kit", "frasco"...
+    Column("unidade_plural", String(30), nullable=False),
+    Column("conteudo", Text),  # o que vem em 1 unidade, ex.: "1 frasco de 120 ml"
+    Column("peso_g", Integer, nullable=False),  # de 1 unidade embalada
+    Column("comprimento_cm", Integer, nullable=False),
+    Column("largura_cm", Integer, nullable=False),
+    Column("altura_cm", Integer, nullable=False),
+    Column("ofertas", JSON, nullable=False),  # [{"quantidade", "preco_centavos", "selo"}]
+    Column("montar", JSON, nullable=False),  # {"ativo", "maximo", "preco_unidade_centavos"}
+    Column("frete_gratis_a_partir", Integer, nullable=False, default=0),
+    Column("criado_em", DateTime(timezone=True), nullable=False),
+    Column("atualizado_em", DateTime(timezone=True), nullable=False),
+)
+
+
 fotos = Table(
     "fotos", metadata,
     Column("nome", String(40), primary_key=True),

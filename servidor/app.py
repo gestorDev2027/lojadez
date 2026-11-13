@@ -16,7 +16,7 @@ from urllib.parse import parse_qs
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from servidor import acesso, banco, catalogo, config, configuracoes, loggi, pedidos, simulador
+from servidor import acesso, banco, catalogo, config, configuracoes, loggi, pedidos, produtos, simulador
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -44,6 +44,11 @@ def _erro_pedido(_: Request, erro: pedidos.ErroPedido):
 @app.exception_handler(acesso.ErroAcesso)
 def _erro_acesso(_: Request, erro: acesso.ErroAcesso):
     return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(produtos.ErroProduto)
+def _erro_produto(_: Request, erro: produtos.ErroProduto):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
 
 
 @app.exception_handler(configuracoes.ErroConfiguracao)
@@ -99,7 +104,8 @@ def loja():
             "testes": config.LOGGI_AMBIENTE == "simulado" or config.INFINITEPAY_AMBIENTE == "simulado",
             "produto": {k: p[k] for k in ("sku", "ean", "nome", "aparelhos", "refis", "laminas_por_refil")},
             "foto": catalogo.url_foto(), "ofertas": _ofertas(), "oferta_padrao": catalogo.oferta_padrao(),
-            "desconto_pix": config.desconto_pix()}
+            "desconto_pix": config.desconto_pix(), "montar": catalogo.montar(),
+            "frete_gratis_a_partir": catalogo.frete_gratis_a_partir()}
 
 
 @app.get("/produto/foto", include_in_schema=False)
@@ -108,6 +114,28 @@ def produto_foto():
     if not f:
         return RedirectResponse("/assets/img/kit-foto.jpg", status_code=302)
     return Response(f["dados"], media_type=f["tipo"], headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+@app.get("/produtos/{slug}/foto", include_in_schema=False)
+def foto_de_produto(slug: str):
+    f = produtos.foto(slug) if produtos.buscar(slug) else None
+    if not f:
+        return RedirectResponse(produtos.FOTO_PADRAO, status_code=302)
+    return Response(f["dados"], media_type=f["tipo"], headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+@app.get("/api/produtos")
+def vitrine():
+    """A lista da página /produtos: o kit de lâminas e os produtos ativos."""
+    return produtos.vitrine()
+
+
+@app.get("/api/produtos/{slug}")
+def ver_produto(slug: str):
+    produto = produtos.buscar(slug, so_ativo=True)
+    if not produto:
+        raise HTTPException(404, "Produto não encontrado.")
+    return produtos.publico(produto)
 
 
 @app.get("/lp-config.js", include_in_schema=False)
@@ -126,6 +154,8 @@ def lp_config():
                      "precoDe": None, "selo": o["selo"],
                      "freteGratis": bool(o.get("frete_gratis")), "checkoutUrl": f"/checkout?oferta={o['id']}"} for o in catalogo.ofertas()],
         "ofertaPadrao": catalogo.oferta_padrao(),
+        "montar": {**catalogo.montar(), "precoKit": catalogo.montar()["preco_kit_centavos"] / 100},
+        "freteGratisAPartir": catalogo.frete_gratis_a_partir(),
         "calculadora": {"barbeadasPorSemana": 5, "usosPorRefil": 5},
         "contagem": {"ativo": bool(config.LOJA_PROMO_ATE), "terminaEm": config.LOJA_PROMO_ATE,
                      "titulo": "Preço promocional válido por"},
@@ -150,7 +180,7 @@ def cep(cep: str, request: Request):
 async def frete(request: Request):
     _limitar(request, "frete", 20)
     dados = await _json(request)
-    return pedidos.cotar_frete(str(dados.get("cep") or ""), dados.get("oferta"))
+    return pedidos.cotar_frete(str(dados.get("cep") or ""), dados.get("oferta"), dados.get("produto"))
 
 
 @app.post("/api/pedidos")
@@ -368,6 +398,42 @@ def vendedor_apagar_foto(request: Request):
     return catalogo.resumo()
 
 
+# Produtos do catálogo (além do kit de lâminas, que fica em Produto e preços).
+
+@app.get("/api/vendedor/produtos")
+def vendedor_produtos(request: Request):
+    _vendedor(request)
+    return [produtos.para_vendedor(p) for p in produtos.listar(so_ativos=False)]
+
+
+@app.post("/api/vendedor/produtos")
+async def vendedor_criar_produto(request: Request):
+    email = _vendedor(request)
+    return produtos.para_vendedor(produtos.salvar(await _json(request), None, email))
+
+
+@app.put("/api/vendedor/produtos/{slug}")
+async def vendedor_salvar_produto(slug: str, request: Request):
+    email = _vendedor(request)
+    return produtos.para_vendedor(produtos.salvar(await _json(request), slug, email))
+
+
+@app.put("/api/vendedor/produtos/{slug}/foto")
+async def vendedor_foto_produto(slug: str, request: Request):
+    _vendedor(request)
+    produtos.salvar_foto(slug, request.headers.get("content-type", ""), await request.body())
+    return produtos.para_vendedor(produtos.buscar(slug))
+
+
+@app.delete("/api/vendedor/produtos/{slug}/foto")
+def vendedor_apagar_foto_produto(slug: str, request: Request):
+    _vendedor(request)
+    if not produtos.buscar(slug):
+        raise HTTPException(404, "Produto não encontrado.")
+    produtos.apagar_foto(slug)
+    return produtos.para_vendedor(produtos.buscar(slug))
+
+
 # Integrações: o que está ligado e o que falta (nunca mostra as chaves).
 
 @app.get("/api/vendedor/integracoes")
@@ -441,11 +507,12 @@ def simulador_comprovante(order_nsu: str):
 
 
 # ───────── O site (web/dist, depois do npm run build) ─────────
-# "/" é a landing page (web/public/loja.html, com assets/ do modelo); /checkout, /obrigado e /vendedor são o app React
+# "/" é a landing page (web/public/loja.html, com assets/ do modelo); /checkout, /obrigado, /vendedor, /produtos e /p/<slug>
+# são o app React
 # (web/dist/index.html, com app-assets/).
 
 _SITE = config.RAIZ / "web" / "dist"
-PAGINAS_DO_APP = ("checkout", "obrigado", "vendedor")
+PAGINAS_DO_APP = ("checkout", "obrigado", "vendedor", "p", "produtos")
 
 
 @app.get("/{caminho:path}", include_in_schema=False)

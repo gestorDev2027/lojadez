@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { chamar, ErroApi, formatarCep, formatarCpf, formatarTelefone, reais, type PedidoVendedor } from "../api";
 import { AbaIntegracoes, AbaProduto } from "./VendedorAjustes";
 import { AbaConfiguracoes } from "./VendedorConfiguracoes";
+import { AbaProdutos } from "./VendedorProdutos";
 
 // A área do vendedor: entra com e-mail e senha; a sessão (um token, vale 12 horas) fica só nesta aba do navegador.
 // As telas usam o token no lugar da antiga senha única (a prop continua se chamando "senha").
@@ -32,7 +33,7 @@ function lerSenha() {
 
 export function PaginaVendedor() {
   const [senha, setSenha] = useState(lerSenha);
-  const [aba, setAba] = useState<"pedidos" | "produto" | "integracoes" | "configuracoes">("pedidos");
+  const [aba, setAba] = useState<"pedidos" | "produto" | "produtos" | "integracoes" | "configuracoes">("pedidos");
   const [email, setEmail] = useState("");
   const [filtro, setFiltro] = useState("pago");
   const [lista, setLista] = useState<PedidoVendedor[] | null>(null);
@@ -93,7 +94,8 @@ export function PaginaVendedor() {
 
   const abas = [
     { id: "pedidos", rotulo: "Pedidos" },
-    { id: "produto", rotulo: "Produto e preços" },
+    { id: "produto", rotulo: "Kit de lâminas" },
+    { id: "produtos", rotulo: "Produtos" },
     { id: "integracoes", rotulo: "Integrações" },
     { id: "configuracoes", rotulo: "Configurações" },
   ] as const;
@@ -129,6 +131,8 @@ export function PaginaVendedor() {
 
       {aba === "produto" ? (
         <AbaProduto senha={senha} />
+      ) : aba === "produtos" ? (
+        <AbaProdutos senha={senha} />
       ) : aba === "integracoes" ? (
         <AbaIntegracoes senha={senha} />
       ) : aba === "configuracoes" ? (
