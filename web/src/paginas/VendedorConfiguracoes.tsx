@@ -21,6 +21,7 @@ export function AbaConfiguracoes({ senha, aoSair }: { senha: string; aoSair: () 
   const [confirmacao, setConfirmacao] = useState("");
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [avisoImportar, setAvisoImportar] = useState<string | null>(null);
 
   useEffect(() => {
     chamar<EstadoConfig>("/api/vendedor/configuracoes", { senha })
@@ -38,11 +39,17 @@ export function AbaConfiguracoes({ senha, aoSair }: { senha: string; aoSair: () 
     });
   }
 
-  async function enviar(caminho: string, metodo: string, corpo: object, sucesso: string) {
+  // A senha é lida do campo na hora: o navegador pode preencher a senha sozinho sem avisar a página.
+  async function enviar(caminho: string, metodo: string, corpo: object, sucesso: string, senhaDigitada: string) {
+    if (!senhaDigitada) {
+      setAviso({ ok: false, texto: "Digite a sua senha para confirmar." });
+      return;
+    }
     setSalvando(true);
     setAviso(null);
+    setAvisoImportar(null);
     try {
-      const novo = await chamar<EstadoConfig>(caminho, { senha, metodo, corpo: { ...corpo, senha: confirmacao } });
+      const novo = await chamar<EstadoConfig>(caminho, { senha, metodo, corpo: { ...corpo, senha: senhaDigitada } });
       setEstado(novo);
       setMudancas({});
       setApagar([]);
@@ -50,14 +57,22 @@ export function AbaConfiguracoes({ senha, aoSair }: { senha: string; aoSair: () 
       setAviso({ ok: true, texto: sucesso });
     } catch (e) {
       setAviso({ ok: false, texto: (e as Error).message });
+      if (caminho.endsWith("/importar")) setAvisoImportar((e as Error).message);
     } finally {
       setSalvando(false);
     }
   }
 
-  function salvar(e: FormEvent) {
+  function salvar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    void enviar("/api/vendedor/configuracoes", "PUT", { valores: mudancas, apagar_segredos: apagar }, "Salvo. Já vale na loja.");
+    const digitada = String(new FormData(e.currentTarget).get("confirmacao") ?? "") || confirmacao;
+    void enviar("/api/vendedor/configuracoes", "PUT", { valores: mudancas, apagar_segredos: apagar }, "Salvo. Já vale na loja.", digitada);
+  }
+
+  function importar(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const digitada = String(new FormData(e.currentTarget).get("senha_importar") ?? "");
+    void enviar("/api/vendedor/configuracoes/importar", "POST", {}, "Pronto: o .env foi levado para o banco.", digitada);
   }
 
   if (!estado) return <p className="mt-6 text-suave">{aviso?.texto || "Carregando…"}</p>;
@@ -77,17 +92,23 @@ export function AbaConfiguracoes({ senha, aoSair }: { senha: string; aoSair: () 
         <section className="rounded-2xl border border-laranja/40 bg-laranja/10 p-4 text-sm">
           <p className="font-bold">{estado.no_env.length} configurações ainda vêm do .env</p>
           <p className="mt-1 text-tinta-2">
-            Leve tudo para o banco (as chaves para o Vault) com um clique. Depois, no .env e no Render só precisa ficar o DATABASE_URL.
-            Digite sua senha embaixo, em “Confirmar com a senha”.
+            Leve tudo para o banco (as chaves para o Vault) com um clique. Depois, no .env e no Render só precisa ficar o DATABASE_URL
+            (e, se quiser, o acesso fixo LOJA_ADMIN_EMAIL e LOJA_ADMIN_SENHA).
           </p>
-          <button
-            type="button"
-            disabled={salvando || !confirmacao}
-            onClick={() => void enviar("/api/vendedor/configuracoes/importar", "POST", {}, "Pronto: o .env foi levado para o banco.")}
-            className="mt-3 rounded-full border border-laranja px-4 py-2 font-bold text-laranja-2 disabled:opacity-50"
-          >
-            Levar o .env para o banco
-          </button>
+          <form onSubmit={importar} className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="grid min-w-56 flex-1 gap-1.5 font-semibold">
+              Sua senha
+              <input name="senha_importar" className="campo" type="password" autoComplete="current-password" required />
+            </label>
+            <button type="submit" disabled={salvando} className="btn-laranja px-5 py-3 text-sm disabled:opacity-50">
+              {salvando ? "Levando…" : "Levar o .env para o banco"}
+            </button>
+          </form>
+          {avisoImportar && (
+            <p role="alert" className="mt-2 text-alerta">
+              {avisoImportar}
+            </p>
+          )}
         </section>
       )}
 
@@ -120,12 +141,13 @@ export function AbaConfiguracoes({ senha, aoSair }: { senha: string; aoSair: () 
             <input
               className="campo"
               type="password"
+              name="confirmacao"
               autoComplete="current-password"
               value={confirmacao}
               onChange={(e) => setConfirmacao(e.target.value)}
             />
           </label>
-          <button type="submit" disabled={salvando || !quantas || !confirmacao} className="btn-laranja px-6 py-3 text-sm disabled:opacity-50">
+          <button type="submit" disabled={salvando || !quantas} className="btn-laranja px-6 py-3 text-sm disabled:opacity-50">
             {salvando ? "Salvando…" : quantas ? `Salvar ${quantas} ${quantas > 1 ? "mudanças" : "mudança"}` : "Nada mudou"}
           </button>
           {aviso && (
