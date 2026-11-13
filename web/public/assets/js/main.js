@@ -28,10 +28,13 @@
   });
   // Afiliados: quem chega por ?ref= fica marcado por 30 dias neste navegador (vale o último link); o checkout manda o código.
   (function guardarRef() {
-    const codigo = (new URLSearchParams(location.search).get('ref') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
+    const busca = new URLSearchParams(location.search);
+    const codigo = (busca.get('ref') || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
     if (codigo.length < 2) return;
+    const campanha = (busca.get('cp') || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || null;
     try {
-      localStorage.setItem('loja-ref', JSON.stringify({ codigo, ate: Date.now() + 30 * 86400000 }));
+      localStorage.setItem('loja-ref', JSON.stringify({ codigo, campanha, ate: Date.now() + 30 * 86400000 }));
+      if (busca.get('rc') === '1') return; // veio do link curto: o clique já foi contado
       if (sessionStorage.getItem('loja-ref-clique-' + codigo)) return;
       sessionStorage.setItem('loja-ref-clique-' + codigo, '1');
     } catch (err) { /* sem armazenamento: o ?ref= segue pela URL do checkout */ }

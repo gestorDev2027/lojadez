@@ -274,6 +274,14 @@ def resumo_afiliados(de: str | None = None, ate: str | None = None) -> dict:
     }
 
 
+def _vendidos_do(afiliado_id: int) -> list[dict]:
+    """Todas as vendas pagas do afiliado (sem filtro de período): os links de campanha mostram o total."""
+    p = banco.pedidos.c
+    with banco.engine.connect() as c:
+        return [dict(l) for l in c.execute(select(banco.pedidos).where(p.afiliado_id == afiliado_id,
+                                                                       p.situacao.in_(VENDIDOS))).mappings().all()]
+
+
 def ficha_afiliado(afiliado_id: int, de: str | None = None, ate: str | None = None) -> dict | None:
     """Um afiliado: os links, os números do período, as vendas por produto e a tabela das vendas."""
     a = afiliados.buscar(afiliado_id)
@@ -294,4 +302,6 @@ def ficha_afiliado(afiliado_id: int, de: str | None = None, ate: str | None = No
         "vendas_total": len(ordenada),
         "cupons": [{"codigo": c["codigo"], "descricao": cupons.descricao(c), "ativo": c["ativo"]}
                    for c in cupons.listar() if c.get("afiliado_id") == afiliado_id],
+        "campanhas": [afiliados.campanha_para_vendedor(c, _vendidos_do(afiliado_id)) for c in afiliados.campanhas(afiliado_id)],
+        "destinos": afiliados.DESTINOS,
     }

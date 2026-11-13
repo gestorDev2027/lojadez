@@ -69,6 +69,7 @@ pedidos = Table(
     # cupom usado no pedido e o desconto que ele deu (sobre os produtos; o total já vem com o desconto)
     Column("cupom_codigo", String(30)),
     Column("desconto_cupom_centavos", Integer),
+    Column("campanha_codigo", String(12)),  # o link de campanha do afiliado que trouxe a venda
 )
 
 # Colunas que entraram depois da tabela criada: o create_all não altera tabela existente.
@@ -78,7 +79,8 @@ COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP 
                           "comissao_pct": "DOUBLE PRECISION", "comissao_centavos": "INTEGER",
                           "reembolso_motivo": "TEXT", "reembolso_centavos": "INTEGER",
                           "reembolso_pedido_em": "TIMESTAMP WITH TIME ZONE", "reembolsado_em": "TIMESTAMP WITH TIME ZONE",
-                          "cupom_codigo": "VARCHAR(30)", "desconto_cupom_centavos": "INTEGER"}}
+                          "cupom_codigo": "VARCHAR(30)", "desconto_cupom_centavos": "INTEGER",
+                          "campanha_codigo": "VARCHAR(12)"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -127,6 +129,22 @@ cupons = Table(
     Column("descricao_interna", Text),  # só o vendedor vê (ex.: "campanha Black Friday")
     Column("criado_em", DateTime(timezone=True), nullable=False),
     Column("atualizado_em", DateTime(timezone=True), nullable=False),
+)
+
+# Links de campanha dos afiliados: um link curto (/l/<codigo>) com nome (ex.: "Instagram") e destino (a página
+# principal, a página de um produto ou o checkout com a oferta escolhida). Conta os cliques e as vendas de cada um.
+campanhas = Table(
+    "campanhas", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("codigo", String(12), nullable=False, unique=True, index=True),
+    Column("afiliado_id", Integer, nullable=False, index=True),
+    Column("nome", Text, nullable=False),
+    Column("destino", String(20), nullable=False),  # principal | produto | checkout
+    Column("produto_id", String(60)),
+    Column("oferta", String(20)),
+    Column("cliques", Integer, nullable=False, default=0),
+    Column("ativo", Boolean, nullable=False, default=True),
+    Column("criado_em", DateTime(timezone=True), nullable=False),
 )
 
 # Visitas pelos links de afiliado, por dia (só a contagem: nada do visitante).

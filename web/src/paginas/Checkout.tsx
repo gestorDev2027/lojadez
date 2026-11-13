@@ -9,6 +9,7 @@ import {
   ofertaMontada,
   reais,
   refGuardado,
+  campanhaGuardada,
   type Cotacao,
   type Loja,
   type Oferta,
@@ -129,7 +130,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     setErro("");
     try {
       const r = await chamar<{ link_pagamento: string }>("/api/pedidos", {
-        corpo: { ...dados, oferta: ofertaId, produto: v.produto, cep: cotacao.endereco.cep, frete_tipo: freteTipo, ref: refGuardado(), cupom: cupom?.codigo },
+        corpo: { ...dados, oferta: ofertaId, produto: v.produto, cep: cotacao.endereco.cep, frete_tipo: freteTipo, ref: refGuardado(), campanha: campanhaGuardada(), cupom: cupom?.codigo },
       });
       guardarCliente(lembrar ? { dados, cep: cotacao.endereco.cep } : null);
       window.location.href = r.link_pagamento;
