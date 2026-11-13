@@ -313,6 +313,61 @@ def test_entrar_sair_e_senha_errada(cliente):
     assert cliente.get("/api/vendedor/eu", headers=VENDEDOR).status_code == 401
 
 
+def test_primeiro_acesso_pela_tela_com_o_codigo_do_terminal(cliente, caplog, monkeypatch):
+    import re
+
+    from servidor import acesso
+    from servidor import banco as b
+
+    assert cliente.get("/api/vendedor/primeiro-acesso").json() == {"disponivel": False}
+    novo = {"email": "novo@loja.test", "senha": "senha-nova-bem-longa"}
+    assert cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": "0000-0000", **novo}).status_code == 409
+
+    with b.engine.begin() as c:  # sem administrador: a loja gera o código e mostra no terminal
+        c.execute(b.sessoes.delete())
+        c.execute(b.administradores.delete())
+    monkeypatch.setattr(acesso, "_codigo_hash", None)
+    with caplog.at_level("WARNING", logger="loja"):
+        assert cliente.get("/api/vendedor/primeiro-acesso").json() == {"disponivel": True}
+    codigo = re.search(r"código: (\d{4}-\d{4})", caplog.text).group(1)
+    assert cliente.post("/api/vendedor/entrar", json=novo).status_code == 403
+
+    errado = "0000-0000" if codigo != "0000-0000" else "1111-1111"
+    assert cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": errado, **novo}).status_code == 401
+    r = cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": codigo, **novo, "senha": "curta"})
+    assert r.status_code == 422  # senha curta não gasta o código
+    r = cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": codigo, **novo})
+    assert r.status_code == 200
+    assert cliente.get("/api/vendedor/eu", headers={"Authorization": f"Bearer {r.json()['token']}"}).json() == {
+        "email": "novo@loja.test"}
+    # Criado o primeiro, a tela some e o código não vale mais
+    assert cliente.get("/api/vendedor/primeiro-acesso").json() == {"disponivel": False}
+    outro = {"codigo": codigo, "email": "intruso@loja.test", "senha": "senha-do-intruso-longa"}
+    assert cliente.post("/api/vendedor/primeiro-acesso", json=outro).status_code == 409
+
+
+def test_codigo_do_primeiro_acesso_troca_depois_de_cinco_erros(cliente, caplog, monkeypatch):
+    import re
+
+    from servidor import acesso
+    from servidor import banco as b
+
+    with b.engine.begin() as c:
+        c.execute(b.sessoes.delete())
+        c.execute(b.administradores.delete())
+    monkeypatch.setattr(acesso, "_codigo_hash", None)
+    with caplog.at_level("WARNING", logger="loja"):
+        cliente.get("/api/vendedor/primeiro-acesso")
+    antigo = re.search(r"código: (\d{4}-\d{4})", caplog.text).group(1)
+    novo = {"email": "novo@loja.test", "senha": "senha-nova-bem-longa"}
+    errado = "0000-0000" if antigo != "0000-0000" else "1111-1111"
+    for _ in range(4):
+        assert cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": errado, **novo}).status_code == 401
+    assert cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": errado, **novo}).status_code == 429
+    acesso_antigo = cliente.post("/api/vendedor/primeiro-acesso", json={"codigo": antigo, **novo})
+    assert acesso_antigo.status_code in (401, 429)  # o código antigo não vale mais (ou o limite por IP segurou)
+
+
 def test_bloqueia_depois_de_cinco_erros(cliente):
     for _ in range(5):
         assert cliente.post("/api/vendedor/entrar", json={"email": ADMIN, "senha": "chute-errado"}).status_code == 401

@@ -175,6 +175,101 @@ export function PaginaVendedor() {
 }
 
 function Entrar({ erro: erroDeFora, aoEntrar }: { erro: string; aoEntrar: (token: string) => void }) {
+  const [primeiro, setPrimeiro] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    chamar<{ disponivel: boolean }>("/api/vendedor/primeiro-acesso")
+      .then((r) => setPrimeiro(r.disponivel))
+      .catch(() => setPrimeiro(false));
+  }, []);
+
+  if (primeiro === null) return <p className="mx-auto max-w-sm px-4 py-12 text-suave">Carregando…</p>;
+  if (primeiro) return <PrimeiroAcesso aoEntrar={aoEntrar} aoDesistir={() => setPrimeiro(false)} />;
+  return <FormEntrar erro={erroDeFora} aoEntrar={aoEntrar} />;
+}
+
+// Sem nenhum acesso criado: o primeiro é criado aqui, com o código de uso único que a loja mostra no terminal (no
+// Render, nos logs) quando liga. Criado o primeiro, esta tela some.
+function PrimeiroAcesso({ aoEntrar, aoDesistir }: { aoEntrar: (token: string) => void; aoDesistir: () => void }) {
+  const [codigo, setCodigo] = useState("");
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [repetir, setRepetir] = useState("");
+  const [ver, setVer] = useState(false);
+  const [erro, setErro] = useState("");
+  const [criando, setCriando] = useState(false);
+
+  async function enviar(e: FormEvent) {
+    e.preventDefault();
+    setErro("");
+    if (senha.length < 10) return setErro("A senha precisa ter pelo menos 10 caracteres.");
+    if (senha !== repetir) return setErro("As duas senhas estão diferentes.");
+    setCriando(true);
+    try {
+      const r = await chamar<{ token: string }>("/api/vendedor/primeiro-acesso", { corpo: { codigo, email, senha } });
+      setSenha("");
+      setRepetir("");
+      aoEntrar(r.token);
+    } catch (falha) {
+      if ((falha as { status?: number }).status === 409) return aoDesistir();
+      setErro((falha as Error).message);
+    } finally {
+      setCriando(false);
+    }
+  }
+
+  const tipo = ver ? "text" : "password";
+  return (
+    <section className="mx-auto max-w-sm px-4 py-12">
+      <form className="grid gap-3 rounded-2xl border border-linha bg-cartao p-6" onSubmit={(e) => void enviar(e)}>
+        <h1 className="text-xl font-bold">Criar o primeiro acesso</h1>
+        <p className="text-sm text-tinta-2">
+          A loja ainda não tem acesso à área do vendedor. Use o código de 8 números que aparece no terminal onde a loja
+          está rodando (no Render, nos Logs). Ele vale uma vez só.
+        </p>
+        <label className="grid gap-1.5 text-sm font-medium">
+          Código do terminal
+          <input
+            className="campo font-mono tracking-widest"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="0000-0000"
+            maxLength={9}
+            required
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+          />
+        </label>
+        <label className="grid gap-1.5 text-sm font-medium">
+          Seu e-mail
+          <input className="campo" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        </label>
+        <label className="grid gap-1.5 text-sm font-medium">
+          Senha (pelo menos 10 caracteres)
+          <input className="campo" type={tipo} autoComplete="new-password" required minLength={10} value={senha} onChange={(e) => setSenha(e.target.value)} />
+        </label>
+        <label className="grid gap-1.5 text-sm font-medium">
+          Repita a senha
+          <input className="campo" type={tipo} autoComplete="new-password" required value={repetir} onChange={(e) => setRepetir(e.target.value)} />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-tinta-2">
+          <input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} />
+          Mostrar a senha
+        </label>
+        {erro && (
+          <p role="alert" className="text-sm text-alerta">
+            {erro}
+          </p>
+        )}
+        <button type="submit" disabled={criando} className="btn-laranja px-5 py-3 text-sm">
+          {criando ? "Criando…" : "Criar acesso e entrar"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function FormEntrar({ erro: erroDeFora, aoEntrar }: { erro: string; aoEntrar: (token: string) => void }) {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");

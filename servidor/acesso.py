@@ -3,12 +3,15 @@
 - A senha fica só como hash scrypt (sal próprio), nunca em texto. Conferência em tempo constante.
 - Entrou: um token aleatório (vale ACESSO_HORAS). No banco fica só o hash dele.
 - Cinco senhas erradas para o mesmo e-mail em 15 minutos bloqueiam esse e-mail por 15 minutos.
-- O primeiro administrador é criado pelo comando `python -m servidor.admin` (a senha não passa pela tela nem pelo chat).
+- O primeiro administrador é criado na tela de primeiro acesso (/vendedor), com um código de uso único que a loja
+  mostra no terminal (no Render, nos logs) ao ligar, ou pelo comando `python -m servidor.admin`. Com um administrador
+  criado, a tela de primeiro acesso some. Cinco códigos errados trocam o código.
 """
 
 import base64
 import hashlib
 import hmac
+import logging
 import re
 import secrets
 import threading
@@ -26,6 +29,12 @@ _N, _R, _P = 2**14, 8, 1
 
 _erros: dict[str, list[float]] = {}
 _trava = threading.Lock()
+log = logging.getLogger("loja")
+
+# O código do primeiro acesso: só o hash fica na memória; o código aparece uma vez, no terminal (ou nos logs).
+_codigo_hash: str | None = None
+_codigo_erros = 0
+_trava_codigo = threading.Lock()
 
 
 class ErroAcesso(Exception):
@@ -92,6 +101,50 @@ def definir_administrador(email: str, senha: str) -> str:
         c.execute(delete(banco.sessoes).where(banco.sessoes.c.email == email))
     banco.registrar(email, "senha" if existe else "administrador", "Senha trocada" if existe else "Administrador criado")
     return email
+
+
+def _novo_codigo() -> None:
+    """Gera o código do primeiro acesso e mostra no terminal. Chamar com _trava_codigo."""
+    global _codigo_hash, _codigo_erros
+    numero = f"{secrets.randbelow(10**8):08d}"
+    codigo = f"{numero[:4]}-{numero[4:]}"
+    _codigo_hash, _codigo_erros = hashlib.sha256(numero.encode()).hexdigest(), 0
+    log.warning("\n\n  PRIMEIRO ACESSO À ÁREA DO VENDEDOR\n  Abra /vendedor e use o código: %s\n"
+                "  (vale até o primeiro acesso ser criado)\n", codigo)
+
+
+def preparar_primeiro_acesso() -> bool:
+    """Ao ligar a loja: sem administrador, gera e mostra o código. Devolve se a tela de primeiro acesso vale."""
+    global _codigo_hash
+    with _trava_codigo:
+        if existe_administrador():
+            _codigo_hash = None
+            return False
+        if _codigo_hash is None:
+            _novo_codigo()
+        return True
+
+
+def criar_primeiro_acesso(codigo: str, email: str, senha: str) -> dict:
+    """Cria o primeiro administrador com o código do terminal e já entra (devolve a sessão)."""
+    global _codigo_hash, _codigo_erros
+    with _trava_codigo:
+        if existe_administrador():
+            _codigo_hash = None
+            raise ErroAcesso("O primeiro acesso já foi criado. Entre com e-mail e senha.", 409)
+        if _codigo_hash is None:
+            _novo_codigo()
+        digitos = re.sub(r"\D", "", codigo or "")
+        if not hmac.compare_digest(hashlib.sha256(digitos.encode()).hexdigest(), _codigo_hash):
+            _codigo_erros += 1
+            if _codigo_erros >= 5:
+                _novo_codigo()
+                raise ErroAcesso("Código errado muitas vezes. A loja gerou um código novo: veja o terminal.", 429)
+            raise ErroAcesso("Código errado. Confira no terminal onde a loja está rodando.", 401)
+        email = definir_administrador(email, senha)  # confere e-mail e senha antes de gastar o código
+        _codigo_hash = None
+    log.info("Primeiro acesso criado pela tela.")
+    return entrar(email, senha)
 
 
 def remover_administrador(email: str) -> bool:

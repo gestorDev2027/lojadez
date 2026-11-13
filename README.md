@@ -25,9 +25,11 @@ foto do kit. Salvou, a landing page e o checkout já mostram os valores novos. F
 
 - **Entrar:** `/vendedor`, com e-mail e senha. A sessão vale 12 horas e fica só na aba do navegador. Cinco senhas erradas
   para o mesmo e-mail bloqueiam por 15 minutos.
-- **Criar o administrador** (uma vez, no seu computador, com o `.env` apontando para o banco certo):
-  `.venv\Scripts\python -m servidor.admin`. Ele pergunta o e-mail e a senha (mínimo 10 caracteres, não aparece na tela) e
-  grava só o hash (scrypt). O mesmo comando troca a senha; `... servidor.admin remover <email>` tira o acesso.
+- **Primeiro acesso** (uma vez): enquanto não há nenhum acesso, a loja mostra no terminal (no Render, em **Logs**)
+  um código de 8 números ao ligar. Abra `/vendedor`, digite o código, o seu e-mail e a senha (mínimo 10 caracteres) e
+  pronto: a loja grava só o hash (scrypt) e a tela de primeiro acesso some. O código vale uma vez; cinco erros trocam o
+  código (o novo aparece no terminal). Pelo terminal também dá: `.venv\Scripts\python -m servidor.admin` (cria ou troca
+  a senha; `... servidor.admin remover <email>` tira o acesso).
 - **Configurações:** tudo o que ficava no `.env` (Loggi, remetente, InfinitePay, desconto no Pix, WhatsApp, pacote...)
   muda na aba **Configurações** e vale na hora. Salvar pede a senha de novo. As chaves (client_id e client_secret da Loggi,
   API Key da InfinitePay) vão para o **Vault do Supabase**, criptografadas, e nunca voltam para a tela. O botão "Levar o
@@ -60,8 +62,8 @@ py -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 copy .env.example .env          # basta o DATABASE_URL (vazio: SQLite em dados/)
 cd web; npm install; npm run build; cd ..
-.venv\Scripts\python -m servidor.admin   # cria o seu acesso à área do vendedor
 .venv\Scripts\python -m uvicorn servidor.app:app --reload --port 8000
+# sem acesso criado: o terminal mostra o código do primeiro acesso; abra http://localhost:8000/vendedor
 ```
 
 Abra http://localhost:8000. A área do vendedor fica em http://localhost:8000/vendedor.
@@ -126,7 +128,7 @@ Sem `DATABASE_URL`, a loja grava em `dados/loja.db` (SQLite, só no seu computad
 2. Copie a string, troque `[YOUR-PASSWORD]` pela senha do banco e ponha em `DATABASE_URL` (no `.env` e no Render).
 3. Ao subir, a loja cria sozinha o esquema `loja` e as tabelas: `pedidos`, `ajustes` (preços e kits), `fotos`,
    `configuracoes`, `administradores`, `sessoes` e `auditoria`. As chaves ficam no Vault (`vault.secrets`, nomes `loja:...`).
-4. Crie o seu acesso: `.venv\Scripts\python -m servidor.admin` (com esse `DATABASE_URL` no `.env`).
+4. Crie o seu acesso em `/vendedor`, com o código do primeiro acesso que aparece no terminal (ou nos Logs do Render).
 5. Entre em `/vendedor` → Configurações → "Levar o .env para o banco". Depois, apague do `.env` tudo menos o `DATABASE_URL`.
 
 A URL e as API keys do Supabase não são usadas. As tabelas ficam fora do esquema `public`, que o Supabase publica na

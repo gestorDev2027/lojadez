@@ -25,8 +25,7 @@ log = logging.getLogger("loja")
 async def _vida(_: FastAPI):
     banco.iniciar()
     configuracoes.recarregar()  # o que foi salvo na aba Configurações (e no Vault) vale sobre o .env
-    if not acesso.existe_administrador():
-        log.warning("Área do vendedor sem administrador: rode .venv\\Scripts\\python -m servidor.admin")
+    acesso.preparar_primeiro_acesso()  # sem administrador: mostra no terminal o código do primeiro acesso
     for problema in config.conferir():
         log.warning("Configuração: %s", problema)
     log.info("Loja %s no ar. Loggi: %s. InfinitePay: %s.", config.LOJA_NOME, config.LOGGI_AMBIENTE, config.INFINITEPAY_AMBIENTE)
@@ -215,8 +214,22 @@ async def vendedor_entrar(request: Request):
     _limitar(request, "entrar", 10)
     dados = await _json(request)
     if not acesso.existe_administrador():
-        raise acesso.ErroAcesso("Nenhum administrador cadastrado. Rode no computador: python -m servidor.admin", 403)
+        raise acesso.ErroAcesso("Ainda não há acesso. Crie o primeiro com o código que aparece no terminal.", 403)
     return acesso.entrar(str(dados.get("email") or ""), str(dados.get("senha") or ""))
+
+
+@app.get("/api/vendedor/primeiro-acesso")
+def vendedor_primeiro_acesso(request: Request):
+    _limitar(request, "vendedor", 120)
+    return {"disponivel": acesso.preparar_primeiro_acesso()}
+
+
+@app.post("/api/vendedor/primeiro-acesso")
+async def vendedor_criar_primeiro_acesso(request: Request):
+    _limitar(request, "entrar", 10)
+    dados = await _json(request)
+    return acesso.criar_primeiro_acesso(str(dados.get("codigo") or ""), str(dados.get("email") or ""),
+                                        str(dados.get("senha") or ""))
 
 
 @app.post("/api/vendedor/sair")

@@ -1,6 +1,6 @@
 # Blueprint do Render: um serviço web (Docker). O banco é o Postgres do Supabase (DATABASE_URL, Session pooler).
 # Só o DATABASE_URL fica aqui: o resto (Loggi, InfinitePay, remetente...) muda em /vendedor → Configurações, e as
-# chaves ficam no Vault do Supabase. O acesso ao /vendedor é criado no computador: python -m servidor.admin
+# chaves ficam no Vault do Supabase. O primeiro acesso ao /vendedor usa o código que aparece nos Logs ao ligar.
 services:
   - type: web
     name: loja-laminas
