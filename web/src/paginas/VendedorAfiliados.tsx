@@ -56,6 +56,7 @@ type Ficha = {
   por_produto: { id: string; nome: string; valor: number; pedidos: number; unidades: number; pct: number }[];
   vendas: Venda[];
   vendas_total: number;
+  cupons: { codigo: string; descricao: string; ativo: boolean }[];
 };
 type ProdutoOpcao = { id: string; nome: string };
 
@@ -386,6 +387,20 @@ function FichaAfiliado({
               ))}
             </ul>
           )}
+          <div className="mt-3 rounded-xl border border-linha-2 p-3">
+            <p className="text-sm font-semibold">Cupons deste afiliado</p>
+            {ficha.cupons.length === 0 ? (
+              <p className="text-xs text-suave">Nenhum. Crie em Cupons, escolhendo este afiliado: quem usar o cupom gera a comissão para ele.</p>
+            ) : (
+              <ul className="mt-1 flex flex-wrap gap-2">
+                {ficha.cupons.map((c) => (
+                  <li key={c.codigo} className={`rounded-lg border border-linha-2 px-2 py-1 font-mono text-xs ${c.ativo ? "" : "opacity-50"}`}>
+                    <strong>{c.codigo}</strong> · {c.descricao}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <p className="mt-3 text-xs text-suave">
             Quem entra por um destes links e compra em até 30 dias gera comissão. O endereço sai das Configurações (Endereço do site).
           </p>

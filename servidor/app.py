@@ -18,8 +18,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 import base64
 
-from servidor import (acesso, afiliados, banco, catalogo, config, configuracoes, ia, loggi, painel, pedidos, produtos,
-                      simulador)
+from servidor import (acesso, afiliados, banco, catalogo, config, configuracoes, cupons, ia, loggi, painel, pedidos,
+                      produtos, simulador)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("loja")
@@ -47,6 +47,11 @@ def _erro_pedido(_: Request, erro: pedidos.ErroPedido):
 @app.exception_handler(acesso.ErroAcesso)
 def _erro_acesso(_: Request, erro: acesso.ErroAcesso):
     return JSONResponse({"erro": erro.mensagem}, status_code=erro.status)
+
+
+@app.exception_handler(cupons.ErroCupom)
+def _erro_cupom(_: Request, erro: cupons.ErroCupom):
+    return JSONResponse({"erro": str(erro)}, status_code=422)
 
 
 @app.exception_handler(afiliados.ErroAfiliado)
@@ -200,7 +205,15 @@ def cep(cep: str, request: Request):
 async def frete(request: Request):
     _limitar(request, "frete", 20)
     dados = await _json(request)
-    return pedidos.cotar_frete(str(dados.get("cep") or ""), dados.get("oferta"), dados.get("produto"))
+    return pedidos.cotar_frete(str(dados.get("cep") or ""), dados.get("oferta"), dados.get("produto"), dados.get("cupom"))
+
+
+@app.post("/api/cupons/validar")
+async def validar_cupom(request: Request):
+    """A prévia do cupom no checkout: o desconto ou o frete grátis (o pedido confere de novo)."""
+    _limitar(request, "cupom", 20)
+    dados = await _json(request)
+    return pedidos.validar_cupom(dados.get("cupom"), dados.get("oferta"), dados.get("produto"))
 
 
 @app.post("/api/afiliados/clique")
@@ -347,6 +360,37 @@ def vendedor_painel(request: Request, de: str | None = None, ate: str | None = N
     """A visão geral: indicadores do período e os recortes (produto → quantidade → afiliado)."""
     _vendedor(request)
     return painel.visao_geral(de, ate, visao, produto, quantidade, afiliado)
+
+
+# Cupons de desconto (inclusive de afiliados).
+
+def _vendidos() -> list[dict]:
+    return [p for p in banco.listar() if p["situacao"] in ("pago", "enviado")]
+
+
+@app.get("/api/vendedor/cupons")
+def vendedor_cupons(request: Request):
+    _vendedor(request)
+    vendidos = _vendidos()
+    return {"cupons": [cupons.para_vendedor(c, vendidos) for c in cupons.listar()], "tipos": cupons.TIPOS}
+
+
+@app.get("/api/vendedor/cupons/codigo")
+def vendedor_gerar_codigo(request: Request, prefixo: str = ""):
+    _vendedor(request)
+    return {"codigo": cupons.gerar_codigo(prefixo)}
+
+
+@app.post("/api/vendedor/cupons")
+async def vendedor_criar_cupom(request: Request):
+    email = _vendedor(request)
+    return cupons.para_vendedor(cupons.salvar(await _json(request), None, email), _vendidos())
+
+
+@app.put("/api/vendedor/cupons/{cupom_id}")
+async def vendedor_salvar_cupom(cupom_id: int, request: Request):
+    email = _vendedor(request)
+    return cupons.para_vendedor(cupons.salvar(await _json(request), cupom_id, email), _vendidos())
 
 
 # Afiliados: cadastro, links e desempenho.
