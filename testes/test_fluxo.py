@@ -12,7 +12,7 @@ os.environ.update(LOGGI_AMBIENTE="simulado", INFINITEPAY_AMBIENTE="simulado", IN
                   PRODUTO_DIMENSOES_CM="32x17x5", LOGGI_ENVIO_AUTOMATICO="nao",
                   # as chaves do .env de verdade não entram nos testes (vazio no ambiente: o .env não sobrepõe)
                   LOGGI_CLIENT_ID="", LOGGI_CLIENT_SECRET="", LOGGI_COMPANY_ID="", INFINITEPAY_API_KEY="", INFINITEPAY_HANDLE="",
-                  LOJA_ADMIN_EMAIL="", LOJA_ADMIN_SENHA="",
+                  LOJA_ADMIN_EMAIL="", LOJA_ADMIN_SENHA="", GEMINI_API_KEY="",
                   DATABASE_URL=os.environ.get("TESTE_DATABASE_URL", ""), SITE_URL="http://testserver", LOJA_ORIGEM_CEP="01310100")
 
 import pytest  # noqa: E402

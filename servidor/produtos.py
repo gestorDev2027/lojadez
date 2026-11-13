@@ -238,7 +238,7 @@ def salvar_foto(slug: str, tipo: str, dados: bytes) -> None:
     if tipo not in catalogo.TIPOS_FOTO or not dados.startswith(catalogo.TIPOS_FOTO[tipo]):
         raise ErroProduto("Envie uma foto JPG, PNG ou WebP.")
     if len(dados) > catalogo.FOTO_MAXIMA:
-        raise ErroProduto("A foto tem até 3 MB.")
+        raise ErroProduto("A foto tem até 8 MB.")
     banco.gravar_foto(_foto_nome(slug), tipo, dados)
 
 

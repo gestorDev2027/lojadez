@@ -114,3 +114,51 @@ def test_frete_e_pedido_do_produto(cliente):
     # O kit de lâminas continua igual (sem produto, ou com o id dele)
     assert cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit2"}).status_code == 200
     assert cliente.post("/api/frete", json={"cep": "20040-002", "oferta": "kit2", "produto": "kit-laminas"}).status_code == 200
+
+
+def test_ia_textos_e_foto(cliente, monkeypatch):
+    import base64
+
+    from servidor import config, ia
+
+    _limpar()
+    _criar(cliente)
+    # Sem a chave, a IA fica desligada e avisa
+    assert cliente.get("/api/vendedor/ia", headers=VENDEDOR).json()["disponivel"] is False
+    r = cliente.post("/api/vendedor/ia/textos", json={"nome": "Pomada"}, headers=VENDEDOR)
+    assert r.status_code == 422 and "chave do Gemini" in r.json()["erro"]
+    assert cliente.post("/api/vendedor/ia/textos", json={"nome": "Pomada"}).status_code == 401  # só o vendedor
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "chave-de-teste")
+    pedidos_ao_gemini = []
+
+    def gemini_falso(modelo, corpo, tempo):
+        pedidos_ao_gemini.append((modelo, corpo))
+        if "responseModalities" in corpo["generationConfig"]:
+            return {"candidates": [{"content": {"parts": [
+                {"inlineData": {"mimeType": "image/png", "data": base64.b64encode(b"\x89PNGnova").decode()}}]}}]}
+        return {"candidates": [{"content": {"parts": [
+            {"text": '{"nome": "Pomada Matte", "chamada": "Fixação forte", "descricao": "Texto."}'}]}}]}
+
+    monkeypatch.setattr(ia, "_chamar", gemini_falso)
+    r = cliente.post("/api/vendedor/ia/textos", json={"produto": "pomada-modeladora-matte", "nome": "Pomada",
+                                                      "observacoes": "efeito seco"}, headers=VENDEDOR)
+    assert r.json() == {"nome": "Pomada Matte", "chamada": "Fixação forte", "descricao": "Texto."}
+    assert "efeito seco" in pedidos_ao_gemini[-1][1]["contents"][0]["parts"][-1]["text"]
+
+    # Foto: precisa de uma foto enviada; a editada volta para a tela e não é gravada sozinha
+    r = cliente.post("/api/vendedor/ia/foto", json={"produto": "pomada-modeladora-matte", "estilo": "estudio"}, headers=VENDEDOR)
+    assert r.status_code == 422
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 100
+    cliente.put("/api/vendedor/produtos/pomada-modeladora-matte/foto", content=png,
+                headers={**VENDEDOR, "Content-Type": "image/png"})
+    r = cliente.post("/api/vendedor/ia/foto", json={"produto": "pomada-modeladora-matte", "estilo": "wolf"}, headers=VENDEDOR)
+    assert r.status_code == 200 and base64.b64decode(r.json()["dados"]) == b"\x89PNGnova"
+    modelo, corpo = pedidos_ao_gemini[-1]
+    assert modelo == config.GEMINI_MODELO_IMAGEM and corpo["contents"][0]["parts"][0]["inline_data"]["mime_type"] == "image/png"
+    assert cliente.get("/produtos/pomada-modeladora-matte/foto").content == png  # a foto da loja não mudou
+    assert cliente.post("/api/vendedor/ia/foto", json={"produto": "pomada-modeladora-matte", "estilo": "livre"},
+                        headers=VENDEDOR).status_code == 422  # "do meu jeito" sem pedido
+
+    # A landing page lista os produtos do catálogo
+    assert "Pomada Modeladora Matte" in cliente.get("/lp-config.js").text

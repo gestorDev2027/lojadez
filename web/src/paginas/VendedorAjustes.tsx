@@ -234,7 +234,7 @@ export function AbaProduto({ senha }: { senha: string }) {
 
       <Cartao titulo="Foto do kit">
         <img src={catalogo.foto} alt="Foto atual do kit" className="aspect-[4/5] w-full rounded-xl object-cover" />
-        <p className="mt-2 text-xs text-suave">Aparece no topo da loja, na galeria, nas ofertas e no checkout. JPG, PNG ou WebP, até 3 MB.</p>
+        <p className="mt-2 text-xs text-suave">Aparece no topo da loja, na galeria, nas ofertas e no checkout. JPG, PNG ou WebP, até 8 MB.</p>
         <div className="mt-3 grid gap-2">
           <label className="btn-laranja cursor-pointer px-5 py-3 text-xs">
             Trocar foto

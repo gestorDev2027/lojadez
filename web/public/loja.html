@@ -169,7 +169,7 @@
           <div class="shave__reveal">
             <p class="mono shave__label">Cada refil sai por</p>
             <p class="shave__big"><span data-text="precoPorRefil"></span></p>
-            <p class="shave__note">São <b data-text="laminasTotal"></b> lâminas no kit. Troque o refil sempre que sentir que perdeu o corte, sem pensar no preço.</p>
+            <p class="shave__note">São <b data-text="refis"></b> refis no kit, cada um com <span data-text="laminasPorRefil"></span> lâminas. Troque o refil sempre que sentir que perdeu o corte, sem pensar no preço.</p>
             <a href="#ofertas" class="btn btn--primary magnetic">Garantir meu kit</a>
           </div>
           <canvas class="shave__foam" id="foam" aria-label="Espuma de barbear interativa. Arraste para remover."></canvas>
@@ -305,7 +305,7 @@
         <div class="stats">
           <div class="stat reveal"><b class="count" data-count-key="aparelhos">0</b><span>aparelho com cabo texturizado</span></div>
           <div class="stat stat--hot reveal"><b class="count" data-count-key="refis">0</b><span>refis de reposição</span></div>
-          <div class="stat reveal"><b class="count" data-count-key="laminasTotal">0</b><span>lâminas no total</span></div>
+          <div class="stat reveal"><b class="count" data-count-key="laminasPorRefil">0</b><span>lâminas em cada refil</span></div>
           <div class="stat reveal"><b class="count" data-count-key="mesesEstimados" data-suffix="+">0</b><span>meses de uso estimado*</span></div>
         </div>
         <p class="footnote">*Estimativa com <span data-text="calcSemana"></span> barbeadas por semana e <span data-text="calcUsos"></span> usos por refil. Simule o seu caso abaixo.</p>
@@ -406,6 +406,18 @@
             <li>✓ 7 dias para devolução</li>
           </ul>
         </div>
+      </div>
+    </section>
+
+    <!-- ============ MAIS PRODUTOS (os do catálogo; some se não houver) ============ -->
+    <section class="section more" id="produtos" hidden>
+      <div class="container">
+        <header class="section__head section__head--center reveal">
+          <p class="kicker mono">Cuidado masculino</p>
+          <h2 class="title">Leve também <em>o resto do ritual</em>.</h2>
+        </header>
+        <div class="more__list" id="moreList"></div>
+        <p class="more__all"><a class="link mono" href="/produtos">Ver todos os produtos →</a></p>
       </div>
     </section>
 

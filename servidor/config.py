@@ -39,6 +39,7 @@ GRUPOS = {
     "loggi": "Loggi",
     "remetente": "Remetente (quem envia)",
     "infinitepay": "InfinitePay",
+    "ia": "IA (Google Gemini)",
     "rastreamento": "Rastreamento (opcional)",
 }
 
@@ -88,6 +89,11 @@ CAMPOS: tuple[Campo, ...] = (
     Campo("INFINITEPAY_DESCONTO_PIX", "Desconto no Pix (%)", "infinitepay", "decimal", "0",
           "0: sem desconto. Vale sobre o total (kit + frete). Precisa da API Key.", minimo=0, maximo=50),
     Campo("INFINITEPAY_VALIDADE_HORAS", "Validade do link (horas)", "infinitepay", "inteiro", "48", minimo=1, maximo=720),
+
+    Campo("GEMINI_API_KEY", "Chave da API do Gemini", "ia", "segredo",
+          ajuda="Do Google AI Studio. Liga as sugestões de texto e a edição de foto no cadastro de produtos."),
+    Campo("GEMINI_MODELO_TEXTO", "Modelo de texto", "ia", padrao="gemini-3.8-flash"),
+    Campo("GEMINI_MODELO_IMAGEM", "Modelo de imagem", "ia", padrao="gemini-nano-banana-2.1"),
 
     Campo("META_PIXEL_ID", "Meta Pixel ID", "rastreamento", "digitos", tamanhos=tuple(range(10, 21))),
     Campo("GTM_ID", "Google Tag Manager ID", "rastreamento", ajuda="Ex.: GTM-XXXXXXX."),
@@ -186,6 +192,10 @@ def aplicar(sobrepor: dict | None = None) -> None:
     g["INFINITEPAY_API_KEY"] = v("INFINITEPAY_API_KEY")
     g["INFINITEPAY_VALIDADE_HORAS"] = _inteiro(v("INFINITEPAY_VALIDADE_HORAS"), 48)
     g["INFINITEPAY_DESCONTO_PIX"] = min(max(_decimal(v("INFINITEPAY_DESCONTO_PIX"), 0), 0), 50)
+
+    g["GEMINI_API_KEY"] = v("GEMINI_API_KEY")
+    g["GEMINI_MODELO_TEXTO"] = v("GEMINI_MODELO_TEXTO") or "gemini-3.8-flash"
+    g["GEMINI_MODELO_IMAGEM"] = v("GEMINI_MODELO_IMAGEM") or "gemini-nano-banana-2.1"
 
 
 aplicar()
