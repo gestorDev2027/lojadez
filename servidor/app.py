@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 import base64
 
-from servidor import (acesso, afiliados, banco, catalogo, config, configuracoes, cupons, ia, loggi, painel, pedidos,
+from servidor import (acesso, afiliados, banco, catalogo, config, configuracoes, cupons, financeiro, ia, loggi, painel, pedidos,
                       produtos, repasses, simulador)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -382,6 +382,30 @@ def vendedor_painel(request: Request, de: str | None = None, ate: str | None = N
     """A visão geral: indicadores do período e os recortes (produto → quantidade → afiliado)."""
     _vendedor(request)
     return painel.visao_geral(de, ate, visao, produto, quantidade, afiliado)
+
+
+# Financeiro: o demonstrativo do período e o custo de cada produto.
+
+@app.get("/api/vendedor/financeiro")
+def vendedor_financeiro(request: Request, de: str | None = None, ate: str | None = None):
+    _vendedor(request)
+    return financeiro.demonstrativo(de, ate)
+
+
+@app.get("/api/vendedor/financeiro/custos")
+def vendedor_custos(request: Request):
+    _vendedor(request)
+    return {"custos": financeiro.lista_custos()}
+
+
+@app.put("/api/vendedor/financeiro/custos")
+async def vendedor_salvar_custos(request: Request):
+    email = _vendedor(request)
+    dados = await _json(request)
+    try:
+        return {"custos": financeiro.salvar_custos(dados.get("custos"), email)}
+    except financeiro.ErroFinanceiro as erro:
+        raise HTTPException(400, str(erro))
 
 
 # Repasses: o pagamento das comissões aos afiliados (o Pix é feito fora da loja; aqui fica o registro).

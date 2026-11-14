@@ -7,6 +7,7 @@ import { AbaAfiliados } from "./VendedorAfiliados";
 import { AbaConfiguracoes } from "./VendedorConfiguracoes";
 import { AbaCupons } from "./VendedorCupons";
 import { AbaRepasses } from "./VendedorRepasses";
+import { AbaFinanceiro } from "./VendedorFinanceiro";
 import { AbaProdutos } from "./VendedorProdutos";
 
 // A área do vendedor: entra com e-mail e senha; a sessão (um token, vale 12 horas) fica só nesta aba do navegador.
@@ -39,9 +40,9 @@ function lerSenha() {
   }
 }
 
-type Aba = "visao" | "pedidos" | "produto" | "produtos" | "afiliados" | "repasses" | "cupons" | "integracoes" | "configuracoes";
+type Aba = "visao" | "pedidos" | "produto" | "produtos" | "afiliados" | "repasses" | "cupons" | "financeiro" | "integracoes" | "configuracoes";
 
-const MENU: { id: Aba | "financeiro"; rotulo: string; icone: string; breve?: boolean }[] = [
+const MENU: { id: Aba; rotulo: string; icone: string; breve?: boolean }[] = [
   { id: "visao", rotulo: "Visão geral", icone: "M4 13h6V4H4zM14 20h6V11h-6zM4 20h6v-3H4zM14 7h6V4h-6z" },
   { id: "pedidos", rotulo: "Pedidos", icone: "M6 3h12l2 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7zM4 7h16M9 11h6" },
   { id: "produto", rotulo: "Kit de lâminas", icone: "M4 7l8-4 8 4v10l-8 4-8-4zM4 7l8 4 8-4M12 11v10" },
@@ -49,7 +50,7 @@ const MENU: { id: Aba | "financeiro"; rotulo: string; icone: string; breve?: boo
   { id: "afiliados", rotulo: "Afiliados", icone: "M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" },
   { id: "repasses", rotulo: "Repasses", icone: "M3 7h18v10H3zM7 7v10M17 7v10M12 10v4M10 12h4" },
   { id: "cupons", rotulo: "Cupons", icone: "M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 0 0-4V4H3zM10 4v16" },
-  { id: "financeiro", rotulo: "Financeiro", icone: "M4 19V5M4 19h16M8 15l4-4 3 3 5-6", breve: true },
+  { id: "financeiro", rotulo: "Financeiro", icone: "M4 19V5M4 19h16M8 15l4-4 3 3 5-6" },
   { id: "integracoes", rotulo: "Integrações", icone: "M9 7V3M15 7V3M7 7h10v5a5 5 0 0 1-10 0zM12 17v4" },
   { id: "configuracoes", rotulo: "Configurações", icone: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z" },
 ];
@@ -122,7 +123,7 @@ export function PaginaVendedor() {
                   type="button"
                   disabled={m.breve}
                   aria-current={ativo ? "page" : undefined}
-                  onClick={() => !m.breve && setAba(m.id as Aba)}
+                  onClick={() => !m.breve && setAba(m.id)}
                   className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
                     ativo
                       ? "bg-laranja text-black shadow-[0_8px_24px_-12px_rgba(255,106,19,.8)]"
@@ -174,6 +175,8 @@ export function PaginaVendedor() {
           <AbaCupons senha={senha} />
         ) : aba === "repasses" ? (
           <AbaRepasses senha={senha} />
+        ) : aba === "financeiro" ? (
+          <AbaFinanceiro senha={senha} aoIrPara={setAba} />
         ) : aba === "integracoes" ? (
           <AbaIntegracoes senha={senha} />
         ) : (

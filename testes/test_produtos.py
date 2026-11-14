@@ -187,7 +187,7 @@ def test_vitrine_destaque_categoria_selo(cliente):
     # Vendidos: unidades de pedidos pagos; a landing page mostra os destaques primeiro
     frete = cliente.post("/api/frete", json={"cep": "20040-002", "produto": "pomada-modeladora-matte", "oferta": "q2"}).json()
     dados = {"produto": "pomada-modeladora-matte", "oferta": "q2", "cep": "20040002", "frete_tipo": frete["opcoes"][0]["tipo"],
-             "nome": "Maria Souza", "cpf": "529.982.247-25", "telefone": "(21) 99999-8888", "numero": "10"}
+             "nome": "Maria Souza", "cpf": "529.982.247-25", "email": "maria@exemplo.com", "telefone": "(21) 99999-8888", "numero": "10"}
     nsu = cliente.post("/api/pedidos", json=dados).json()["order_nsu"]
     cliente.post(f"/simulador/pagar/{nsu}", content="forma=pix",
                  headers={"content-type": "application/x-www-form-urlencoded"}, follow_redirects=False)

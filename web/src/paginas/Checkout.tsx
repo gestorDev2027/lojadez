@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import {
   chamar,
   ErroApi,
@@ -16,7 +16,8 @@ import {
   type Vitrine,
 } from "../api";
 
-// O checkout: 1) o kit, 2) entrega e contato (o CEP calcula o frete sozinho; nome, celular e CPF numa linha). O servidor recalcula preço e frete na hora de
+// O checkout: 1) o kit, 2) entrega e contato (o CEP calcula o frete sozinho; nome, e-mail, celular e CPF vão
+// preenchidos para a InfinitePay, que sempre mostra a tela de contato). O servidor recalcula preço e frete na hora de
 // criar o pedido e devolve o link de pagamento da InfinitePay.
 export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitrine }) {
   const daUrl = new URLSearchParams(window.location.search).get("oferta");
@@ -34,9 +35,10 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
   const [dados, setDados] = useState({ nome: "", cpf: "", email: "", telefone: "", rua: "", numero: "", complemento: "", bairro: "", ...lembrados.dados });
   const [lembrar, setLembrar] = useState(true);
   const [temLembrados, setTemLembrados] = useState(Boolean(lembrados.dados?.nome));
-  const [mostrarEmail, setMostrarEmail] = useState(Boolean(lembrados.dados?.email));
   const [tocados, setTocados] = useState<Record<string, boolean>>({});
   const [alterarRua, setAlterarRua] = useState(false);
+  const [comComplemento, setComComplemento] = useState(Boolean(lembrados.dados?.complemento));
+  const [focarDepoisDoCep, setFocarDepoisDoCep] = useState(false);
   const [cupomTexto, setCupomTexto] = useState("");
   const [cupom, setCupom] = useState<CupomAplicado | null>(null);
   const [erroCupom, setErroCupom] = useState("");
@@ -117,6 +119,21 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!focarDepoisDoCep || !cotacao) return;
+    setFocarDepoisDoCep(false);
+    const alvo = document.getElementById(alterarRua && !dados.rua ? "rua" : "numero") as HTMLInputElement | null;
+    if (alvo && !alvo.value) alvo.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cotacao, focarDepoisDoCep]);
+
+  // Enter passa para o próximo campo (no último, o Enter paga).
+  const avancar = (proximo: string) => (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    document.getElementById(proximo)?.focus();
+  };
+
   const mudar = (campo: keyof typeof dados) => (e: { target: { value: string } }) => {
     const v = e.target.value;
     setDados((d) => ({
@@ -134,10 +151,13 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
       campoCep?.focus({ preventScroll: true });
       return;
     }
-    const problema = erroDoCampo("cpf", dados.cpf) || erroDoCampo("telefone", dados.telefone);
-    if (problema) {
-      setTocados({ cpf: true, telefone: true });
-      setErro(problema);
+    const errado = (["email", "telefone", "cpf"] as const).find((c) => erroDoCampo(c, dados[c]));
+    if (errado) {
+      setTocados({ cpf: true, telefone: true, email: true });
+      setErro(erroDoCampo(errado, dados[errado]));
+      const campo = document.getElementById(errado);
+      campo?.scrollIntoView({ behavior: "smooth", block: "center" });
+      campo?.focus({ preventScroll: true }); // o cursor vai direto ao campo errado
       return;
     }
     setEnviando(true);
@@ -202,6 +222,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                   id="cep"
                   className="campo pr-32 font-mono"
                   inputMode="numeric"
+                  enterKeyHint="next"
                   autoComplete="postal-code"
                   placeholder="00000-000"
                   value={cep}
@@ -210,11 +231,15 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                     setCep(novo);
                     // Com os 8 números, o frete é calculado sozinho (sem botão).
                     const digitos = novo.replace(/\D/g, "");
-                    if (digitos.length === 8 && digitos !== cotacao?.endereco.cep.replace(/\D/g, "")) void cotar(ofertaId, novo);
+                    if (digitos.length === 8 && digitos !== cotacao?.endereco.cep.replace(/\D/g, "")) {
+                      setFocarDepoisDoCep(true);
+                      void cotar(ofertaId, novo);
+                    }
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
+                      setFocarDepoisDoCep(true);
                       void cotar();
                     }
                   }}
@@ -300,38 +325,101 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                 {alterarRua && (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Campo rotulo="Rua">
-                      <input className="campo" required autoComplete="address-line1" value={dados.rua} onChange={mudar("rua")} />
+                      <input id="rua" className="campo" required enterKeyHint="next" autoComplete="address-line1" value={dados.rua} onChange={mudar("rua")} onKeyDown={avancar("bairro")} />
                     </Campo>
                     <Campo rotulo="Bairro">
-                      <input className="campo" required autoComplete="address-level3" value={dados.bairro} onChange={mudar("bairro")} />
+                      <input id="bairro" className="campo" required enterKeyHint="next" autoComplete="address-level3" value={dados.bairro} onChange={mudar("bairro")} onKeyDown={avancar("numero")} />
                     </Campo>
                   </div>
                 )}
-                <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-3">
+                <div className="grid grid-cols-[110px_minmax(0,1fr)] items-end gap-3">
                   <Campo rotulo="Número">
-                    <input className="campo" required inputMode="numeric" value={dados.numero} onChange={mudar("numero")} />
+                    <input
+                      id="numero"
+                      className="campo"
+                      required
+                      inputMode="numeric"
+                      enterKeyHint="next"
+                      value={dados.numero}
+                      onChange={mudar("numero")}
+                      onKeyDown={avancar(comComplemento ? "complemento" : "email")}
+                    />
                   </Campo>
-                  <Campo rotulo="Complemento">
-                    <input className="campo" autoComplete="address-line2" placeholder="Apto, bloco… (opcional)" value={dados.complemento} onChange={mudar("complemento")} />
-                  </Campo>
+                  {comComplemento ? (
+                    <Campo rotulo="Complemento">
+                      <input
+                        id="complemento"
+                        className="campo"
+                        enterKeyHint="next"
+                        autoComplete="address-line2"
+                        placeholder="Apto, bloco, casa…"
+                        value={dados.complemento}
+                        onChange={mudar("complemento")}
+                        onKeyDown={avancar("email")}
+                      />
+                    </Campo>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setComComplemento(true);
+                        window.setTimeout(() => document.getElementById("complemento")?.focus(), 0);
+                      }}
+                      className="justify-self-start pb-4 text-sm text-laranja-2 underline-offset-4 hover:underline"
+                    >
+                      + complemento (apto, bloco…)
+                    </button>
+                  )}
                 </div>
               </div>
             )}
 
-            <div className="grid gap-3 border-t border-linha pt-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="grid gap-3 border-t border-linha pt-4 sm:grid-cols-2">
+              <Campo rotulo="E-mail" erro={tocados.email ? erroDoCampo("email", dados.email) : ""}>
+                <input
+                  id="email"
+                  className="campo"
+                  required
+                  type="email"
+                  inputMode="email"
+                  enterKeyHint="next"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  placeholder="voce@email.com"
+                  value={dados.email}
+                  onChange={mudar("email")}
+                  onBlur={() => setTocados((t) => ({ ...t, email: true }))}
+                  onKeyDown={avancar("nome")}
+                />
+              </Campo>
               <Campo rotulo="Nome de quem recebe">
-                <input className="campo" required autoComplete="name" value={dados.nome} onChange={mudar("nome")} />
+                <input
+                  id="nome"
+                  className="campo"
+                  required
+                  enterKeyHint="next"
+                  autoComplete="name"
+                  autoCapitalize="words"
+                  value={dados.nome}
+                  onChange={mudar("nome")}
+                  onKeyDown={avancar("telefone")}
+                />
               </Campo>
               <Campo rotulo="Celular" erro={tocados.telefone ? erroDoCampo("telefone", dados.telefone) : ""}>
                 <input
+                  id="telefone"
                   className="campo font-mono"
                   required
+                  type="tel"
                   inputMode="tel"
+                  enterKeyHint="next"
                   autoComplete="tel-national"
                   placeholder="(00) 00000-0000"
                   value={dados.telefone}
                   onChange={mudar("telefone")}
                   onBlur={() => setTocados((t) => ({ ...t, telefone: true }))}
+                  onKeyDown={avancar("cpf")}
                 />
               </Campo>
               <Campo
@@ -340,9 +428,11 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                 certo={cpfValido(dados.cpf)}
               >
                 <input
+                  id="cpf"
                   className="campo font-mono"
                   required
                   inputMode="numeric"
+                  enterKeyHint="go"
                   autoComplete="off"
                   placeholder="000.000.000-00"
                   value={dados.cpf}
@@ -351,17 +441,9 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                 />
               </Campo>
             </div>
-            <p className="-mt-2 text-xs text-suave">O celular é para o rastreio; o CPF, a Loggi pede de quem recebe.</p>
-
-            {mostrarEmail ? (
-              <Campo rotulo="E-mail para o comprovante (opcional)">
-                <input className="campo" type="email" autoComplete="email" value={dados.email} onChange={mudar("email")} />
-              </Campo>
-            ) : (
-              <button type="button" onClick={() => setMostrarEmail(true)} className="justify-self-start text-sm text-laranja-2 underline-offset-4 hover:underline">
-                + Receber o comprovante por e-mail
-              </button>
-            )}
+            <p className="-mt-2 text-xs text-suave">
+              Já vão preenchidos na página de pagamento da InfinitePay: lá você só confere. O CPF, a Loggi pede de quem recebe.
+            </p>
 
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-tinta-2">
               <label className="flex items-center gap-2">
@@ -380,7 +462,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                         guardarCliente(null);
                         setTemLembrados(false);
                         setLembrar(false);
-                        setMostrarEmail(false);
+                        setComComplemento(false);
                         setDados((d) => ({ ...d, nome: "", cpf: "", email: "", telefone: "", numero: "", complemento: "" }));
                       }}
                     >
@@ -651,7 +733,8 @@ function cpfValido(cpf: string) {
   return true;
 }
 
-function erroDoCampo(campo: "cpf" | "telefone", valor: string) {
+function erroDoCampo(campo: "cpf" | "telefone" | "email", valor: string) {
+  if (campo === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(valor.trim()) ? "" : "Digite um e-mail válido.";
   const d = valor.replace(/\D/g, "");
   if (campo === "cpf") return cpfValido(valor) ? "" : d.length < 11 ? "Faltam números no CPF." : "Esse CPF não confere. Veja se digitou certo.";
   return d.length >= 10 ? "" : "Digite o celular com DDD.";

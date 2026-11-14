@@ -146,8 +146,8 @@ def criar(dados: dict) -> dict:
     cpf = re.sub(r"\D", "", str(dados.get("cpf") or ""))
     if not cpf_valido(cpf):
         raise ErroPedido("CPF inválido.")
-    email = _texto(dados, "email", "o e-mail", maximo=200, obrigatorio=False).lower()  # opcional: a InfinitePay pede o dela
-    if email and not EMAIL.match(email):
+    email = _texto(dados, "email", "o e-mail", maximo=200).lower()  # vai preenchido para a InfinitePay (ela sempre pede)
+    if not EMAIL.match(email):
         raise ErroPedido("E-mail inválido.")
     telefone = re.sub(r"\D", "", str(dados.get("telefone") or ""))
     if len(telefone) not in (10, 11):
