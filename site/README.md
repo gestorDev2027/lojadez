@@ -22,6 +22,14 @@ servidor Python: deixe ele rodando na porta 8000 (`.venv\Scripts\python -m uvico
 | Etapa | O quê |
 |---|---|
 | 1 | Banco, configuração (banco > ambiente > padrão), cofre de chaves (Vault), login do vendedor e a aba Configurações. O app React (checkout, obrigado, vendedor, vitrine, produto) roda dentro do Astro, já com as cores e as fontes da marca nova. |
+| 2 | A landing do kit (`src/pages/index.astro`) montada no servidor, com os preços do banco (sem o `/lp-config.js`) e a marca nova; o catálogo do kit, os produtos, a vitrine e as fotos; título, descrição, foto e preço prontos para o Google e as prévias de link em `/produtos` e `/p/<slug>`. |
+
+## A marca
+
+Preto de base (`#0B0B0B`), **laranja `#FF5A00` só no que é compra e oferta** (botões, preço, faixas de oferta, o
+"& Co" do logo), branco nos títulos e **azul-aço `#A9B8C8`** nos detalhes de confiança (ícones, rótulos, linhas).
+Títulos em Bebas Neue, texto em Inter. O logo ainda é provisório (`src/components/Simbolo.astro` e `Simbolo` em
+`src/app/App.tsx`): troca pelo SVG oficial quando chegar.
 
 ## Na Netlify
 

@@ -1,0 +1,11 @@
+---
+// O monograma "W" de 3 lâminas diagonais (provisório: troca pelo SVG oficial da marca quando chegar).
+type Props = { class?: string };
+const { class: classe = "" } = Astro.props;
+---
+
+<svg viewBox="0 0 36 24" class={classe} aria-hidden="true">
+  <path d="M2 2h6l5 20H7z" fill="#fff"></path>
+  <path d="M13 2h6l5 20h-6z" fill="#ff5a00"></path>
+  <path d="M24 2h6l4 16-3 4h-2z" fill="#fff"></path>
+</svg>

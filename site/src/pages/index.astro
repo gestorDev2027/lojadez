@@ -1,23 +1,48 @@
+---
+// A landing page do kit de lâminas, montada no servidor: os preços, os refis e as ofertas vêm do banco na hora (sem o
+// antigo /lp-config.js). As animações continuam em public/assets/js/main.js, que lê window.LP_CONFIG.
+import Simbolo from "../components/Simbolo.astro";
+import * as catalogo from "../servidor/catalogo";
+import { cfg } from "../servidor/config";
+import { configDaLanding, jsonNoHtml } from "../servidor/loja";
+
+const [c, config, kit] = await Promise.all([cfg(), configDaLanding(), catalogo.produto()]);
+const nome = c.LOJA_NOME;
+const marca = nome.includes("&") ? [nome.split("&")[0].trim(), "& " + nome.split("&").slice(1).join("&").trim()] : [nome, ""];
+const menor = config.ofertas[0];
+const preco = menor ? menor.preco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "";
+const titulo = `${kit.nome} · ${nome}`;
+const descricao = `${kit.aparelhos} aparelho + ${kit.refis} refis de ${kit.laminas_por_refil} lâminas com fita lubrificante${preco ? `, a partir de ${preco}` : ""}. Lâmina nova todo santo dia.`;
+const base = c.SITE_URL.startsWith("http") ? c.SITE_URL : Astro.url.origin;
+const foto = new URL(config.fotoKit, base).href;
+Astro.response.headers.set("Cache-Control", "public, max-age=0, must-revalidate");
+---
+
 <!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Kit Barbeador · Aparelho + Refis</title>
-  <meta name="description" content="Kit com aparelho e refis de lâminas com fita lubrificante. Barbear mais suave, mais preciso e por meses.">
-  <meta name="theme-color" content="#0a0a0b">
-  <meta name="author" content="Alex Fernandes e Onnze Tecnologia">
+  <title>{titulo}</title>
+  <meta name="description" content={descricao}>
+  <meta name="theme-color" content="#0b0b0b">
+  <link rel="canonical" href={new URL("/", base).href}>
   <meta property="og:type" content="product">
-  <meta property="og:title" content="Kit Barbeador · Aparelho + Refis">
-  <meta property="og:description" content="Lâmina nova todo dia. Aparelho + refis com fita lubrificante.">
-  <meta property="og:image" content="/assets/img/kit-foto.jpg">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a0a0b'/%3E%3Crect x='12' y='20' width='40' height='8' rx='2' fill='%23ff6a13'/%3E%3Crect x='12' y='32' width='40' height='3' fill='%23d6dbe2'/%3E%3Crect x='12' y='38' width='40' height='3' fill='%23d6dbe2'/%3E%3Crect x='12' y='44' width='40' height='3' fill='%23d6dbe2'/%3E%3C/svg%3E">
+  <meta property="og:site_name" content={nome}>
+  <meta property="og:title" content={titulo}>
+  <meta property="og:description" content={descricao}>
+  <meta property="og:image" content={foto}>
+  <meta property="og:url" content={new URL("/", base).href}>
+  {menor && <meta property="product:price:amount" content={menor.preco.toFixed(2)}>}
+  {menor && <meta property="product:price:currency" content="BRL">}
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=JetBrains+Mono:wght@500;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="preload" as="image" href="/assets/img/kit-foto.jpg">
-  <link rel="stylesheet" href="assets/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@500;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="preload" as="image" href={config.fotoKit}>
+  <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body>
 
@@ -49,8 +74,8 @@
   <!-- ============ CABEÇALHO ============ -->
   <header class="header" id="header">
     <a href="#topo" class="logo" aria-label="Início">
-      <span class="logo__mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span class="logo__name" data-text="marca"></span>
+      <Simbolo class="logo__mark" />
+      <span class="logo__name">{marca[0]}{marca[1] && <em> {marca[1]}</em>}</span>
     </a>
     <nav class="nav" aria-label="Seções">
       <a href="#barbear">Teste</a>
@@ -137,7 +162,7 @@
           </div>
 
           <figure class="float-card float-card--a" data-depth="40">
-            <img src="assets/img/lamina-close.jpg" alt="Close do refil com 3 lâminas e fita lubrificante laranja" width="394" height="265" loading="lazy">
+            <img src="/assets/img/lamina-close.jpg" alt="Close do refil com 3 lâminas e fita lubrificante laranja" width="394" height="265" loading="lazy">
             <figcaption class="mono">3 lâminas · fita lubrificante</figcaption>
           </figure>
         </div>
@@ -367,8 +392,8 @@
           </header>
           <div class="thumbs reveal" role="list">
             <button class="thumb is-active" type="button" data-src="/assets/img/kit-foto.jpg" data-foto-kit data-alt="Kit completo na embalagem"><img src="/assets/img/kit-foto.jpg" data-foto-kit alt="" loading="lazy"><span class="mono">Kit completo</span></button>
-            <button class="thumb" type="button" data-src="assets/img/lamina-close.jpg" data-alt="Refil de 3 lâminas em close"><img src="assets/img/lamina-close.jpg" alt="" loading="lazy"><span class="mono">3 lâminas</span></button>
-            <button class="thumb" type="button" data-src="assets/img/cartucho-agua.jpg" data-alt="Refil com respingos de água"><img src="assets/img/cartucho-agua.jpg" alt="" loading="lazy"><span class="mono">Refil</span></button>
+            <button class="thumb" type="button" data-src="/assets/img/lamina-close.jpg" data-alt="Refil de 3 lâminas em close"><img src="/assets/img/lamina-close.jpg" alt="" loading="lazy"><span class="mono">3 lâminas</span></button>
+            <button class="thumb" type="button" data-src="/assets/img/cartucho-agua.jpg" data-alt="Refil com respingos de água"><img src="/assets/img/cartucho-agua.jpg" alt="" loading="lazy"><span class="mono">Refil</span></button>
           </div>
         </div>
       </div>
@@ -506,7 +531,7 @@
 
   <footer class="footer">
     <div class="container footer__inner">
-      <a href="#topo" class="logo logo--sm"><span class="logo__mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="logo__name" data-text="marca"></span></a>
+      <a href="#topo" class="logo logo--sm"><Simbolo class="logo__mark" /><span class="logo__name">{marca[0]}{marca[1] && <em> {marca[1]}</em>}</span></a>
       <p class="footer__legal" id="footerLegal"></p>
       <p class="footer__note">Imagens ilustrativas. Rendimento estimado varia conforme o uso.</p>
       <p class="footer__credit">Desenvolvido por <strong>Alex Fernandes</strong> e <strong>Onnze Tecnologia</strong></p>
@@ -524,8 +549,8 @@
     <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3a13 13 0 0 0-11.2 19.6L3 29l6.6-1.7A13 13 0 1 0 16 3zm0 23.6a10.6 10.6 0 0 1-5.4-1.5l-.4-.2-3.9 1 1-3.8-.2-.4A10.6 10.6 0 1 1 16 26.6zm5.8-7.9c-.3-.2-1.9-.9-2.2-1s-.5-.2-.7.2-.8 1-1 1.2-.4.2-.7.1a8.7 8.7 0 0 1-4.3-3.8c-.3-.6.3-.5 1-1.7.1-.2 0-.4 0-.6l-1-2.4c-.3-.6-.5-.5-.7-.5h-.6a1.2 1.2 0 0 0-.9.4 3.6 3.6 0 0 0-1.1 2.7 6.3 6.3 0 0 0 1.3 3.3 14.4 14.4 0 0 0 5.5 4.9c2 .9 2.8 1 3.9.8a3.3 3.3 0 0 0 2.1-1.5 2.7 2.7 0 0 0 .2-1.5c-.1-.2-.3-.3-.6-.4z"/></svg>
   </a>
 
-  <!-- A configuração (preços, ofertas, links do checkout) vem do servidor. -->
-  <script src="/lp-config.js"></script>
-  <script src="assets/js/main.js" defer></script>
+  <!-- A configuração (preços, ofertas, links do checkout) vem junto com a página, montada no servidor. -->
+  <script is:inline set:html={`window.LP_CONFIG = ${jsonNoHtml(config)};`}></script>
+  <script is:inline src="/assets/js/main.js" defer></script>
 </body>
 </html>

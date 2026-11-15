@@ -1,11 +1,19 @@
 ---
-// As páginas do app React (checkout, obrigado, vendedor, vitrine e produto). O React roda só no navegador por
-// enquanto; as páginas da vitrine passam a vir prontas do servidor na etapa 2.
+// As páginas do app React (checkout, obrigado, vendedor, vitrine e produto). O React roda no navegador; o servidor
+// manda pronto o que o Google e as prévias de link (WhatsApp, Instagram) leem: título, descrição, foto e preço.
 import { App } from "../app/App";
 import "../app/styles.css";
 
-type Props = { titulo?: string; indexar?: boolean };
-const { titulo = "Wolf & Co", indexar = false } = Astro.props;
+type Props = {
+  titulo?: string;
+  descricao?: string;
+  imagem?: string; // caminho da foto (/produto/foto?v=...)
+  precoCentavos?: number;
+  indexar?: boolean;
+};
+const { titulo = "Wolf & Co", descricao, imagem, precoCentavos, indexar = false } = Astro.props;
+const base = Astro.url.origin;
+const foto = imagem ? new URL(imagem, base).href : undefined;
 ---
 
 <!doctype html>
@@ -15,6 +23,16 @@ const { titulo = "Wolf & Co", indexar = false } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0b0b0b" />
     {!indexar && <meta name="robots" content="noindex" />}
+    {indexar && <link rel="canonical" href={new URL(Astro.url.pathname, base).href} />}
+    {descricao && <meta name="description" content={descricao} />}
+    {indexar && <meta property="og:type" content={precoCentavos !== undefined ? "product" : "website"} />}
+    {indexar && <meta property="og:title" content={titulo} />}
+    {indexar && descricao && <meta property="og:description" content={descricao} />}
+    {indexar && foto && <meta property="og:image" content={foto} />}
+    {indexar && <meta property="og:url" content={new URL(Astro.url.pathname, base).href} />}
+    {precoCentavos !== undefined && <meta property="product:price:amount" content={(precoCentavos / 100).toFixed(2)} />}
+    {precoCentavos !== undefined && <meta property="product:price:currency" content="BRL" />}
+    {indexar && <meta name="twitter:card" content="summary_large_image" />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

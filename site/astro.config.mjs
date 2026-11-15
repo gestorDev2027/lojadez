@@ -13,7 +13,10 @@ carregarEnv({ path: new URL("../.env", import.meta.url), quiet: true });
 
 const PYTHON = "http://localhost:8000";
 // O que já está em TypeScript (Astro). O resto da API, no desenvolvimento, vai para o Python.
-const JA_NO_ASTRO = ["vendedor/(entrar|sair|eu|senha|configuracoes|primeiro-acesso)"];
+const JA_NO_ASTRO = [
+  "vendedor/(entrar|sair|eu|senha|configuracoes|primeiro-acesso)", // etapa 1
+  "loja", "vitrine", "produtos", "vendedor/(catalogo|foto|produtos)", // etapa 2
+];
 const apiNoPython = `^/api/(?!(${JA_NO_ASTRO.join("|")})(/|$|\\?)).*`;
 
 export default defineConfig({
@@ -27,9 +30,6 @@ export default defineConfig({
     server: {
       proxy: {
         [apiNoPython]: PYTHON,
-        "/lp-config.js": PYTHON,
-        "/produto/foto": PYTHON,
-        "^/produtos/[^/]+/foto": PYTHON,
         "^/l/": PYTHON,
         "/simulador": PYTHON,
       },
