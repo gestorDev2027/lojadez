@@ -1,5 +1,15 @@
 ---
+// A vitrine: o kit de lâminas e os produtos. Título, descrição e foto vão prontos do servidor; a lista é o app React.
 import Layout from "../layouts/App.astro";
+import * as catalogo from "../servidor/catalogo";
+import { cfg } from "../servidor/config";
+
+const [c, foto] = await Promise.all([cfg(), catalogo.urlFoto()]);
 ---
 
-<Layout titulo="Produtos · Wolf & Co" />
+<Layout
+  titulo={`Produtos · ${c.LOJA_NOME}`}
+  descricao={`Barbear, barba e cabelo na ${c.LOJA_NOME}: lâmina nova todo santo dia, sem enrolação.`}
+  imagem={foto}
+  indexar
+/>

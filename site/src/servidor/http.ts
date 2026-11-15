@@ -1,7 +1,7 @@
 // O que toda rota da API usa: respostas em JSON, erros no formato {"erro": "..."}, o limite por IP e a sessão do vendedor.
 import type { APIContext, APIRoute } from "astro";
 import { ErroAcesso, conferirCredenciais, sessao } from "./acesso";
-import { ErroConfiguracao } from "./configuracoes";
+import { ErroLoja } from "./erros";
 
 export class ErroHttp extends Error {
   constructor(
@@ -27,7 +27,7 @@ export function rota(fn: (ctx: APIContext) => Promise<Response | unknown>): APIR
       return saida instanceof Response ? saida : json(saida);
     } catch (erro) {
       if (erro instanceof ErroHttp || erro instanceof ErroAcesso) return json({ erro: erro.mensagem }, erro.status);
-      if (erro instanceof ErroConfiguracao) return json({ erro: erro.message }, 422);
+      if (erro instanceof ErroLoja) return json({ erro: erro.message }, erro.status);
       console.error(`Erro em ${ctx.request.method} ${new URL(ctx.request.url).pathname}`, erro);
       return json({ erro: "Algo deu errado. Tente de novo." }, 500);
     }

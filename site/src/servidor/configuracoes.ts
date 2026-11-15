@@ -3,11 +3,12 @@
 // Toda mudança fica na `auditoria`, só com os nomes dos campos (nunca os valores).
 import { agora, banco, registrar, ultimasMudancas } from "./banco";
 import * as cofre from "./cofre";
+import { ErroLoja } from "./erros";
 import { CAMPOS, GRUPOS, POR_CHAVE, doAmbiente, esquecer, type Campo } from "./config";
 
 const EMAIL = /^[^@\s]{1,64}@[^@\s]{1,190}\.[a-z]{2,24}$/i;
 
-export class ErroConfiguracao extends Error {}
+export class ErroConfiguracao extends ErroLoja {}
 
 async function lerTabela(): Promise<Record<string, string>> {
   const linhas = await banco().consulta<{ chave: string; valor: string }>("select chave, valor from loja.configuracoes");
