@@ -1,6 +1,7 @@
 # A loja na Netlify: o projeto Astro (páginas e API, que viram Functions).
 # No painel da Netlify, o "Base directory" é site/ (este arquivo fica nele).
-# As variáveis (DATABASE_URL, LOJA_ADMIN_EMAIL, LOJA_ADMIN_SENHA) ficam no painel da Netlify, nunca aqui.
+# As variáveis (DATABASE_URL, LOJA_ADMIN_EMAIL, LOJA_ADMIN_SENHA) ficam no painel da Netlify, nunca aqui, com o escopo
+# "All scopes" (o build confere o DATABASE_URL: astro.config.mjs, env.schema).
 # O DATABASE_URL é o do Supabase em Connect > Transaction pooler (porta 6543), o próprio para Functions.
 [build]
   command = "npm run build"
@@ -8,3 +9,16 @@
 
 [build.environment]
   NODE_VERSION = "24"
+
+# O Partytown (Meta Pixel e GTM fora da linha principal) busca os scripts deles pelo próprio site.
+[[redirects]]
+  from = "/~partytown/connect.facebook.net/*"
+  to = "https://connect.facebook.net/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/~partytown/www.googletagmanager.com/*"
+  to = "https://www.googletagmanager.com/:splat"
+  status = 200
+  force = true

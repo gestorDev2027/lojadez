@@ -1,6 +1,7 @@
 // O que toda rota da API usa: respostas em JSON, erros no formato {"erro": "..."}, o limite por IP e a sessão do vendedor.
 import type { APIContext, APIRoute } from "astro";
 import { ErroAcesso, conferirCredenciais, sessao } from "./acesso";
+import { emCache, limparCdn, mudaAVitrine } from "./cdn";
 import { ErroLoja } from "./erros";
 
 export class ErroHttp extends Error {
@@ -24,6 +25,8 @@ export function rota(fn: (ctx: APIContext) => Promise<Response | unknown>): APIR
   return async (ctx) => {
     try {
       const saida = await fn(ctx);
+      // O vendedor mudou algo que aparece na vitrine: a CDN esquece o que guardou.
+      if (mudaAVitrine(ctx.request.method, new URL(ctx.request.url).pathname)) await limparCdn();
       return saida instanceof Response ? saida : json(saida);
     } catch (erro) {
       if (erro instanceof ErroHttp || erro instanceof ErroAcesso) return json({ erro: erro.mensagem }, erro.status);
@@ -31,6 +34,16 @@ export function rota(fn: (ctx: APIContext) => Promise<Response | unknown>): APIR
       console.error(`Erro em ${ctx.request.method} ${new URL(ctx.request.url).pathname}`, erro);
       return json({ erro: "Algo deu errado. Tente de novo." }, 500);
     }
+  };
+}
+
+/** Rota pública (igual para todo visitante): a resposta certa vai para o cache da CDN (servidor/cdn.ts). */
+export function rotaPublica(fn: (ctx: APIContext) => Promise<Response | unknown>): APIRoute {
+  const r = rota(fn);
+  return async (ctx) => {
+    const resposta = await r(ctx);
+    if (resposta.status === 200) emCache(resposta.headers);
+    return resposta;
   };
 }
 

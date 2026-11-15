@@ -1,4 +1,4 @@
-import { rota } from "../../servidor/http";
+import { rotaPublica } from "../../servidor/http";
 import { resumoDaLoja } from "../../servidor/loja";
 
-export const GET = rota(async () => resumoDaLoja());
+export const GET = rotaPublica(async () => resumoDaLoja());

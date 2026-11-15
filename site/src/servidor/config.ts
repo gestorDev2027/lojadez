@@ -110,6 +110,9 @@ export const CAMPOS: Campo[] = [
 
   campo("META_PIXEL_ID", "Meta Pixel ID", "rastreamento", "digitos", "", "", { tamanhos: faixa(10, 20) }),
   campo("GTM_ID", "Google Tag Manager ID", "rastreamento", "texto", "", "Ex.: GTM-XXXXXXX."),
+  campo("RASTREAMENTO_SEGUNDO_PLANO", "Rastreamento em segundo plano", "rastreamento", "sim_nao", "sim",
+    "Sim: o Pixel e o GTM rodam fora da linha principal (Partytown) e a página abre mais rápido. Se os eventos " +
+      "pararem de chegar no Gerenciador de Eventos da Meta, mude para Não."),
 ];
 
 export const POR_CHAVE: Record<string, Campo> = Object.fromEntries(CAMPOS.map((c) => [c.chave, c]));
@@ -135,6 +138,8 @@ function decimal(texto: string | undefined, padrao: number): number {
 }
 
 const entre = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
+
+const simNao = (texto: string) => ["sim", "s", "true", "1"].includes(String(texto ?? "").trim().toLowerCase());
 
 export function dimensoes(texto: string, padrao = "32x17x5"): [number, number, number] {
   const partes = String(texto).toLowerCase().replace(/ /g, "").split("x").filter(Boolean);
@@ -162,7 +167,7 @@ export function montar(sobrepor: Record<string, string | null | undefined> = {})
     LOJA_WHATSAPP: digitos(v("LOJA_WHATSAPP")),
     LOJA_PROMO_ATE: v("LOJA_PROMO_ATE"),
     EMPRESA: { razaoSocial: v("EMPRESA_RAZAO_SOCIAL"), cnpj: v("EMPRESA_CNPJ"), email: v("EMPRESA_EMAIL") },
-    RASTREAMENTO: { metaPixelId: v("META_PIXEL_ID"), gtmId: v("GTM_ID") },
+    RASTREAMENTO: { metaPixelId: v("META_PIXEL_ID"), gtmId: v("GTM_ID"), segundoPlano: simNao(v("RASTREAMENTO_SEGUNDO_PLANO")) },
     PRODUTO: {
       sku: PRODUTO_SKU,
       ean: PRODUTO_EAN,
@@ -182,7 +187,7 @@ export function montar(sobrepor: Record<string, string | null | undefined> = {})
     LOGGI_CLIENT_SECRET: v("LOGGI_CLIENT_SECRET"),
     LOGGI_COMPANY_ID: v("LOGGI_COMPANY_ID"),
     LOGGI_SERVICOS: v("LOGGI_SERVICOS").split(",").map((s) => s.trim()).filter(Boolean),
-    LOGGI_ENVIO_AUTOMATICO: ["sim", "s", "true", "1"].includes(v("LOGGI_ENVIO_AUTOMATICO").toLowerCase()),
+    LOGGI_ENVIO_AUTOMATICO: simNao(v("LOGGI_ENVIO_AUTOMATICO")),
     CONTEUDO_DECLARADO: v("LOGGI_DESCRICAO_CONTEUDO"),
     ORIGEM_CEP: digitos(v("LOJA_ORIGEM_CEP")),
     REMETENTE: {
