@@ -1,0 +1,10 @@
+# A loja na Netlify: o projeto Astro (páginas e API, que viram Functions).
+# No painel da Netlify, o "Base directory" é site/ (este arquivo fica nele).
+# As variáveis (DATABASE_URL, LOJA_ADMIN_EMAIL, LOJA_ADMIN_SENHA) ficam no painel da Netlify, nunca aqui.
+# O DATABASE_URL é o do Supabase em Connect > Transaction pooler (porta 6543), o próprio para Functions.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "24"

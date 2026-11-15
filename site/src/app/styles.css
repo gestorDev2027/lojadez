@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+/* A marca Wolf & Co (manual de 15/11/2026): Carbon Black #0B0B0B (fundo), Matte Surface #141414 (cartões),
+   borda #262626, Blade Orange #FF5A00 (compra, preço, selos) e Crisp White. Títulos em Bebas Neue (Oswald de reserva),
+   texto em Inter. */
+@theme {
+  --color-fundo: #0b0b0b;
+  --color-fundo-2: #101010;
+  --color-cartao: #141414;
+  --color-tinta: #ffffff;
+  --color-tinta-2: #d4d4d4;
+  --color-suave: #8f8f8f;
+  --color-linha: #262626;
+  --color-linha-2: #333333;
+  --color-laranja: #ff5a00;
+  --color-laranja-2: #ff7a2e;
+  --color-laranja-3: #cc4800;
+  --color-aco: #d6d6d6;
+  --color-ok: #4ade80;
+  --color-alerta: #fca5a5;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Bebas Neue", "Oswald", "Arial Narrow", Impact, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+
+/* A Bebas Neue tem um peso só: sem negrito falso nos títulos. */
+.font-display {
+  font-synthesis: none;
+  letter-spacing: 0.01em;
+}
+
+html {
+  background: var(--color-fundo);
+  color: var(--color-tinta);
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  background: var(--color-fundo);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--color-laranja);
+  color: #000;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-laranja);
+  outline-offset: 3px;
+}
+
+.campo {
+  width: 100%;
+  border: 1px solid var(--color-linha-2);
+  background: rgb(255 255 255 / 0.03);
+  color: var(--color-tinta);
+  border-radius: 14px;
+  padding: 0.8rem 0.95rem;
+  font-size: 1rem;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.campo::placeholder {
+  color: var(--color-suave);
+}
+
+.campo:focus {
+  outline: none;
+  border-color: var(--color-laranja);
+  background: rgb(255 90 0 / 0.06);
+}
+
+.btn-laranja {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 999px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #120700;
+  background: linear-gradient(180deg, var(--color-laranja-2), var(--color-laranja) 45%, var(--color-laranja-3));
+  box-shadow: 0 10px 30px -8px rgb(255 90 0 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.45);
+  transition: box-shadow 0.3s, transform 0.3s, opacity 0.2s;
+}
+
+.btn-laranja:hover:not(:disabled) {
+  box-shadow: 0 16px 44px -8px rgb(255 90 0 / 0.85), inset 0 1px 0 rgb(255 255 255 / 0.5);
+  transform: translateY(-1px);
+}
+
+.btn-laranja:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-laranja::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(105deg, transparent 30%, rgb(255 255 255 / 0.55) 50%, transparent 70%);
+  transform: translateX(-120%);
+  animation: brilho 3.6s cubic-bezier(0.7, 0, 0.2, 1) infinite;
+}
+
+@keyframes brilho {
+  0%,
+  55% {
+    transform: translateX(-120%);
+  }
+  85%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-laranja::before {
+    animation: none;
+  }
+}
+
+.grao {
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgb(255 90 0 / 0.14), transparent 60%),
+    radial-gradient(800px 400px at -10% 110%, rgb(255 90 0 / 0.08), transparent 60%);
+}
+
+/* Comprovante de repasse: na impressão, só ele aparece */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .comprovante,
+  .comprovante * {
+    visibility: visible;
+  }
+  .comprovante {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+  }
+}
