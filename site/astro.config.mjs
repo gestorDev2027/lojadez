@@ -17,6 +17,7 @@ const PYTHON = "http://localhost:8000";
 const JA_NO_ASTRO = [
   "vendedor/(entrar|sair|eu|senha|configuracoes|primeiro-acesso)", // etapa 1
   "loja", "vitrine", "produtos", "vendedor/(catalogo|foto|produtos)", // etapa 2
+  "vendedor/estoque", // estoque e SKU
 ];
 const apiNoPython = `^/api/(?!(${JA_NO_ASTRO.join("|")})(/|$|\\?)).*`;
 

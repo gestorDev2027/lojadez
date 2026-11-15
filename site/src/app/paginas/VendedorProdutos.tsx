@@ -13,6 +13,8 @@ type ProdutoVendedor = {
   chamada: string | null;
   descricao: string | null;
   sku: string | null;
+  ean: string | null;
+  codigo_fornecedor: string | null;
   ativo: boolean;
   ordem: number;
   unidade: string;
@@ -39,6 +41,8 @@ type Formulario = {
   chamada: string;
   descricao: string;
   sku: string;
+  ean: string;
+  codigo_fornecedor: string;
   ativo: boolean;
   ordem: string;
   unidade: string;
@@ -71,6 +75,8 @@ const VAZIO: Formulario = {
   chamada: "",
   descricao: "",
   sku: "",
+  ean: "",
+  codigo_fornecedor: "",
   ativo: true,
   ordem: "0",
   unidade: "unidade",
@@ -100,6 +106,8 @@ function doProduto(p: ProdutoVendedor): Formulario {
     chamada: p.chamada ?? "",
     descricao: p.descricao ?? "",
     sku: p.sku ?? "",
+    ean: p.ean ?? "",
+    codigo_fornecedor: p.codigo_fornecedor ?? "",
     ativo: p.ativo,
     ordem: String(p.ordem),
     unidade: p.unidade,
@@ -126,6 +134,8 @@ function paraEnviar(f: Formulario) {
     chamada: f.chamada,
     descricao: f.descricao,
     sku: f.sku,
+    ean: f.ean,
+    codigo_fornecedor: f.codigo_fornecedor,
     ativo: f.ativo,
     ordem: Number(f.ordem || 0),
     unidade: f.unidade,
@@ -404,8 +414,34 @@ function EditorProduto({
               <Campo rotulo="Plural" dica="ex.: potes, frascos">
                 <input className="campo" required value={f.unidade_plural} onChange={(e) => mudar("unidade_plural", e.target.value)} />
               </Campo>
-              <Campo rotulo="SKU (opcional)">
-                <input className="campo font-mono" maxLength={60} value={f.sku} onChange={(e) => mudar("sku", e.target.value)} />
+              <Campo rotulo="SKU" dica="Vazio: a loja gera (ex.: WLF-CAB-POMA-001).">
+                <span className="flex gap-2">
+                  <input className="campo min-w-0 flex-1 font-mono uppercase" maxLength={60} value={f.sku} placeholder="automático" onChange={(e) => mudar("sku", e.target.value.toUpperCase())} />
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-full border border-linha-2 px-3 text-xs font-bold hover:border-laranja disabled:opacity-40"
+                    disabled={!f.nome.trim()}
+                    onClick={async () => {
+                      try {
+                        const q = new URLSearchParams({ nome: f.nome, categoria: f.categoria });
+                        const r = await chamar<{ sku: string }>(`/api/vendedor/estoque/sku?${q}`, { senha });
+                        mudar("sku", r.sku);
+                      } catch {
+                        /* o SKU é gerado ao salvar, de qualquer jeito */
+                      }
+                    }}
+                  >
+                    Gerar
+                  </button>
+                </span>
+              </Campo>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Campo rotulo="EAN / código de barras (opcional)" dica="8, 12, 13 ou 14 números.">
+                <input className="campo font-mono" inputMode="numeric" maxLength={14} value={f.ean} onChange={(e) => mudar("ean", digitos(e.target.value))} />
+              </Campo>
+              <Campo rotulo="Código do fornecedor (opcional)">
+                <input className="campo font-mono" maxLength={60} value={f.codigo_fornecedor} onChange={(e) => mudar("codigo_fornecedor", e.target.value)} />
               </Campo>
             </div>
             <Campo rotulo={`O que vem em 1 ${unidade} (opcional)`} dica="ex.: 1 pote de 120 g. Aparece no checkout e no pedido.">

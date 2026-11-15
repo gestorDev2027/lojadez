@@ -36,6 +36,10 @@ export function PaginaProduto({ loja, slug }: { loja: Loja; slug: string }) {
 
   const menor = Math.min(...produto.ofertas.map((o) => o.preco_centavos));
   const comprar = (oferta: string) => `/checkout?produto=${encodeURIComponent(produto.id)}&oferta=${oferta}`;
+  const esgotado = produto.esgotado;
+  const avisar = `https://wa.me/${loja.whatsapp}?text=${encodeURIComponent(`Olá! Quero saber quando o ${produto.nome} volta ao estoque.`)}`;
+  // Poucas unidades: avisa (só quando dá para comprar e há controle de estoque).
+  const poucas = !esgotado && produto.disponivel !== null && produto.disponivel <= 5;
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-4 py-8 md:grid-cols-2 md:py-14">
       <img src={produto.foto} alt={produto.nome} className="aspect-square w-full rounded-[22px] border border-linha object-cover" />
@@ -46,12 +50,14 @@ export function PaginaProduto({ loja, slug }: { loja: Loja; slug: string }) {
           </a>
           <h1 className="mt-2 font-display text-5xl leading-none font-extrabold uppercase md:text-6xl">{produto.nome}</h1>
           {produto.chamada && <p className="mt-3 text-lg text-tinta-2">{produto.chamada}</p>}
+          {esgotado && <p className="mt-3 inline-block rounded-full bg-white/10 px-3 py-1 font-mono text-xs font-bold tracking-widest text-tinta uppercase">Esgotado</p>}
+          {poucas && <p className="mt-3 font-mono text-xs font-bold tracking-widest text-laranja-2 uppercase">Últimas {produto.disponivel} unidades</p>}
         </div>
         <p className="font-display text-4xl font-extrabold">
           <span className="mr-2 align-middle font-mono text-sm font-normal text-suave">a partir de</span>
           {reais(menor)}
         </p>
-        <div className="grid gap-2">
+        <div className={`grid gap-2 ${esgotado ? "pointer-events-none opacity-50" : ""}`} aria-disabled={esgotado}>
           {produto.ofertas.map((o) => (
             <a
               key={o.id}
@@ -78,9 +84,15 @@ export function PaginaProduto({ loja, slug }: { loja: Loja; slug: string }) {
             </a>
           )}
         </div>
-        <a href={comprar(produto.oferta_padrao)} className="btn-laranja px-6 py-4 text-center text-base">
-          Comprar
-        </a>
+        {esgotado ? (
+          <a href={avisar} target="_blank" rel="noreferrer" className="rounded-full border border-linha-2 px-6 py-4 text-center text-base font-bold hover:border-laranja">
+            Esgotado · me avise no WhatsApp
+          </a>
+        ) : (
+          <a href={comprar(produto.oferta_padrao)} className="btn-laranja px-6 py-4 text-center text-base">
+            Comprar
+          </a>
+        )}
         {produto.frete_gratis_a_partir > 0 && (
           <p className="text-sm text-ok">
             Frete grátis a partir de {produto.frete_gratis_a_partir} {produto.unidade_plural}.
@@ -182,9 +194,13 @@ export function PaginaVitrine({ loja }: { loja: Loja }) {
                       </p>
                     )}
                     <div className="mt-2 flex flex-wrap gap-3">
-                      <a href={i.comprar} className="btn-laranja px-6 py-3.5 text-sm">
-                        Comprar
-                      </a>
+                      {i.esgotado ? (
+                        <span className="rounded-full bg-white/10 px-6 py-3.5 text-sm font-bold text-suave">Esgotado</span>
+                      ) : (
+                        <a href={i.comprar} className="btn-laranja px-6 py-3.5 text-sm">
+                          Comprar
+                        </a>
+                      )}
                       <a href={i.url} className="rounded-full border border-linha-2 px-6 py-3.5 text-sm font-bold hover:border-laranja">
                         Ver detalhes
                       </a>
@@ -267,8 +283,12 @@ export function PaginaVitrine({ loja }: { loja: Loja }) {
                 <article className="group flex h-full flex-col overflow-hidden rounded-[20px] border border-linha bg-cartao transition hover:border-laranja">
                   <a href={i.url} className="relative block overflow-hidden">
                     <img src={i.foto} alt={i.nome} className="aspect-square w-full object-cover transition duration-500 group-hover:scale-105" loading="lazy" />
-                    {i.selo && (
-                      <span className="absolute top-3 left-3 rounded-full bg-laranja px-2.5 py-1 font-mono text-[10px] font-bold text-black uppercase">{i.selo}</span>
+                    {i.esgotado ? (
+                      <span className="absolute top-3 left-3 rounded-full bg-black/80 px-2.5 py-1 font-mono text-[10px] font-bold text-tinta uppercase">Esgotado</span>
+                    ) : (
+                      i.selo && (
+                        <span className="absolute top-3 left-3 rounded-full bg-laranja px-2.5 py-1 font-mono text-[10px] font-bold text-black uppercase">{i.selo}</span>
+                      )
                     )}
                   </a>
                   <div className="flex flex-1 flex-col gap-1.5 p-3 sm:p-4">
@@ -286,9 +306,15 @@ export function PaginaVitrine({ loja }: { loja: Loja }) {
                         {reais(i.por_unidade_centavos)} por {i.unidade}
                         {i.frete_gratis_a_partir > 0 && <span className="text-ok"> · frete grátis a partir de {i.frete_gratis_a_partir}</span>}
                       </p>
-                      <a href={i.comprar} className="btn-laranja mt-3 block px-4 py-2.5 text-center text-xs">
-                        Comprar
-                      </a>
+                      {i.esgotado ? (
+                        <a href={i.url} className="mt-3 block rounded-full bg-white/10 px-4 py-2.5 text-center text-xs font-bold text-suave">
+                          Esgotado
+                        </a>
+                      ) : (
+                        <a href={i.comprar} className="btn-laranja mt-3 block px-4 py-2.5 text-center text-xs">
+                          Comprar
+                        </a>
+                      )}
                     </div>
                   </div>
                 </article>

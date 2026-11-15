@@ -7,7 +7,10 @@
 import { agora, banco, registrar, uma } from "./banco";
 import * as catalogo from "./catalogo";
 import type { Montar, Oferta } from "./catalogo";
+import { cfg } from "./config";
 import { ErroLoja } from "./erros";
+import * as estoque from "./estoque";
+import * as sku from "./sku";
 
 export const KIT = "kit-laminas";
 const MAXIMO_UNIDADES = 30;
@@ -25,6 +28,8 @@ export type ProdutoBanco = {
   chamada: string | null;
   descricao: string | null;
   sku: string | null;
+  ean: string | null;
+  codigo_fornecedor: string | null;
   ativo: boolean;
   ordem: number;
   unidade: string;
@@ -140,6 +145,7 @@ export type ProdutoPublico = Awaited<ReturnType<typeof publico>>;
 /** O que a página do produto e o checkout recebem. */
 export async function publico(p: ProdutoBanco) {
   const lista = ofertas(p);
+  const disponivel = estoque.disponivelDe(await estoque.disponiveis(), p.slug);
   return {
     id: p.slug,
     nome: p.nome,
@@ -155,6 +161,9 @@ export async function publico(p: ProdutoBanco) {
     oferta_padrao: lista[0]?.id ?? "",
     categoria: p.categoria || "",
     selo: p.selo || "",
+    // null: o produto vende sem controle de estoque
+    disponivel,
+    esgotado: disponivel !== null && disponivel <= 0,
   };
 }
 
@@ -181,35 +190,39 @@ export type ItemVitrine = {
   selo: string;
   vendidos: number;
   frete_gratis_a_partir: number;
+  disponivel: number | null; // null: sem controle de estoque
+  esgotado: boolean;
 };
 
 function item(
   id: string, nome: string, chamada: string, fotoUrl: string, url: string, lista: Oferta[], unidade: string,
   destaque: boolean, categoria: string | null, selo: string | null, nVendidos: number, freteAPartir: number, comprar: string,
+  disponivel: number | null,
 ): ItemVitrine {
   const menor = lista.reduce<Oferta | null>((m, o) => (!m || o.preco_centavos < m.preco_centavos ? o : m), null);
   const porUnidade = lista.length ? Math.min(...lista.map((o) => Math.round(o.preco_centavos / o.kits))) : 0;
   return {
     id, nome, chamada, foto: fotoUrl, url, comprar, a_partir_de_centavos: menor?.preco_centavos ?? 0, por_unidade_centavos: porUnidade,
     unidade, destaque, categoria: categoria || "", selo: selo || "", vendidos: nVendidos, frete_gratis_a_partir: freteAPartir,
+    disponivel, esgotado: disponivel !== null && disponivel <= 0,
   };
 }
 
 /** A vitrine: o kit de lâminas e os produtos ativos, com destaque, categoria, selo e vendas. */
 export async function vitrine(): Promise<ItemVitrine[]> {
-  const [nVendidos, versoes, kit, ofertasKit, v, produtos] = await Promise.all([
-    vendidos(), versoesDasFotos(), catalogo.produto(), catalogo.ofertas(), catalogo.vitrineKit(), listar(),
+  const [nVendidos, versoes, kit, ofertasKit, v, produtos, saldos] = await Promise.all([
+    vendidos(), versoesDasFotos(), catalogo.produto(), catalogo.ofertas(), catalogo.vitrineKit(), listar(), estoque.disponiveis(),
   ]);
   const itens = [
     item(KIT, kit.nome, kit.chamada || `${kit.aparelhos} aparelho + ${kit.refis} refis por kit`, await catalogo.urlFoto(), "/",
       ofertasKit, "kit", v.destaque, v.categoria, v.selo, nVendidos.get(KIT) ?? 0, await catalogo.freteGratisAPartir(),
-      `/checkout?oferta=${await catalogo.ofertaPadrao()}`),
+      `/checkout?oferta=${await catalogo.ofertaPadrao()}`, estoque.disponivelDe(saldos, KIT)),
   ];
   for (const p of produtos) {
     const lista = ofertas(p);
     itens.push(item(p.slug, p.nome, p.chamada || "", urlDaFoto(p.slug, versoes), `/p/${p.slug}`, lista, p.unidade,
       Boolean(p.destaque), p.categoria, p.selo, nVendidos.get(p.slug) ?? 0, Number(p.frete_gratis_a_partir || 0),
-      `/checkout?produto=${p.slug}` + (lista.length ? `&oferta=${lista[0].id}` : "")));
+      `/checkout?produto=${p.slug}` + (lista.length ? `&oferta=${lista[0].id}` : ""), estoque.disponivelDe(saldos, p.slug)));
   }
   return itens;
 }
@@ -236,7 +249,9 @@ function conferir(dados: Record<string, any>) {
     nome: texto(dados, "nome", "o nome", 3, 80),
     chamada: texto(dados, "chamada", "A chamada", 0, 140) || null,
     descricao: texto(dados, "descricao", "A descrição", 0, 4000) || null,
-    sku: texto(dados, "sku", "O SKU", 0, 60) || null,
+    sku: sku.normalizar(texto(dados, "sku", "O SKU", 0, 60)),
+    ean: String(dados.ean ?? "").replace(/\D/g, "") || null,
+    codigo_fornecedor: texto(dados, "codigo_fornecedor", "O código do fornecedor", 0, 60) || null,
     ativo: Boolean(dados.ativo ?? true),
     ordem: inteiro(dados.ordem ?? 0, "A ordem", 0, 999),
     unidade: texto(dados, "unidade", "a unidade (ex.: frasco)", 2, 30).toLowerCase(),
@@ -253,6 +268,8 @@ function conferir(dados: Record<string, any>) {
     ofertas: [] as OfertaProduto[],
     montar: {} as Record<string, unknown>,
   };
+  if (valores.sku && !sku.SKU_VALIDO.test(valores.sku)) throw new ErroProduto("SKU: de 2 a 60 letras, números e hífens.");
+  if (valores.ean && ![8, 12, 13, 14].includes(valores.ean.length)) throw new ErroProduto("EAN: 8, 12, 13 ou 14 números.");
   const lista = dados.ofertas;
   if (!Array.isArray(lista) || lista.length < 1 || lista.length > MAXIMO_OFERTAS)
     throw new ErroProduto(`Cadastre de 1 a ${MAXIMO_OFERTAS} ofertas (1 unidade, 2 unidades...).`);
@@ -283,7 +300,7 @@ function conferir(dados: Record<string, any>) {
 }
 
 const COLUNAS = [
-  "nome", "chamada", "descricao", "sku", "ativo", "ordem", "unidade", "unidade_plural", "conteudo", "peso_g",
+  "nome", "chamada", "descricao", "sku", "ean", "codigo_fornecedor", "ativo", "ordem", "unidade", "unidade_plural", "conteudo", "peso_g",
   "comprimento_cm", "largura_cm", "altura_cm", "frete_gratis_a_partir", "destaque", "categoria", "selo", "ofertas", "montar",
 ] as const;
 const JSONS = new Set(["ofertas", "montar"]);
@@ -291,6 +308,10 @@ const JSONS = new Set(["ofertas", "montar"]);
 /** Cria (slug null) ou altera um produto. Devolve o produto gravado. */
 export async function salvar(dados: Record<string, any>, slug: string | null, email: string | null): Promise<ProdutoBanco> {
   const valores = conferir(dados) as Record<string, any>;
+  // Sem SKU, a loja gera (WLF-CAB-POMA-001); com SKU, ele não pode ser de outro produto.
+  if (!valores.sku) valores.sku = await sku.proximo(valores.nome, valores.categoria, (await cfg()).SKU_PREFIXO);
+  const dono = await uma<{ slug: string; nome: string }>("select slug, nome from loja.produtos where sku = $1", [valores.sku]);
+  if (dono && dono.slug !== slug) throw new ErroProduto(`O SKU ${valores.sku} já é do produto “${dono.nome}”.`);
   const quando = agora();
   const params = COLUNAS.map((c) => (JSONS.has(c) ? JSON.stringify(valores[c]) : valores[c]));
   const tipos = (i: number) => (JSONS.has(COLUNAS[i]) ? "::json" : "");
