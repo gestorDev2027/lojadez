@@ -394,13 +394,21 @@ function Reembolso({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senh
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
   const [copiado, setCopiado] = useState(false);
+  const [voltou, setVoltou] = useState(false);
 
   async function enviar(caminho: string, corpo: object) {
     setErro("");
     setOcupado(true);
     try {
-      const r = await chamar<{ aviso_loggi?: string | null }>(`/api/vendedor/pedidos/${p.order_nsu}/${caminho}`, { senha, corpo });
-      if (r.aviso_loggi) setAviso(r.aviso_loggi);
+      const r = await chamar<{ aviso_loggi?: string | null; voltou_ao_estoque?: number }>(`/api/vendedor/pedidos/${p.order_nsu}/${caminho}`, {
+        senha,
+        corpo,
+      });
+      const avisos = [
+        r.aviso_loggi,
+        r.voltou_ao_estoque ? `${r.voltou_ao_estoque} ${r.voltou_ao_estoque === 1 ? "unidade voltou" : "unidades voltaram"} para o estoque (o pacote não saiu).` : "",
+      ].filter(Boolean);
+      if (avisos.length) setAviso(avisos.join(" "));
       setAberto(false);
       aoMudar();
     } catch (e) {
@@ -451,6 +459,13 @@ function Reembolso({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senh
             Ver o recibo da InfinitePay
           </a>
         )}
+        <label className="flex items-start gap-2 text-tinta-2">
+          <input type="checkbox" className="mt-1 accent-[#FF5A00]" checked={voltou} onChange={(e) => setVoltou(e.target.checked)} />
+          <span>
+            O produto voltou para mim (o cliente devolveu): somar de novo ao estoque.
+            <span className="block text-xs text-suave">Se o pacote nem chegou a sair, o estoque já voltou sozinho.</span>
+          </span>
+        </label>
         <div className="flex flex-wrap items-end gap-2">
           <label className="grid gap-1 text-xs">
             Valor devolvido (R$)
@@ -459,7 +474,7 @@ function Reembolso({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senh
           <button
             type="button"
             disabled={ocupado}
-            onClick={() => void enviar("reembolsado", { valor_centavos: paraCentavos(valor) })}
+            onClick={() => void enviar("reembolsado", { valor_centavos: paraCentavos(valor), voltou_ao_estoque: voltou })}
             className="btn-laranja px-4 py-2.5 text-xs"
           >
             {ocupado ? "Salvando…" : "Marcar como reembolsado"}
