@@ -63,6 +63,18 @@ describe("SKU automático", () => {
   });
 });
 
+// A reserva aponta para um pedido que existe (chave estrangeira): um pedido mínimo, só para o estoque.
+async function pedidoDeTeste(b: { consulta: (sql: string, p?: unknown[]) => Promise<unknown> }, nsu: string) {
+  await b.consulta(
+    `insert into loja.pedidos (order_nsu, criado_em, situacao, sku, oferta, produto, kits, preco_centavos, frete_tipo,
+       frete_descricao, frete_centavos, total_centavos, nome, cpf, email, telefone, cep, rua, numero, bairro, cidade, uf)
+     values ($1, now(), 'aguardando_pagamento', 'SKU', 'q1', 'Teste', 1, 100, 'loggi', 'Loggi', 0, 100, 'Cliente', '00000000000',
+       'cliente@exemplo.com', '11999999999', '01001000', 'Rua', '1', 'Centro', 'São Paulo', 'SP')
+     on conflict (order_nsu) do nothing`,
+    [nsu],
+  );
+}
+
 describe("estoque", () => {
   beforeEach(async () => {
     await bancoNovo();
@@ -77,7 +89,10 @@ describe("estoque", () => {
     const vitrine = (await chamar(rotaVitrine)).dados;
     expect(vitrine.itens.every((i: any) => i.esgotado === false && i.disponivel === null)).toBe(true);
     // Um pedido de item sem controle passa.
-    await banco().transacao((b) => estoque.reservar(b, "P1", [{ produto_id: null, quantidade: 3 }], daqui(60)));
+    await banco().transacao(async (b) => {
+      await pedidoDeTeste(b, "P1");
+      await estoque.reservar(b, "P1", [{ produto_id: null, quantidade: 3 }], daqui(60));
+    });
   });
 
   it("entrada, custo médio, perda, ajuste e inventário", async () => {
@@ -102,7 +117,10 @@ describe("estoque", () => {
     await lancar("pomada-modeladora", { tipo: "entrada", quantidade: 10 });
     await estoque.configurar("pomada-modeladora", { minimo: 3, controlar: true }, null);
     const reservar = (nsu: string, q: number, expira = daqui(60)) =>
-      banco().transacao((b) => estoque.reservar(b, nsu, [{ produto_id: "pomada-modeladora", quantidade: q }], expira));
+      banco().transacao(async (b) => {
+        await pedidoDeTeste(b, nsu);
+        await estoque.reservar(b, nsu, [{ produto_id: "pomada-modeladora", quantidade: q }], expira);
+      });
 
     await reservar("A", 6);
     expect(await item("pomada-modeladora")).toMatchObject({ fisico: 10, reservado: 6, disponivel: 4, situacao: "ok" });
@@ -131,7 +149,10 @@ describe("estoque", () => {
 
   it("a venda paga depois de vencer a reserva ainda sai do estoque", async () => {
     await lancar("pomada-modeladora", { tipo: "entrada", quantidade: 1 });
-    await banco().transacao((b) => estoque.reservar(b, "D", [{ produto_id: "pomada-modeladora", quantidade: 1 }], daqui(-1)));
+    await banco().transacao(async (b) => {
+      await pedidoDeTeste(b, "D");
+      await estoque.reservar(b, "D", [{ produto_id: "pomada-modeladora", quantidade: 1 }], daqui(-1));
+    });
     await estoque.liberarVencidas();
     await estoque.baixar("D");
     expect(await item("pomada-modeladora")).toMatchObject({ fisico: 0, reservado: 0 });

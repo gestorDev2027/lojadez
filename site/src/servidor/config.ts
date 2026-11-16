@@ -3,6 +3,9 @@
 // 2. as variáveis de ambiente (na Netlify, o painel dela; no computador, o .env);
 // 3. o padrão abaixo.
 //
+// O endereço do site (SITE_URL) é a exceção: vem só da variável de ambiente de cada lugar (na Netlify, o domínio; no
+// computador, o localhost). O banco é o mesmo nos dois, e um endereço salvo nele valeria para os dois.
+//
 // Na Netlify cada Function guarda a configuração por CACHE_MS; quem salva limpa na hora a da própria instância.
 import { amb } from "./ambiente";
 
@@ -50,8 +53,6 @@ export const GRUPOS: Record<string, string> = {
 
 export const CAMPOS: Campo[] = [
   campo("LOJA_NOME", "Nome da loja", "loja", "texto", "Wolf & Co"),
-  campo("SITE_URL", "Endereço do site", "loja", "url", "http://localhost:4321",
-    "Sem a barra no fim. A InfinitePay manda o cliente de volta para cá; o aviso de pagamento só vem com https."),
   campo("LOJA_WHATSAPP", "WhatsApp", "loja", "digitos", "5511983910543", "Com 55 e o DDD, só números.", { tamanhos: [12, 13] }),
   campo("LOJA_PROMO_ATE", "Fim da promoção", "loja", "data", "2026-11-30T23:59:59-03:00",
     "Contagem regressiva da página. Vazio: não aparece. Use só uma data real."),
@@ -165,7 +166,8 @@ export function montar(sobrepor: Record<string, string | null | undefined> = {})
   const infinitepayAmbiente = v("INFINITEPAY_AMBIENTE").toLowerCase();
   const cfg = {
     LOJA_NOME: v("LOJA_NOME"),
-    SITE_URL: v("SITE_URL").replace(/\/+$/, ""),
+    // Sem a barra no fim. A InfinitePay manda o cliente de volta para cá; o aviso de pagamento só vem com https.
+    SITE_URL: (doAmbiente("SITE_URL") ?? "http://localhost:4321").replace(/\/+$/, ""),
     LOJA_WHATSAPP: digitos(v("LOJA_WHATSAPP")),
     LOJA_PROMO_ATE: v("LOJA_PROMO_ATE"),
     SKU_PREFIXO: v("SKU_PREFIXO").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) || "WLF",

@@ -51,14 +51,14 @@ describe("configurações", () => {
       metodo: "PUT",
       corpo: {
         senha: SENHA,
-        valores: { LOJA_NOME: "  Wolf   & Co  ", INFINITEPAY_API_KEY: "inchk_segredo", INFINITEPAY_DESCONTO_PIX: "5,5", SITE_URL: "https://loja.com.br/" },
+        valores: { LOJA_NOME: "  Wolf   & Co  ", INFINITEPAY_API_KEY: "inchk_segredo", INFINITEPAY_DESCONTO_PIX: "5,5" },
       },
       token,
     });
     expect(ok.status).toBe(200);
     const campos = Object.fromEntries(ok.dados.campos.map((c: any) => [c.chave, c]));
     expect(campos.LOJA_NOME).toMatchObject({ valor: "Wolf & Co", origem: "banco" });
-    expect(campos.SITE_URL.valor).toBe("https://loja.com.br");
+    expect(campos.SITE_URL).toBeUndefined(); // o endereço do site vem só da variável de cada ambiente
     expect(campos.INFINITEPAY_DESCONTO_PIX.valor).toBe("5.5");
     expect(campos.INFINITEPAY_API_KEY).toMatchObject({ configurado: true });
     expect(JSON.stringify(ok.dados)).not.toContain("inchk_segredo");

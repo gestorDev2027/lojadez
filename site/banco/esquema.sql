@@ -61,7 +61,6 @@ create table if not exists loja.pedidos (
   campanha_codigo varchar(12),
   repasse_id integer
 );
-create index if not exists ix_loja_pedidos_order_nsu on loja.pedidos (order_nsu);
 
 create table if not exists loja.ajustes (
   chave varchar(60) primary key,
@@ -286,3 +285,36 @@ alter table loja.estoque enable row level security;
 alter table loja.estoque_movimentos enable row level security;
 alter table loja.estoque_reservas enable row level security;
 alter table loja.acessos enable row level security;
+
+-- ───────── Ligações entre as tabelas (16/11/2026) ─────────
+-- Chaves estrangeiras: um pedido não aponta para afiliado, repasse ou pedido que não existe. Sem "on delete": a loja não
+-- apaga afiliados nem repasses (desativa), e o banco recusa se alguém tentar. O estoque não liga com produtos: o kit de
+-- lâminas não está nessa tabela.
+do $$
+declare
+  r record;
+begin
+  for r in
+    select * from (values
+      ('pedidos_afiliado_fk', 'pedidos', 'afiliado_id', 'afiliados', 'id'),
+      ('pedidos_repasse_fk', 'pedidos', 'repasse_id', 'repasses', 'id'),
+      ('cupons_afiliado_fk', 'cupons', 'afiliado_id', 'afiliados', 'id'),
+      ('campanhas_afiliado_fk', 'campanhas', 'afiliado_id', 'afiliados', 'id'),
+      ('repasses_afiliado_fk', 'repasses', 'afiliado_id', 'afiliados', 'id'),
+      ('afiliado_cliques_afiliado_fk', 'afiliado_cliques', 'afiliado_id', 'afiliados', 'id'),
+      ('estoque_reservas_pedido_fk', 'estoque_reservas', 'pedido_nsu', 'pedidos', 'order_nsu'),
+      ('estoque_movimentos_pedido_fk', 'estoque_movimentos', 'pedido_nsu', 'pedidos', 'order_nsu')
+    ) as t (nome, tabela, coluna, alvo, alvo_coluna)
+  loop
+    if not exists (select 1 from pg_constraint where conname = r.nome and connamespace = 'loja'::regnamespace) then
+      execute format('alter table loja.%I add constraint %I foreign key (%I) references loja.%I (%I)',
+        r.tabela, r.nome, r.coluna, r.alvo, r.alvo_coluna);
+    end if;
+  end loop;
+end $$;
+
+create index if not exists ix_loja_pedidos_afiliado on loja.pedidos (afiliado_id) where afiliado_id is not null;
+create index if not exists ix_loja_pedidos_repasse on loja.pedidos (repasse_id) where repasse_id is not null;
+create index if not exists ix_loja_pedidos_situacao on loja.pedidos (situacao, criado_em);
+create index if not exists ix_loja_cupons_afiliado on loja.cupons (afiliado_id) where afiliado_id is not null;
+create index if not exists ix_loja_estoque_movimentos_pedido on loja.estoque_movimentos (pedido_nsu) where pedido_nsu is not null;
