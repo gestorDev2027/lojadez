@@ -2,7 +2,6 @@
 // reembolso com o estoque de volta. Nada sai para a Loggi nem para a InfinitePay.
 import type { APIContext } from "astro";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { definirAdministrador, entrar } from "../src/servidor/acesso";
 import { banco } from "../src/servidor/banco";
 import { limparCache } from "../src/servidor/catalogo";
 import { esquecer } from "../src/servidor/config";
@@ -16,7 +15,7 @@ import { POST as rotaReembolsado } from "../src/pages/api/vendedor/pedidos/[nsu]
 import { POST as rotaEnvio } from "../src/pages/api/vendedor/pedidos/[nsu]/loggi/envio";
 import { GET as rotaEtiqueta } from "../src/pages/api/vendedor/pedidos/[nsu]/loggi/etiqueta";
 import { POST as rotaCancelarEnvio } from "../src/pages/api/vendedor/pedidos/[nsu]/loggi/cancelar";
-import { bancoNovo, chamar } from "./apoio";
+import { bancoNovo, chamar, entrarComo } from "./apoio";
 
 const COMPRADOR = { nome: "Maria da Silva", cpf: "52998224725", email: "maria@exemplo.com", telefone: "11987654321", cep: "01310100", numero: "100" };
 let token = "";
@@ -48,8 +47,7 @@ describe("pedidos na área do vendedor", () => {
     await bancoNovo();
     esquecer();
     limparCache();
-    await definirAdministrador("vendedor@exemplo.com", "senha-de-teste-123");
-    token = (await entrar("vendedor@exemplo.com", "senha-de-teste-123")).token;
+    token = await entrarComo("vendedor@exemplo.com");
     await estoque.lancar("kit-laminas", { tipo: "entrada", quantidade: 10 }, null);
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -75,7 +73,7 @@ describe("pedidos na área do vendedor", () => {
     expect((await chamar(comNsu(rotaEnvio, nsu), { token, metodo: "POST" })).dados.erro).toBe("Este pedido já tem envio na Loggi.");
 
     const etiqueta = await comNsu(rotaEtiqueta, nsu)({
-      request: new Request("http://localhost/x", { headers: { Authorization: `Bearer ${token}` } }), clientAddress: "127.0.0.1",
+      request: new Request("http://localhost/x", { headers: { cookie: `loja_sessao=${token}` } }), clientAddress: "127.0.0.1",
     } as unknown as APIContext);
     expect(etiqueta.headers.get("Content-Type")).toBe("application/pdf");
     expect(new TextDecoder().decode(new Uint8Array(await etiqueta.arrayBuffer())).startsWith("%PDF")).toBe(true);
