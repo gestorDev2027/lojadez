@@ -192,7 +192,7 @@ def _linha(p: dict) -> dict:
         "cliente": (p["nome"] or "").split(" ")[0], "cidade": f"{p['cidade']}/{p['uf']}",
         "produto": nome_produto(_chave_produto(p)), "quantidade": titulo_quantidade(_chave_produto(p), int(p["kits"])),
         "afiliado": nome_afiliado(p.get("afiliado_codigo")) if p.get("afiliado_codigo") else None,
-        "valor_centavos": cobrado(p), "comissao_centavos": comissao(p), "cupom": p.get("cupom_codigo"), "frete_gratis": p["frete_centavos"] == 0,
+        "valor_centavos": cobrado(p), "liquido_centavos": liquido(p), "comissao_centavos": comissao(p), "cupom": p.get("cupom_codigo"), "frete_gratis": p["frete_centavos"] == 0,
         "forma_pagamento": p.get("forma_pagamento"), "situacao": p["situacao"],
         "tem_envio": bool(p.get("loggi_key")) or bool(p.get("codigo_rastreio")),
     }
@@ -219,10 +219,22 @@ def visao_geral(de: str | None = None, ate: str | None = None, visao: str = "ven
     recorte = [p for p in do_produto if quantidade is None or int(p["kits"]) == quantidade] if produto else vendidos
     por_afiliado = _agrupar(recorte, lambda p: p.get("afiliado_codigo") or "", nome_afiliado, visao)
 
-    tabela = recorte if produto else lista  # sem recorte: todos os pedidos do período (inclusive aguardando)
-    if afiliado is not None:  # coluna 3: as vendas de um afiliado ("" = venda direta)
-        tabela = [p for p in recorte if (p.get("afiliado_codigo") or "") == afiliado]
+    # A tabela mostra as mesmas vendas das barras (pagas ou enviadas): o total dela bate com o dos cartões. Os pedidos
+    # do mesmo recorte que não viraram venda (aguardando, cancelados...) vêm à parte, em "fora".
+    def no_recorte(p: dict) -> bool:
+        return ((not produto or _chave_produto(p) == produto)
+                and (not produto or quantidade is None or int(p["kits"]) == quantidade)
+                and (afiliado is None or (p.get("afiliado_codigo") or "") == afiliado))
+
+    tabela = [p for p in vendidos if no_recorte(p)]
     ordenada = sorted(tabela, key=lambda p: cobrado(p), reverse=True)
+    fora = sorted((p for p in lista if p["situacao"] not in VENDIDOS and no_recorte(p)),
+                  key=lambda p: p["criado_em"].isoformat() if p["criado_em"] else "", reverse=True)
+    situacoes: dict[str, dict] = {}
+    for p in fora:
+        g = situacoes.setdefault(p["situacao"], {"situacao": p["situacao"], "pedidos": 0, "valor_centavos": 0})
+        g["pedidos"] += 1
+        g["valor_centavos"] += cobrado(p)
     return {
         "periodo": {"de": inicio.isoformat(), "ate": fim.isoformat(), "dias": dias},
         "visao": visao,
@@ -236,9 +248,17 @@ def visao_geral(de: str | None = None, ate: str | None = None, visao: str = "ven
         "por_afiliado": por_afiliado,
         "afiliado": afiliado,
         "afiliado_nome": nome_afiliado(afiliado) if afiliado is not None else None,
+        "produto_clicado": bool(produto),
         "pedidos": [_linha(p) for p in ordenada[:LINHAS]],
         "pedidos_total": len(ordenada),
-        "pedidos_valor_centavos": sum(cobrado(p) for p in ordenada),
+        # Na visão "Receita líquida", o total da tabela é o líquido, como nos cartões.
+        "pedidos_valor_centavos": sum(liquido(p) if visao == "liquida" else cobrado(p) for p in ordenada),
+        "fora": {
+            "pedidos": [_linha(p) for p in fora[:LINHAS]],
+            "total": len(fora),
+            "valor_centavos": sum(cobrado(p) for p in fora),
+            "por_situacao": sorted(situacoes.values(), key=lambda g: -g["pedidos"]),
+        },
     }
 
 

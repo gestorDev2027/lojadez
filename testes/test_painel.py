@@ -21,7 +21,7 @@ def test_visao_geral(cliente):
 
     kit2 = _pagar(cliente, "kit2")
     kit5 = _pagar(cliente, "kit5")  # monte o seu: frete grátis, a loja paga a Loggi
-    _pagar(cliente, "kit1", forma="")  # aguardando pagamento: não conta como venda
+    kit1 = _pagar(cliente, "kit1", forma="")  # aguardando pagamento: não conta como venda
     p2, p5 = banco.buscar(kit2), banco.buscar(kit5)
 
     r = cliente.get("/api/vendedor/painel", headers=VENDEDOR)
@@ -38,7 +38,15 @@ def test_visao_geral(cliente):
     assert [g["id"] for g in d["por_produto"]] == ["kit-laminas"] and d["por_produto"][0]["pct"] == 100
     assert {g["nome"] for g in d["por_quantidade"]} == {"2 Kits", "5 Kits"}
     assert d["por_afiliado"][0]["nome"] == "Venda direta"
-    assert d["pedidos_total"] == 3  # sem recorte, a tabela mostra também o aguardando
+    # A tabela mostra as mesmas vendas dos cartões (o total bate); o aguardando vem à parte, "fora da conta"
+    assert d["pedidos_total"] == i["pedidos"] == 2 and d["produto_clicado"] is False
+    assert d["pedidos_valor_centavos"] == i["vendas_centavos"]
+    assert kit1 not in [l["order_nsu"] for l in d["pedidos"]]
+    assert [l["order_nsu"] for l in d["fora"]["pedidos"]] == [kit1] and d["fora"]["total"] == 1
+    assert d["fora"]["por_situacao"] == [{"situacao": "aguardando_pagamento", "pedidos": 1,
+                                          "valor_centavos": d["fora"]["valor_centavos"]}]
+    liquida = cliente.get("/api/vendedor/painel?visao=liquida", headers=VENDEDOR).json()
+    assert liquida["pedidos_valor_centavos"] == i["liquida_centavos"]  # na visão líquida, o total é o líquido
     linha = next(l for l in d["pedidos"] if l["order_nsu"] == kit5)
     assert linha == {**linha, "cliente": "Maria", "quantidade": "5 Kits", "frete_gratis": True, "situacao": "pago"}
     assert "cpf" not in linha and "email" not in linha and "rua" not in linha  # sem dados pessoais na tabela
@@ -46,6 +54,7 @@ def test_visao_geral(cliente):
     # Recorte: kit de lâminas › 5 kits; e a visão "pedidos"
     d = cliente.get("/api/vendedor/painel?produto=kit-laminas&quantidade=5&visao=pedidos", headers=VENDEDOR).json()
     assert [l["order_nsu"] for l in d["pedidos"]] == [kit5] and d["por_afiliado"][0]["valor"] == 1
+    assert d["produto_clicado"] is True and d["fora"]["total"] == 0  # o aguardando é de 1 kit, fora deste recorte
     assert {g["valor"] for g in d["por_quantidade"]} == {1}
 
     # Período sem pedidos e datas inválidas
