@@ -20,26 +20,32 @@ import {
 // preenchidos para a InfinitePay, que sempre mostra a tela de contato). O servidor recalcula preço e frete na hora de
 // criar o pedido e devolve o link de pagamento da InfinitePay.
 export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitrine }) {
+  const chaveRascunho = `${CHAVE_RASCUNHO}:${v.produto || "kit"}`;
+  // O que a pessoa já tinha preenchido nesta aba (recarregou, ou o celular fechou a página enquanto ela olhava outra coisa).
+  const [rascunho] = useState(() => lerRascunho(chaveRascunho));
+  const lembrados = lerCliente();
+  const valida = (id: string | null | undefined) => Boolean(id && (v.ofertas.some((o) => o.id === id) || kitsMontadosDaUrl(v, id)));
   const daUrl = new URLSearchParams(window.location.search).get("oferta");
-  const montadosDaUrl = v.ofertas.some((o) => o.id === daUrl) ? null : kitsMontadosDaUrl(v, daUrl);
-  const [ofertaId, setOfertaId] = useState(
-    v.ofertas.some((o) => o.id === daUrl) || montadosDaUrl ? daUrl! : v.oferta_padrao || v.ofertas[0].id,
-  );
-  const [kitsMontados, setKitsMontados] = useState(montadosDaUrl ?? v.montar.minimo);
-  const [cep, setCep] = useState(() => lerCliente().cep ?? "");
+  const ofertaInicial = valida(daUrl) ? daUrl! : valida(rascunho.oferta) ? rascunho.oferta! : v.oferta_padrao || v.ofertas[0].id;
+  const montadosIniciais = v.ofertas.some((o) => o.id === ofertaInicial) ? null : kitsMontadosDaUrl(v, ofertaInicial);
+  const [ofertaId, setOfertaId] = useState(ofertaInicial);
+  const [kitsMontados, setKitsMontados] = useState(montadosIniciais ?? rascunho.kits_montados ?? v.montar.minimo);
+  const [cepInicial] = useState(() => rascunho.cep ?? lembrados.cep ?? "");
+  const [cep, setCep] = useState(cepInicial);
   const [cotacao, setCotacao] = useState<Cotacao | null>(null);
-  const [freteTipo, setFreteTipo] = useState("");
+  const [freteTipo, setFreteTipo] = useState(rascunho.frete_tipo ?? "");
   const [cotando, setCotando] = useState(false);
   const [erroFrete, setErroFrete] = useState("");
-  const lembrados = lerCliente();
-  const [dados, setDados] = useState({ nome: "", cpf: "", email: "", telefone: "", rua: "", numero: "", complemento: "", bairro: "", ...lembrados.dados });
-  const [lembrar, setLembrar] = useState(true);
+  const [dados, setDados] = useState({
+    nome: "", cpf: "", email: "", telefone: "", rua: "", numero: "", complemento: "", bairro: "", ...lembrados.dados, ...rascunho.dados,
+  });
+  const [lembrar, setLembrar] = useState(rascunho.lembrar ?? true);
   const [temLembrados, setTemLembrados] = useState(Boolean(lembrados.dados?.nome));
   const [tocados, setTocados] = useState<Record<string, boolean>>({});
-  const [alterarRua, setAlterarRua] = useState(false);
-  const [comComplemento, setComComplemento] = useState(Boolean(lembrados.dados?.complemento));
+  const [alterarRua, setAlterarRua] = useState(rascunho.alterar_rua ?? false);
+  const [comComplemento, setComComplemento] = useState(Boolean(rascunho.dados?.complemento ?? lembrados.dados?.complemento));
   const [focarDepoisDoCep, setFocarDepoisDoCep] = useState(false);
-  const [cupomTexto, setCupomTexto] = useState("");
+  const [cupomTexto, setCupomTexto] = useState(rascunho.cupom ?? "");
   const [cupom, setCupom] = useState<CupomAplicado | null>(null);
   const [erroCupom, setErroCupom] = useState("");
   const [validandoCupom, setValidandoCupom] = useState(false);
@@ -64,7 +70,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
       setFreteTipo((atual) => (c.opcoes.some((o) => o.tipo === atual) ? atual : maisBarata.tipo));
       // A rua e o bairro do CEP, sem apagar o que a pessoa já escreveu.
       setDados((d) =>
-        d.rua && cepUsado.replace(/\D/g, "") === (lembrados.cep ?? "").replace(/\D/g, "")
+        d.rua && cepUsado.replace(/\D/g, "") === cepInicial.replace(/\D/g, "")
           ? { ...d, rua: d.rua || c.endereco.rua, bairro: d.bairro || c.endereco.bairro }
           : { ...d, rua: c.endereco.rua, bairro: c.endereco.bairro },
       );
@@ -86,7 +92,8 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     if (cupom) void aplicarCupom(cupom.codigo, id);
   }
 
-  async function aplicarCupom(codigo = cupomTexto, id = ofertaId) {
+  /** Devolve o código, se o cupom valeu. */
+  async function aplicarCupom(codigo = cupomTexto, id = ofertaId): Promise<string | undefined> {
     const limpo = codigo.trim().toUpperCase();
     if (!limpo) return;
     setValidandoCupom(true);
@@ -96,6 +103,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
       setCupom(c);
       setCupomTexto(c.codigo);
       if (cotacao && c.frete_gratis !== cupom?.frete_gratis) void cotar(id, cep, c.codigo);
+      return c.codigo;
     } catch (e) {
       setCupom(null);
       setErroCupom((e as Error).message);
@@ -113,11 +121,23 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     if (cotacao && tinhaFrete) void cotar(ofertaId, cep, undefined);
   }
 
-  // Quem já comprou neste aparelho: o frete é calculado sozinho para o CEP lembrado.
+  // Ao abrir: o cupom que já estava aplicado vale de novo e o frete é calculado sozinho para o CEP do rascunho (ou o
+  // lembrado de quem já comprou neste aparelho).
   useEffect(() => {
-    if (lembrados.cep && (lembrados.cep.replace(/\D/g, "").length === 8)) void cotar(ofertaId, lembrados.cep);
+    void (async () => {
+      const codigo = rascunho.cupom ? await aplicarCupom(rascunho.cupom, ofertaId) : undefined;
+      if (cepInicial.replace(/\D/g, "").length === 8) await cotar(ofertaId, cepInicial, codigo);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Guarda o rascunho a cada mudança (só nesta aba: some quando ela é fechada).
+  useEffect(() => {
+    guardarRascunho(chaveRascunho, {
+      oferta: ofertaId, kits_montados: kitsMontados, cep, frete_tipo: freteTipo, dados, cupom: cupom?.codigo,
+      alterar_rua: alterarRua, lembrar,
+    });
+  }, [chaveRascunho, ofertaId, kitsMontados, cep, freteTipo, dados, cupom, alterarRua, lembrar]);
 
   useEffect(() => {
     if (!focarDepoisDoCep || !cotacao) return;
@@ -460,6 +480,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
                       className="underline-offset-4 hover:text-tinta hover:underline"
                       onClick={() => {
                         guardarCliente(null);
+                        apagarRascunho(chaveRascunho);
                         setTemLembrados(false);
                         setLembrar(false);
                         setComComplemento(false);
@@ -754,6 +775,43 @@ type Lembrados = {
   dados?: Partial<{ nome: string; cpf: string; email: string; telefone: string; rua: string; numero: string; complemento: string; bairro: string }>;
   cep?: string;
 };
+
+// O rascunho do checkout: o que foi preenchido, só nesta aba (sessionStorage), para não perder tudo ao recarregar ou
+// quando o celular fecha a página em segundo plano. Vale 24 horas; some quando a aba é fechada.
+const CHAVE_RASCUNHO = "loja-checkout";
+const RASCUNHO_VALE_MS = 24 * 3600_000;
+type Rascunho = {
+  oferta?: string;
+  kits_montados?: number;
+  cep?: string;
+  frete_tipo?: string;
+  dados?: Partial<Record<"nome" | "cpf" | "email" | "telefone" | "rua" | "numero" | "complemento" | "bairro", string>>;
+  cupom?: string;
+  alterar_rua?: boolean;
+  lembrar?: boolean;
+};
+function lerRascunho(chave: string): Rascunho {
+  try {
+    const salvo = JSON.parse(sessionStorage.getItem(chave) ?? "null") as { quando: number; rascunho: Rascunho } | null;
+    return salvo && Date.now() - salvo.quando < RASCUNHO_VALE_MS ? salvo.rascunho : {};
+  } catch {
+    return {};
+  }
+}
+function guardarRascunho(chave: string, rascunho: Rascunho) {
+  try {
+    sessionStorage.setItem(chave, JSON.stringify({ quando: Date.now(), rascunho }));
+  } catch {
+    /* sem armazenamento: não guarda */
+  }
+}
+function apagarRascunho(chave: string) {
+  try {
+    sessionStorage.removeItem(chave);
+  } catch {
+    /* nada */
+  }
+}
 
 // Os dados do cliente ficam só neste aparelho (localStorage), se ele deixar marcado "lembrar".
 const CHAVE_CLIENTE = "loja-cliente";
