@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { chamar, ErroApi, formatarCep, formatarCpf, formatarTelefone, reais, type PedidoVendedor } from "../api";
 import { Tabela, type ColunaTabela } from "./Tabela";
 import { rotuloPagamento, Selo, VisaoGeral } from "./VendedorPainel";
@@ -37,7 +37,8 @@ type Aba =
   | "configuracoes" | "acessos" | "conta";
 
 // Cada aba aparece só para quem tem a permissão dela (null = todos). Quem confere de verdade é cada rota no servidor.
-const MENU: { id: Aba; rotulo: string; icone: string; permissao: string | null; breve?: boolean }[] = [
+// "admin": o grupo de baixo do menu (Configurações, Usuários e acessos, Minha conta), com título próprio.
+const MENU: { id: Aba; rotulo: string; icone: string; permissao: string | null; breve?: boolean; admin?: boolean }[] = [
   { id: "visao", rotulo: "Visão geral", permissao: "visao", icone: "M4 13h6V4H4zM14 20h6V11h-6zM4 20h6v-3H4zM14 7h6V4h-6z" },
   { id: "pedidos", rotulo: "Pedidos", permissao: "pedidos", icone: "M6 3h12l2 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7zM4 7h16M9 11h6" },
   { id: "produto", rotulo: "Kit de lâminas", permissao: "produtos", icone: "M4 7l8-4 8 4v10l-8 4-8-4zM4 7l8 4 8-4M12 11v10" },
@@ -48,9 +49,9 @@ const MENU: { id: Aba; rotulo: string; icone: string; permissao: string | null; 
   { id: "cupons", rotulo: "Cupons", permissao: "cupons", icone: "M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 0 0-4V4H3zM10 4v16" },
   { id: "financeiro", rotulo: "Financeiro", permissao: "financeiro", icone: "M4 19V5M4 19h16M8 15l4-4 3 3 5-6" },
   { id: "integracoes", rotulo: "Integrações", permissao: "integracoes", icone: "M9 7V3M15 7V3M7 7h10v5a5 5 0 0 1-10 0zM12 17v4" },
-  { id: "configuracoes", rotulo: "Configurações", permissao: "configuracoes", icone: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z" },
-  { id: "acessos", rotulo: "Acessos", permissao: "acessos", icone: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4" },
-  { id: "conta", rotulo: "Minha conta", permissao: null, icone: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" },
+  { id: "configuracoes", rotulo: "Configurações", permissao: "configuracoes", admin: true, icone: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z" },
+  { id: "acessos", rotulo: "Usuários e acessos", permissao: "acessos", admin: true, icone: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4" },
+  { id: "conta", rotulo: "Minha conta", permissao: null, admin: true, icone: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" },
 ];
 
 function Icone({ d }: { d: string }) {
@@ -112,17 +113,26 @@ export function PaginaVendedor() {
       <aside className="min-w-0 border-b border-linha lg:sticky lg:top-[61px] lg:h-[calc(100dvh-61px)] lg:border-r lg:border-b-0">
         <div className="flex h-full flex-col gap-4 p-3 lg:p-4">
           <p className="hidden px-2 font-mono text-[11px] font-bold tracking-[.16em] text-suave uppercase lg:block">Gestão da loja</p>
-          <nav aria-label="Área do vendedor" className="flex gap-1 overflow-x-auto [scrollbar-width:none] lg:flex-col lg:overflow-y-auto">
-            {menu.map((m) => {
+          <nav
+            aria-label="Área do vendedor"
+            className="flex min-h-0 gap-1 overflow-x-auto [scrollbar-width:none] lg:flex-col lg:overflow-y-auto lg:[scrollbar-width:thin]"
+          >
+            {menu.map((m, i) => {
               const ativo = atual === m.id;
+              const abreAdmin = m.admin && !menu[i - 1]?.admin;
               return (
-                <button
-                  key={m.id}
+                <Fragment key={m.id}>
+                  {abreAdmin && (
+                    <p className="hidden px-2 pt-4 pb-1 font-mono text-[11px] font-bold tracking-[.16em] text-suave uppercase lg:block">
+                      Administração
+                    </p>
+                  )}
+                  <button
                   type="button"
                   disabled={m.breve}
                   aria-current={ativo ? "page" : undefined}
                   onClick={() => !m.breve && setAba(m.id)}
-                  className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+                  className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition lg:py-2 ${
                     ativo
                       ? "bg-laranja text-black shadow-[0_8px_24px_-12px_rgba(255,106,19,.8)]"
                       : m.breve
@@ -133,7 +143,8 @@ export function PaginaVendedor() {
                   <Icone d={m.icone} />
                   <span className="whitespace-nowrap">{m.rotulo}</span>
                   {m.breve && <span className="ml-auto rounded-full bg-white/[.06] px-2 py-0.5 font-mono text-[10px] text-suave">em breve</span>}
-                </button>
+                  </button>
+                </Fragment>
               );
             })}
           </nav>
@@ -394,13 +405,21 @@ function Reembolso({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senh
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
   const [copiado, setCopiado] = useState(false);
+  const [voltou, setVoltou] = useState(false);
 
   async function enviar(caminho: string, corpo: object) {
     setErro("");
     setOcupado(true);
     try {
-      const r = await chamar<{ aviso_loggi?: string | null }>(`/api/vendedor/pedidos/${p.order_nsu}/${caminho}`, { senha, corpo });
-      if (r.aviso_loggi) setAviso(r.aviso_loggi);
+      const r = await chamar<{ aviso_loggi?: string | null; voltou_ao_estoque?: number }>(`/api/vendedor/pedidos/${p.order_nsu}/${caminho}`, {
+        senha,
+        corpo,
+      });
+      const avisos = [
+        r.aviso_loggi,
+        r.voltou_ao_estoque ? `${r.voltou_ao_estoque} ${r.voltou_ao_estoque === 1 ? "unidade voltou" : "unidades voltaram"} para o estoque (o pacote não saiu).` : "",
+      ].filter(Boolean);
+      if (avisos.length) setAviso(avisos.join(" "));
       setAberto(false);
       aoMudar();
     } catch (e) {
@@ -451,6 +470,13 @@ function Reembolso({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senh
             Ver o recibo da InfinitePay
           </a>
         )}
+        <label className="flex items-start gap-2 text-tinta-2">
+          <input type="checkbox" className="mt-1 accent-[#FF5A00]" checked={voltou} onChange={(e) => setVoltou(e.target.checked)} />
+          <span>
+            O produto voltou para mim (o cliente devolveu): somar de novo ao estoque.
+            <span className="block text-xs text-suave">Se o pacote nem chegou a sair, o estoque já voltou sozinho.</span>
+          </span>
+        </label>
         <div className="flex flex-wrap items-end gap-2">
           <label className="grid gap-1 text-xs">
             Valor devolvido (R$)
@@ -459,7 +485,7 @@ function Reembolso({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senh
           <button
             type="button"
             disabled={ocupado}
-            onClick={() => void enviar("reembolsado", { valor_centavos: paraCentavos(valor) })}
+            onClick={() => void enviar("reembolsado", { valor_centavos: paraCentavos(valor), voltou_ao_estoque: voltou })}
             className="btn-laranja px-4 py-2.5 text-xs"
           >
             {ocupado ? "Salvando…" : "Marcar como reembolsado"}

@@ -20,10 +20,11 @@ const JA_NO_ASTRO = [
   "loja", "vitrine", "produtos", "vendedor/(catalogo|foto|produtos)", // etapa 2
   "vendedor/estoque", // estoque e SKU
   "cep", "frete", "cupons/validar", "afiliados/clique", "pedidos", "webhooks", // etapa 3: a compra
+  "vendedor/pedidos", // etapa 4: os pedidos na área do vendedor
 ];
 // Só no computador, enquanto parte da API está no Python: o cookie da sessão vira o cabeçalho que ele espera.
 function passarSessao(pedido, entrada) {
-  const sessao = /(?:^|;s*)loja_sessao=([^;]+)/.exec(entrada.headers.cookie ?? "")?.[1];
+  const sessao = /(?:^|;\s*)loja_sessao=([^;]+)/.exec(entrada.headers.cookie ?? "")?.[1];
   if (sessao) pedido.setHeader("authorization", `Bearer ${decodeURIComponent(sessao)}`);
 }
 const apiNoPython = `^/api/(?!(${JA_NO_ASTRO.join("|")})(/|$|\\?)).*`;
@@ -70,7 +71,8 @@ export default defineConfig({
     plugins: [tailwindcss()],
     server: {
       proxy: {
-        [apiNoPython]: PYTHON,
+        // O painel manda a sessão no cookie; o Python lê o "Authorization: Bearer" (passarSessao).
+        [apiNoPython]: { target: PYTHON, configure: (proxy) => proxy.on("proxyReq", passarSessao) },
       },
     },
   },
