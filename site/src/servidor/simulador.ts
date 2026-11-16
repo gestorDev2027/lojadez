@@ -3,7 +3,7 @@
 // O link do pedido abre uma página da própria loja com "Pagar com Pix", "Pagar com cartão" e "Desistir". Pagar faz o
 // mesmo que a InfinitePay faria: avisa o webhook e manda o cliente para o redirect_url com os parâmetros.
 //
-// Na Netlify cada Function começa do zero, então nada fica na memória: o "slug" do pagamento leva a forma e uma
+// Nada fica na memória (o servidor reinicia a cada publicação): o "slug" do pagamento leva a forma e uma
 // assinatura do pedido (sim-pix-<hash>), e a conferência refaz a conta a partir do pedido no banco.
 import { createHash, randomUUID } from "node:crypto";
 import { uma } from "./banco";

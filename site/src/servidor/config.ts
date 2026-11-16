@@ -1,12 +1,12 @@
 // A configuração da loja. De onde vem cada valor, nesta ordem:
 // 1. o que o vendedor salvou na aba Configurações (tabela `configuracoes`; os segredos no Vault do Supabase);
-// 2. as variáveis de ambiente (na Netlify, o painel dela; no computador, o .env);
+// 2. as variáveis de ambiente (no Render, o painel dele; no computador, o .env);
 // 3. o padrão abaixo.
 //
-// O endereço do site (SITE_URL) é a exceção: vem só da variável de ambiente de cada lugar (na Netlify, o domínio; no
+// O endereço do site (SITE_URL) é a exceção: vem só da variável de ambiente de cada lugar (no Render, o domínio; no
 // computador, o localhost). O banco é o mesmo nos dois, e um endereço salvo nele valeria para os dois.
 //
-// Na Netlify cada Function guarda a configuração por CACHE_MS; quem salva limpa na hora a da própria instância.
+// O servidor guarda a configuração por CACHE_MS; quem salva limpa na hora a da própria instância.
 import { amb } from "./ambiente";
 
 export type TipoCampo =

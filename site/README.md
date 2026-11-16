@@ -1,7 +1,7 @@
-# A loja em Astro (Netlify)
+# A loja em Astro (Render)
 
-A loja Wolf & Co está mudando do servidor Python (Render) para o Astro (Netlify), uma etapa por PR. O banco continua o
-mesmo: o Postgres do Supabase, esquema `loja` (as tabelas estão em `banco/esquema.sql`).
+A loja Wolf & Co está mudando do servidor Python para o Astro, uma etapa por PR, e fica no Render (um serviço Docker). O
+banco continua o mesmo: o Postgres do Supabase, esquema `loja` (as tabelas estão em `banco/esquema.sql`).
 
 ## Rodar no computador
 
@@ -10,12 +10,13 @@ cd site
 npm install
 npm run dev      # http://localhost:4321
 npm test         # testes num Postgres em memória (PGlite)
-npm run build    # confere os tipos e gera o build da Netlify
+npm run build    # confere os tipos e gera o servidor (dist/)
 ```
 
 As variáveis vêm do `.env` da raiz do repositório. Durante a migração, o que ainda não foi reescrito continua no
-servidor Python: deixe ele rodando na porta 8000 (`.venv\Scripts\python -m uvicorn servidor.app:app --port 8000`), e o
-`npm run dev` repassa essas rotas para ele (lista em `astro.config.mjs`).
+servidor Python (as abas Visão geral, Financeiro, Afiliados, Cupons, Repasses, Integrações e IA): deixe ele rodando na
+porta 8000 (`.venv\Scripts\python -m uvicorn servidor.app:app --reload --port 8000`). O Astro confere a sessão e a
+permissão e repassa (`src/servidor/python.ts`).
 
 ## O que já está em TypeScript
 
@@ -31,23 +32,26 @@ Preto de base (`#0B0B0B`), **laranja `#FF5A00` só no que é compra e oferta** (
 Títulos em Bebas Neue, texto em Inter. O logo ainda é provisório (`src/components/Simbolo.astro` e `Simbolo` em
 `src/app/App.tsx`): troca pelo SVG oficial quando chegar.
 
-## Na Netlify
+## No Render
 
-- **Base directory:** `site` (o `netlify.toml` fica aqui).
-- **Variáveis:** `DATABASE_URL` (Supabase, Connect > **Transaction pooler**, porta 6543), `LOJA_ADMIN_EMAIL` e
-  `LOJA_ADMIN_SENHA` (o acesso à área do vendedor; não há tela de primeiro acesso).
+- **Um serviço web (Docker):** `Dockerfile` e `render.yaml` na raiz do repositório. O Node (`site/servidor.mjs`)
+  atende o site; o Python roda por dentro (só em 127.0.0.1:8001) para as abas do painel que ainda não foram reescritas.
+  Se o Python cair, o servidor liga de novo.
+- **Variáveis** (lista no `render.yaml`): `DATABASE_URL` (Supabase, Connect > **Session pooler**, porta 5432; usuário
+  `postgres` enquanto o Python existir, porque ele cria tabelas e usa o Vault direto), `SITE_URL`, `SUPABASE_URL`,
+  `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `LOJA_ADMIN_EMAIL` e `LOJA_ADMIN_SENHA`.
 - O resto da configuração (Loggi, InfinitePay...) fica na aba Configurações, com as chaves no Vault do Supabase.
-- As variáveis com o escopo **All scopes**: o build confere o `DATABASE_URL` (`env.schema` no `astro.config.mjs`).
-- **Cache na CDN** (`src/servidor/cdn.ts`): a landing, a vitrine, as páginas dos produtos, o mapa do site e a API
-  pública saem da CDN (10 min, etiqueta `loja`). Quando o vendedor muda preço, produto, foto ou configuração, a
-  etiqueta é limpa na hora. Checkout, painel e API do vendedor nunca vão para o cache.
-- **Fotos** da landing e da vitrine pela Image CDN da Netlify (`/.netlify/images`, tamanho certo e WebP/AVIF); no
-  computador, os endereços originais.
+- **Tarefas a cada 15 minutos** (`src/pages/api/tarefas.ts`): o próprio servidor chama, com uma chave sorteada ao
+  ligar. Conferem os pagamentos pendentes, fazem o envio automático e liberam as reservas vencidas.
+- **Cache** (`src/servidor/cdn.ts`): as páginas públicas saem com `max-age=0` (o navegador sempre pergunta; o servidor
+  guarda a configuração e o catálogo na memória). As fotos têm a versão no endereço e ficam no navegador.
 - **Meta Pixel e GTM** pelo Partytown (fora da linha principal), com os scripts passando pelo próprio site
-  (`/~partytown/...`, no `netlify.toml`). Onde o navegador não aceita service worker, rodam do jeito normal. Desliga em
+  (`src/pages/~partytown`). Onde o navegador não aceita service worker, rodam do jeito normal. Desliga em
   Configurações → Rastreamento em segundo plano.
 - `/sitemap.xml` e `/robots.txt` saem do banco (os produtos ativos) e usam o `SITE_URL`.
-- Região das Functions: no plano grátis, Ohio (EUA); São Paulo (`gru`) só no plano Pro.
+- Região: Virginia (EUA), perto do Supabase. Plano Starter (o grátis dorme, e o aviso de pagamento pode chegar com o site
+  dormindo).
+- Testar o build no computador sem mexer nos pedidos: `npm run build`, depois `TAREFAS_DESLIGADAS=sim node servidor.mjs`.
 
 ## Estoque e SKU
 

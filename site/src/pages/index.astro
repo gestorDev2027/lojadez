@@ -18,7 +18,7 @@ const base = c.SITE_URL.startsWith("http") ? c.SITE_URL : Astro.url.origin;
 const foto = new URL(config.fotoKit, base).href;
 emCache(Astro.response.headers);
 
-// As fotos pela Image CDN da Netlify (no computador, os endereços originais); a do og:image fica a original.
+// As fotos da página (fotoOtimizada: hoje, os endereços originais); a do og:image fica a original.
 const pagina = {
   ...config,
   fotoKit: fotoOtimizada(config.fotoKit, 1200),
