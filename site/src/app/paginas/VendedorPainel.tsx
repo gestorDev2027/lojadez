@@ -14,6 +14,7 @@ type Linha = {
   quantidade: string;
   afiliado: string | null;
   valor_centavos: number;
+  liquido_centavos: number;
   comissao_centavos: number;
   frete_gratis: boolean;
   forma_pagamento: string | null;
@@ -52,6 +53,9 @@ type Painel = {
   pedidos: Linha[];
   pedidos_total: number;
   pedidos_valor_centavos: number;
+  produto_clicado: boolean;
+  /** Os pedidos do mesmo recorte que não viraram venda (aguardando, cancelados...): fora da conta. */
+  fora: { pedidos: Linha[]; total: number; valor_centavos: number; por_situacao: { situacao: string; pedidos: number; valor_centavos: number }[] };
 };
 type Visao = "vendas" | "liquida" | "pedidos";
 
@@ -448,13 +452,17 @@ export function Coluna({
 // ───────── Tabela do recorte ─────────
 
 function TabelaRecorte({ dados, aoAbrirPedido }: { dados: Painel; aoAbrirPedido: (nsu: string) => void }) {
+  const [verFora, setVerFora] = useState(false);
   const base = dados.quantidade !== null
     ? `${dados.produto_nome} · ${dados.por_quantidade.find((g) => g.id === dados.quantidade)?.nome ?? ""}`
-    : dados.produto && dados.produto_nome
+    : dados.produto_clicado && dados.produto_nome
       ? dados.produto_nome
-      : "todos os pedidos do período";
+      : "todas as vendas do período";
   const recorte = dados.afiliado !== null ? `${base} · ${dados.afiliado_nome}` : base;
   const resto = dados.pedidos_total - dados.pedidos.length;
+  const liquida = dados.visao === "liquida";
+  const fora = dados.fora;
+  const restoFora = fora.total - fora.pedidos.length;
   return (
     <section className="rounded-2xl border border-linha bg-fundo-2/90 p-4">
       <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -463,60 +471,94 @@ function TabelaRecorte({ dados, aoAbrirPedido }: { dados: Painel; aoAbrirPedido:
           Maiores pedidos · {recorte}
         </h2>
         <span className="font-mono text-[11px] text-suave">
-          {reais(dados.pedidos_valor_centavos)} · {dados.pedidos_total} {dados.pedidos_total === 1 ? "pedido" : "pedidos"}
+          {liquida ? "líquido " : ""}
+          {reais(dados.pedidos_valor_centavos)} · {dados.pedidos_total} {dados.pedidos_total === 1 ? "venda" : "vendas"}
         </span>
       </header>
       {dados.pedidos.length === 0 ? (
-        <p className="py-6 text-center text-sm text-suave">Nenhum pedido neste recorte.</p>
+        <p className="py-6 text-center text-sm text-suave">Nenhuma venda neste recorte.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead>
-              <tr className="text-left font-mono text-[11px] tracking-[.12em] text-suave uppercase">
-                <th className="px-2 py-2 font-semibold">Data</th>
-                <th className="px-2 py-2 font-semibold">Cliente</th>
-                <th className="px-2 py-2 font-semibold">Produto</th>
-                <th className="px-2 py-2 font-semibold">Quantidade</th>
-                <th className="px-2 py-2 font-semibold">Afiliado</th>
-                <th className="px-2 py-2 font-semibold">Pagamento</th>
-                <th className="px-2 py-2 text-right font-semibold">Valor</th>
-                <th className="px-2 py-2 font-semibold">Situação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dados.pedidos.map((l) => (
-                <tr
-                  key={l.order_nsu}
-                  onClick={() => aoAbrirPedido(l.order_nsu)}
-                  className="cursor-pointer border-t border-linha hover:bg-white/[.03]"
-                  title="Abrir o pedido"
-                >
-                  <td className="px-2 py-2.5 font-mono text-xs text-tinta-2">{l.criado_em ? new Date(l.criado_em).toLocaleDateString("pt-BR") : "—"}</td>
-                  <td className="px-2 py-2.5">
-                    <span className="font-semibold">{l.cliente}</span> <span className="text-xs text-suave">{l.cidade}</span>
-                  </td>
-                  <td className="px-2 py-2.5 text-tinta-2">{l.produto}</td>
-                  <td className="px-2 py-2.5">
-                    {l.quantidade}
-                    {l.frete_gratis && <span className="ml-2 font-mono text-[10px] font-bold text-ok">FRETE GRÁTIS</span>}
-                  </td>
-                  <td className="px-2 py-2.5 text-tinta-2">
-                    {l.afiliado ?? "Direta"}
-                    {l.comissao_centavos > 0 && <span className="block font-mono text-[10px] text-suave">comissão {reais(l.comissao_centavos)}</span>}
-                  </td>
-                  <td className="px-2 py-2.5 text-tinta-2">{rotuloPagamento(l.forma_pagamento)}</td>
-                  <td className="px-2 py-2.5 text-right font-mono font-bold">{reais(l.valor_centavos)}</td>
-                  <td className="px-2 py-2.5">
-                    <Selo situacao={l.situacao} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {resto > 0 && <p className="mt-2 px-2 text-xs text-suave">+ {resto} {resto === 1 ? "pedido menor" : "pedidos menores"}</p>}
+        <>
+          <TabelaPedidos linhas={dados.pedidos} liquida={liquida} aoAbrirPedido={aoAbrirPedido} />
+          {resto > 0 && <p className="mt-2 px-2 text-xs text-suave">+ {resto} {resto === 1 ? "venda menor" : "vendas menores"}</p>}
+        </>
+      )}
+      {fora.total > 0 && (
+        <div className="mt-4 border-t border-linha pt-3">
+          <button
+            type="button"
+            onClick={() => setVerFora((v) => !v)}
+            aria-expanded={verFora}
+            className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-2 py-1.5 text-left text-xs text-suave hover:bg-white/[.03]"
+          >
+            <span className="font-semibold text-tinta-2">Fora da conta:</span>
+            {fora.por_situacao.map((g, i) => (
+              <span key={g.situacao}>
+                {g.pedidos} {(SITUACOES[g.situacao]?.rotulo ?? g.situacao).toLowerCase()} ({reais(g.valor_centavos)})
+                {i < fora.por_situacao.length - 1 ? "," : ""}
+              </span>
+            ))}
+            <span className="ml-auto font-mono text-[11px] text-laranja">{verFora ? "esconder" : "ver"}</span>
+          </button>
+          {verFora && (
+            <div className="mt-2">
+              <TabelaPedidos linhas={fora.pedidos} liquida={false} aoAbrirPedido={aoAbrirPedido} />
+              {restoFora > 0 && <p className="mt-2 px-2 text-xs text-suave">+ {restoFora} {restoFora === 1 ? "pedido mais antigo" : "pedidos mais antigos"}</p>}
+            </div>
+          )}
         </div>
       )}
     </section>
+  );
+}
+
+function TabelaPedidos({ linhas, liquida, aoAbrirPedido }: { linhas: Linha[]; liquida: boolean; aoAbrirPedido: (nsu: string) => void }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] text-sm">
+        <thead>
+          <tr className="text-left font-mono text-[11px] tracking-[.12em] text-suave uppercase">
+            <th className="px-2 py-2 font-semibold">Data</th>
+            <th className="px-2 py-2 font-semibold">Cliente</th>
+            <th className="px-2 py-2 font-semibold">Produto</th>
+            <th className="px-2 py-2 font-semibold">Quantidade</th>
+            <th className="px-2 py-2 font-semibold">Afiliado</th>
+            <th className="px-2 py-2 font-semibold">Pagamento</th>
+            <th className="px-2 py-2 text-right font-semibold">{liquida ? "Líquido" : "Valor"}</th>
+            <th className="px-2 py-2 font-semibold">Situação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.map((l) => (
+            <tr
+              key={l.order_nsu}
+              onClick={() => aoAbrirPedido(l.order_nsu)}
+              className="cursor-pointer border-t border-linha hover:bg-white/[.03]"
+              title="Abrir o pedido"
+            >
+              <td className="px-2 py-2.5 font-mono text-xs text-tinta-2">{l.criado_em ? new Date(l.criado_em).toLocaleDateString("pt-BR") : "—"}</td>
+              <td className="px-2 py-2.5">
+                <span className="font-semibold">{l.cliente}</span> <span className="text-xs text-suave">{l.cidade}</span>
+              </td>
+              <td className="px-2 py-2.5 text-tinta-2">{l.produto}</td>
+              <td className="px-2 py-2.5">
+                {l.quantidade}
+                {l.frete_gratis && <span className="ml-2 font-mono text-[10px] font-bold text-ok">FRETE GRÁTIS</span>}
+              </td>
+              <td className="px-2 py-2.5 text-tinta-2">
+                {l.afiliado ?? "Direta"}
+                {l.comissao_centavos > 0 && <span className="block font-mono text-[10px] text-suave">comissão {reais(l.comissao_centavos)}</span>}
+              </td>
+              <td className="px-2 py-2.5 text-tinta-2">{rotuloPagamento(l.forma_pagamento)}</td>
+              <td className="px-2 py-2.5 text-right font-mono font-bold">{reais(liquida ? l.liquido_centavos : l.valor_centavos)}</td>
+              <td className="px-2 py-2.5">
+                <Selo situacao={l.situacao} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
