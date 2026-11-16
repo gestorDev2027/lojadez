@@ -10,7 +10,8 @@ import { config as carregarEnv } from "dotenv";
 import { defineConfig, envField } from "astro/config";
 
 // No computador, as variáveis vêm do .env da raiz do repositório (o mesmo do Python). Na Netlify, do painel dela.
-carregarEnv({ path: new URL("../.env", import.meta.url), quiet: true });
+// Nos testes, nunca: eles não podem ver as chaves de verdade (vitest.paginas.config.ts lê este arquivo).
+if (!process.env.VITEST) carregarEnv({ path: new URL("../.env", import.meta.url), quiet: true });
 
 const PYTHON = "http://localhost:8000";
 // O que já está em TypeScript (Astro). O resto da API, no desenvolvimento, vai para o Python.
@@ -38,6 +39,9 @@ export default defineConfig({
   output: "server",
   // A loja não usa as sessões do Astro (o afiliado e o carrinho ficam no navegador): sem elas, a Function fica menor.
   session: false,
+  // Pré-carrega a página do produto quando o cliente passa o mouse (ou foca) no link: só os links com
+  // data-astro-prefetch (vitrine e landing). Em conexão lenta ou economia de dados, o Astro espera o clique.
+  prefetch: { prefetchAll: false, defaultStrategy: "hover" },
   // As variáveis conferidas ao subir e no build (na Netlify, o build falha se faltar o banco). As outras configurações
   // (Loggi, InfinitePay...) vêm da tela de Configurações e do Vault, não daqui.
   env: {

@@ -1,0 +1,99 @@
+---
+// As páginas da loja feitas em Astro (vitrine e produto): o HTML já sai pronto do servidor, com o mesmo cabeçalho e
+// rodapé do app React. A troca de página usa a transição nativa do navegador (@view-transition, em styles.css): a foto do
+// produto "voa" do cartão para a página dele. Navegador sem suporte só abre a página.
+import Simbolo from "../components/Simbolo.astro";
+import "../app/styles.css";
+
+type Props = {
+  titulo: string;
+  descricao?: string;
+  imagem?: string; // caminho da foto
+  precoCentavos?: number;
+  nomeLoja: string;
+  testes?: boolean;
+  dadosGoogle?: Record<string, unknown>; // o JSON-LD (schema.org) da página
+};
+const { titulo, descricao, imagem, precoCentavos, nomeLoja, testes = false, dadosGoogle } = Astro.props;
+const base = Astro.url.origin;
+const foto = imagem ? new URL(imagem, base).href : undefined;
+const canonico = new URL(Astro.url.pathname, base).href;
+const [antes, depois] = nomeLoja.includes("&")
+  ? [nomeLoja.split("&")[0].trim(), "& " + nomeLoja.split("&").slice(1).join("&").trim()]
+  : [nomeLoja, ""];
+const jsonLd = dadosGoogle ? JSON.stringify(dadosGoogle).replace(/</g, "\\u003c") : null;
+---
+
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0b0b" />
+    <link rel="canonical" href={canonico} />
+    {descricao && <meta name="description" content={descricao} />}
+    <meta property="og:type" content={precoCentavos !== undefined ? "product" : "website"} />
+    <meta property="og:title" content={titulo} />
+    {descricao && <meta property="og:description" content={descricao} />}
+    {foto && <meta property="og:image" content={foto} />}
+    <meta property="og:url" content={canonico} />
+    {precoCentavos !== undefined && <meta property="product:price:amount" content={(precoCentavos / 100).toFixed(2)} />}
+    {precoCentavos !== undefined && <meta property="product:price:currency" content="BRL" />}
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@500;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    {jsonLd && <script type="application/ld+json" set:html={jsonLd} />}
+    <title>{titulo}</title>
+  </head>
+  <body>
+    <div class="grao flex min-h-dvh flex-col">
+      <header class="sticky top-0 z-20 border-b border-linha bg-fundo/80 backdrop-blur" style="view-transition-name: cabecalho">
+        <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+          <a href="/" aria-label={`Voltar para a página da ${nomeLoja}`}>
+            <span class="flex items-center gap-2.5">
+              <Simbolo class="h-6" />
+              <span class="font-display text-[1.7rem] uppercase leading-none tracking-wide">
+                {antes}{depois && <span class="text-laranja"> {depois}</span>}
+              </span>
+            </span>
+          </a>
+          <div class="flex items-center gap-3">
+            {
+              testes && (
+                <span class="rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 font-mono text-xs font-bold text-amber-300">
+                  AMBIENTE DE TESTES
+                </span>
+              )
+            }
+            <span class="hidden items-center gap-1.5 font-mono text-xs text-suave sm:flex">
+              <svg viewBox="0 0 24 24" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+                <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
+              </svg>
+              COMPRA SEGURA
+            </span>
+          </div>
+        </div>
+      </header>
+      <main class="flex-1">
+        <slot />
+      </main>
+      <footer class="border-t border-linha">
+        <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-6 text-sm text-suave">
+          <span>© {new Date().getFullYear()} {nomeLoja}</span>
+          <span>Seus dados são usados só para entregar o pedido e falar com você sobre ele.</span>
+        </div>
+      </footer>
+    </div>
+    <script>
+      // Quem chegou pelo link de um afiliado (?ref=): fica guardado para a compra (o mesmo código do checkout).
+      import { guardarRefDaUrl } from "../app/api";
+      guardarRefDaUrl();
+    </script>
+  </body>
+</html>

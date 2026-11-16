@@ -150,3 +150,20 @@ body {
     width: 100%;
   }
 }
+
+/* A troca de página com a transição do próprio navegador (sem roteador no JavaScript): o cabeçalho fica parado e a foto
+   do produto "voa" do cartão da vitrine para a página dele (view-transition-name: foto-<slug> nas duas). */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-group(*) {
+  animation-duration: 0.35s;
+  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
