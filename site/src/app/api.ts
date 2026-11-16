@@ -56,6 +56,8 @@ export type ProdutoPublico = {
   montar: Montar;
   frete_gratis_a_partir: number;
   oferta_padrao: string;
+  disponivel: number | null; // null: vende sem controle de estoque
+  esgotado: boolean;
 };
 
 export type ItemVitrine = {
@@ -73,6 +75,8 @@ export type ItemVitrine = {
   selo: string;
   vendidos: number;
   frete_gratis_a_partir: number;
+  disponivel: number | null; // null: vende sem controle de estoque
+  esgotado: boolean;
 };
 
 export function vitrineDoKit(loja: Loja): Vitrine {

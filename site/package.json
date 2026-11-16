@@ -7,7 +7,9 @@
     "dev": "astro dev --port 4321",
     "build": "astro check && astro build",
     "preview": "astro preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "banco:conferir": "node scripts/atualizar-banco.mjs --conferir",
+    "banco:atualizar": "node scripts/atualizar-banco.mjs"
   },
   "dependencies": {
     "@astrojs/netlify": "8.2.14",

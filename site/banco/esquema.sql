@@ -207,6 +207,51 @@ create table if not exists loja.auditoria (
 );
 create index if not exists ix_loja_auditoria_quando on loja.auditoria (quando);
 
+-- ───────── Estoque (15/11/2026) ─────────
+-- O SKU interno é gerado pela loja (WLF-CAB-POMA-001); o código do fornecedor e o EAN ficam à parte.
+alter table loja.produtos add column if not exists ean varchar(14);
+alter table loja.produtos add column if not exists codigo_fornecedor varchar(60);
+create unique index if not exists ux_loja_produtos_sku on loja.produtos (sku) where sku is not null;
+
+-- Uma linha por item com estoque: o slug do produto ou "kit-laminas" (o kit da landing).
+create table if not exists loja.estoque (
+  produto_id varchar(30) primary key,
+  controlar boolean not null default true, -- false: vende sem olhar o saldo
+  minimo integer not null default 0,
+  custo_medio_centavos integer not null default 0,
+  atualizado_em timestamptz not null
+);
+
+-- Toda mudança do saldo é um movimento (o saldo é a soma): entrada, venda, devolucao, ajuste, perda.
+create table if not exists loja.estoque_movimentos (
+  id bigserial primary key,
+  produto_id varchar(30) not null,
+  tipo varchar(20) not null,
+  quantidade integer not null, -- positivo entra, negativo sai
+  custo_unitario_centavos integer,
+  saldo_depois integer not null,
+  pedido_nsu varchar(60),
+  fornecedor varchar(120),
+  nota varchar(60),
+  motivo varchar(300),
+  email text,
+  quando timestamptz not null
+);
+create index if not exists ix_loja_estoque_movimentos_produto on loja.estoque_movimentos (produto_id, quando);
+
+-- O que um pedido ainda não pago segura: ativa → baixada (pagou) ou liberada (venceu, cancelou).
+create table if not exists loja.estoque_reservas (
+  pedido_nsu varchar(60) not null,
+  produto_id varchar(30) not null,
+  quantidade integer not null,
+  situacao varchar(12) not null,
+  criado_em timestamptz not null,
+  expira_em timestamptz not null,
+  atualizado_em timestamptz not null,
+  primary key (pedido_nsu, produto_id)
+);
+create index if not exists ix_loja_estoque_reservas_ativas on loja.estoque_reservas (produto_id) where situacao = 'ativa';
+
 alter table loja.pedidos enable row level security;
 alter table loja.ajustes enable row level security;
 alter table loja.afiliados enable row level security;
@@ -221,3 +266,6 @@ alter table loja.segredos_locais enable row level security;
 alter table loja.administradores enable row level security;
 alter table loja.sessoes enable row level security;
 alter table loja.auditoria enable row level security;
+alter table loja.estoque enable row level security;
+alter table loja.estoque_movimentos enable row level security;
+alter table loja.estoque_reservas enable row level security;

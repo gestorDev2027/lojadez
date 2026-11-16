@@ -48,3 +48,17 @@ Títulos em Bebas Neue, texto em Inter. O logo ainda é provisório (`src/compon
   Configurações → Rastreamento em segundo plano.
 - `/sitemap.xml` e `/robots.txt` saem do banco (os produtos ativos) e usam o `SITE_URL`.
 - Região das Functions: no plano grátis, Ohio (EUA); São Paulo (`gru`) só no plano Pro.
+
+## Estoque e SKU
+
+- **SKU automático** (`src/servidor/sku.ts`): produto salvo sem SKU ganha `WLF-<CATEGORIA>-<NOME>-<Nº>` (ex.:
+  `WLF-CAB-POMA-001`; o começo muda em Configurações). O SKU é único; EAN e código do fornecedor ficam à parte.
+- **Estoque** (`src/servidor/estoque.ts`, aba Estoque): o saldo é a soma dos movimentos (entrada, venda, devolução,
+  ajuste, perda), cada um com quem, quando e o motivo. Inventário vira um ajuste da diferença. Custo médio pelas
+  entradas com custo.
+- **Reservas:** o pedido criado reserva; o pagamento baixa; o vencido ou cancelado libera; o reembolso com o produto de
+  volta devolve. Sem saldo, o item aparece “Esgotado” e o pedido é recusado (a compra entra na etapa 3).
+- Todo item começa **sem controle** (vende sem olhar o saldo): nada fica esgotado só porque o estoque ainda não foi
+  lançado. O controle liga no primeiro lançamento ou na aba Estoque.
+- **Banco:** `npm run banco:conferir` (só lê: o que falta) e `npm run banco:atualizar` (aplica o `banco/esquema.sql`;
+  só cria o que falta, não apaga nada). Rode antes de publicar uma versão que traz tabela nova.

@@ -58,6 +58,8 @@ export const CAMPOS: Campo[] = [
   campo("EMPRESA_RAZAO_SOCIAL", "Razão social", "loja"),
   campo("EMPRESA_CNPJ", "CNPJ", "loja", "digitos", "", "", { tamanhos: [14] }),
   campo("EMPRESA_EMAIL", "E-mail de contato", "loja", "email"),
+  campo("SKU_PREFIXO", "Começo do SKU", "loja", "texto", "WLF",
+    "O SKU dos produtos novos é gerado assim: WLF-CAB-POMA-001 (começo, categoria, nome e número). De 2 a 6 letras."),
 
   campo("PRODUTO_NOME", "Nome do produto", "pacote", "texto", "Kit Barbeador 3 Lâminas"),
   campo("PRODUTO_PESO_G", "Peso de 1 kit embalado (g)", "pacote", "inteiro", "300", "", { minimo: 1, maximo: 30000 }),
@@ -166,6 +168,7 @@ export function montar(sobrepor: Record<string, string | null | undefined> = {})
     SITE_URL: v("SITE_URL").replace(/\/+$/, ""),
     LOJA_WHATSAPP: digitos(v("LOJA_WHATSAPP")),
     LOJA_PROMO_ATE: v("LOJA_PROMO_ATE"),
+    SKU_PREFIXO: v("SKU_PREFIXO").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) || "WLF",
     EMPRESA: { razaoSocial: v("EMPRESA_RAZAO_SOCIAL"), cnpj: v("EMPRESA_CNPJ"), email: v("EMPRESA_EMAIL") },
     RASTREAMENTO: { metaPixelId: v("META_PIXEL_ID"), gtmId: v("GTM_ID"), segundoPlano: simNao(v("RASTREAMENTO_SEGUNDO_PLANO")) },
     PRODUTO: {
