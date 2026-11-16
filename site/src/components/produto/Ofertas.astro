@@ -1,0 +1,59 @@
+---
+// O bloco de compra da página do produto: o selo de estoque, as quantidades com preço, o "monte o seu" e o botão.
+// Usado duas vezes: com os dados do cache (o que aparece na hora) e pela Server Island (Compra.astro), com o preço e o
+// estoque buscados no momento.
+import { reais } from "../../app/api";
+import type { ProdutoPublico } from "../../servidor/produtos";
+
+type Props = { produto: ProdutoPublico; whatsapp: string };
+const { produto: p, whatsapp } = Astro.props;
+const comprar = (oferta: string) => `/checkout?produto=${encodeURIComponent(p.id)}&oferta=${oferta}`;
+const menor = Math.min(...p.ofertas.map((o) => o.preco_centavos));
+const poucas = !p.esgotado && p.disponivel !== null && p.disponivel <= 5;
+const avisar = `https://wa.me/${whatsapp}?text=${encodeURIComponent(`Olá! Quero saber quando o ${p.nome} volta ao estoque.`)}`;
+---
+
+<div class="grid gap-5" data-compra>
+  {p.esgotado && <p class="inline-block justify-self-start rounded-full bg-white/10 px-3 py-1 font-mono text-xs font-bold tracking-widest text-tinta uppercase">Esgotado</p>}
+  {poucas && <p class="font-mono text-xs font-bold tracking-widest text-laranja-2 uppercase">Últimas {p.disponivel} unidades</p>}
+  {
+    p.ofertas.length > 0 && (
+      <p class="font-display text-4xl font-extrabold">
+        <span class="mr-2 align-middle font-mono text-sm font-normal text-suave">a partir de</span>
+        {reais(menor)}
+      </p>
+    )
+  }
+  <div class={`grid gap-2 ${p.esgotado ? "pointer-events-none opacity-50" : ""}`} aria-disabled={p.esgotado ? "true" : undefined}>
+    {
+      p.ofertas.map((o) => (
+        <a href={comprar(o.id)} class="flex items-center justify-between gap-3 rounded-2xl border border-linha-2 px-4 py-3 hover:border-laranja">
+          <span>
+            <span class="font-bold">{o.titulo}</span>
+            {o.selo && <span class="ml-2 rounded-full bg-laranja px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-black">{o.selo}</span>}
+            {o.frete_gratis && <span class="ml-2 font-mono text-[11px] font-bold uppercase text-ok">Frete grátis</span>}
+          </span>
+          <span class="font-mono font-bold">{reais(o.preco_centavos)}</span>
+        </a>
+      ))
+    }
+    {
+      p.montar.ativo && (
+        <a href={comprar(`q${p.montar.minimo}`)} class="flex items-center justify-between gap-3 rounded-2xl border border-dashed border-linha-2 px-4 py-3 hover:border-laranja">
+          <span class="font-bold">Monte o seu: de {p.montar.minimo} a {p.montar.maximo} {p.unidade_plural}</span>
+          <span class="font-mono font-bold">{reais(p.montar.preco_kit_centavos)} cada</span>
+        </a>
+      )
+    }
+  </div>
+  {
+    p.esgotado ? (
+      <a href={avisar} target="_blank" rel="noreferrer" class="rounded-full border border-linha-2 px-6 py-4 text-center text-base font-bold hover:border-laranja">
+        Esgotado · me avise no WhatsApp
+      </a>
+    ) : (
+      <a href={comprar(p.oferta_padrao)} class="btn-laranja px-6 py-4 text-center text-base">Comprar</a>
+    )
+  }
+  {p.frete_gratis_a_partir > 0 && <p class="text-sm text-ok">Frete grátis a partir de {p.frete_gratis_a_partir} {p.unidade_plural}.</p>}
+</div>

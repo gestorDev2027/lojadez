@@ -1,17 +1,277 @@
 ---
-// A vitrine: o kit de lâminas e os produtos. Título, descrição e foto vão prontos do servidor; a lista é o app React.
-import { emCache } from "../servidor/cdn";
-import Layout from "../layouts/App.astro";
+// A vitrine: o kit de lâminas e os produtos, com o HTML pronto do servidor (antes era o app React, que buscava /api/vitrine
+// depois de abrir). Filtro de categoria, ordem e o banner dos destaques são um script pequeno, sem React.
+// A página fica no cache da CDN; a loja limpa o cache quando o vendedor muda algo ou o estoque zera (servidor/cdn.ts).
+import Loja from "../layouts/Loja.astro";
+import { reais } from "../app/api";
 import * as catalogo from "../servidor/catalogo";
+import { emCache, fotoOtimizada } from "../servidor/cdn";
 import { cfg } from "../servidor/config";
+import { vitrine } from "../servidor/produtos";
 
-const [c, foto] = await Promise.all([cfg(), catalogo.urlFoto()]);
+const [c, itensBrutos, todas, fotoKit] = await Promise.all([cfg(), vitrine(), catalogo.categorias(), catalogo.urlFoto()]);
+const itens = itensBrutos.map((i) => ({ ...i, foto: fotoOtimizada(i.foto, 640) }));
+const usadas = new Set(itens.map((i) => i.categoria));
+const categorias = todas.filter((cat) => usadas.has(cat));
+const destaques = itens.filter((i) => i.destaque);
+const banner = destaques.length ? destaques : itens.slice(0, 1);
+const maisVendidos = [...itens].filter((i) => i.vendidos > 0).sort((a, b) => b.vendidos - a.vendidos).slice(0, 4);
+// Destaques primeiro (a ordem "Destaques" é a de quando a página abre).
+const lista = [...itens].sort((a, b) => Number(b.destaque) - Number(a.destaque));
+const testes = c.LOGGI_AMBIENTE === "simulado" || c.INFINITEPAY_AMBIENTE === "simulado";
+const produtoDe = (url: string) => (url.startsWith("/p/") ? url : null); // o kit leva à landing (sem a página de produto)
 emCache(Astro.response.headers);
 ---
 
-<Layout
+<Loja
   titulo={`Produtos · ${c.LOJA_NOME}`}
   descricao={`Barbear, barba e cabelo na ${c.LOJA_NOME}: lâmina nova todo santo dia, sem enrolação.`}
-  imagem={foto}
-  indexar
-/>
+  imagem={fotoKit}
+  nomeLoja={c.LOJA_NOME}
+  testes={testes}
+  dadosGoogle={{
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    itemListElement: lista.map((i, n) => ({ "@type": "ListItem", position: n + 1, url: new URL(i.url, Astro.url.origin).href, name: i.nome })),
+  }}
+>
+  <section class="mx-auto max-w-6xl px-4 py-8 md:py-12">
+    <p class="font-mono text-xs tracking-widest text-laranja-2">CUIDADO MASCULINO</p>
+    <h1 class="mt-1 font-display text-5xl leading-none font-extrabold uppercase md:text-6xl">
+      Produtos<span class="text-laranja">.</span>
+    </h1>
+
+    {
+      banner.length > 0 && (
+        <div class="relative mt-8 overflow-hidden rounded-[26px] border border-linha bg-cartao" data-banner>
+          {banner.map((i, n) => (
+            <article
+              data-slide={n}
+              aria-hidden={n === 0 ? "false" : "true"}
+              class={`grid gap-6 p-5 transition-opacity duration-700 md:grid-cols-[1.1fr_1fr] md:items-center md:p-8 ${
+                n === 0 ? "relative opacity-100" : "pointer-events-none absolute inset-0 opacity-0"
+              }`}
+            >
+              <img src={i.foto} alt={i.nome} class="aspect-[4/3] w-full rounded-2xl object-cover md:aspect-square" loading={n === 0 ? "eager" : "lazy"} />
+              <div class="grid content-center gap-3">
+                <p class="flex flex-wrap gap-2">
+                  <span class="rounded-full bg-laranja px-3 py-1 font-mono text-[11px] font-bold text-black uppercase">Destaque</span>
+                  {i.selo && <span class="rounded-full border border-laranja/60 px-3 py-1 font-mono text-[11px] font-bold text-laranja-2 uppercase">{i.selo}</span>}
+                </p>
+                <h2 class="font-display text-4xl leading-none font-extrabold uppercase md:text-5xl">{i.nome}</h2>
+                {i.chamada && <p class="text-lg text-tinta-2">{i.chamada}</p>}
+                <p class="font-display text-4xl font-extrabold">
+                  <span class="mr-2 align-middle font-mono text-sm font-normal text-suave">a partir de</span>
+                  {reais(i.a_partir_de_centavos)}
+                </p>
+                {i.frete_gratis_a_partir > 0 && (
+                  <p class="text-sm font-semibold text-ok">
+                    Frete grátis a partir de {i.frete_gratis_a_partir} {i.frete_gratis_a_partir > 1 ? `${i.unidade}s` : i.unidade}
+                  </p>
+                )}
+                <div class="mt-2 flex flex-wrap gap-3">
+                  {i.esgotado ? (
+                    <span class="rounded-full bg-white/10 px-6 py-3.5 text-sm font-bold text-suave">Esgotado</span>
+                  ) : (
+                    <a href={i.comprar} class="btn-laranja px-6 py-3.5 text-sm">Comprar</a>
+                  )}
+                  <a href={i.url} data-astro-prefetch class="rounded-full border border-linha-2 px-6 py-3.5 text-sm font-bold hover:border-laranja">
+                    Ver detalhes
+                  </a>
+                </div>
+              </div>
+            </article>
+          ))}
+          {banner.length > 1 && (
+            <div class="absolute right-5 bottom-4 flex gap-2">
+              {banner.map((i, n) => (
+                <button
+                  type="button"
+                  data-ir={n}
+                  aria-label={`Destaque ${n + 1}: ${i.nome}`}
+                  class={`h-2 rounded-full transition-all ${n === 0 ? "w-6 bg-laranja" : "w-2 bg-white/30"}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    {
+      maisVendidos.length >= 2 && (
+        <div class="mt-10">
+          <h2 class="font-display text-3xl leading-none font-extrabold uppercase">Mais vendidos</h2>
+          <ul class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {maisVendidos.map((i, n) => (
+              <li>
+                <a href={i.url} data-astro-prefetch class="flex items-center gap-3 rounded-2xl border border-linha bg-cartao p-2 hover:border-laranja">
+                  <span class="relative shrink-0">
+                    <img src={i.foto} alt="" class="size-16 rounded-xl object-cover" loading="lazy" />
+                    <span class="absolute -top-2 -left-2 grid size-6 place-items-center rounded-full bg-laranja font-mono text-xs font-bold text-black">{n + 1}</span>
+                  </span>
+                  <span class="min-w-0">
+                    <span class="line-clamp-2 text-sm font-semibold">{i.nome}</span>
+                    <span class="font-mono text-xs text-suave">{reais(i.a_partir_de_centavos)}</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )
+    }
+
+    <div class="mt-10 flex flex-wrap items-center justify-between gap-3">
+      <div role="tablist" aria-label="Categorias" class="flex gap-1 overflow-x-auto rounded-xl border border-linha-2 bg-fundo-2 p-1 [scrollbar-width:none]">
+        {
+          ["", ...categorias].map((cat) => (
+            <button
+              role="tab"
+              type="button"
+              data-categoria={cat}
+              aria-selected={cat === "" ? "true" : "false"}
+              class={`shrink-0 rounded-lg px-4 py-2 text-sm font-semibold ${cat === "" ? "bg-laranja text-black" : "text-tinta-2 hover:text-tinta"}`}
+            >
+              {cat || "Todos"}
+            </button>
+          ))
+        }
+      </div>
+      <label class="flex items-center gap-2 text-sm text-suave">
+        Ordenar por
+        <select data-ordem class="rounded-lg border border-linha-2 bg-fundo-2 px-3 py-2 text-tinta">
+          <option value="destaques">Destaques</option>
+          <option value="vendidos">Mais vendidos</option>
+          <option value="menor">Menor preço</option>
+          <option value="maior">Maior preço</option>
+        </select>
+      </label>
+    </div>
+
+    <ul class="mt-5 grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4" data-lista>
+      {
+        lista.map((i, n) => (
+          <li data-cat={i.categoria} data-preco={i.a_partir_de_centavos} data-vendidos={i.vendidos} data-n={n}>
+            <article class="group flex h-full flex-col overflow-hidden rounded-[20px] border border-linha bg-cartao transition hover:border-laranja">
+              <a href={i.url} data-astro-prefetch={produtoDe(i.url) ? "" : undefined} class="relative block overflow-hidden">
+                <img
+                  src={i.foto}
+                  alt={i.nome}
+                  class="aspect-square w-full object-cover transition duration-500 group-hover:scale-105"
+                  loading={n < 4 ? "eager" : "lazy"}
+                  style={produtoDe(i.url) ? `view-transition-name: foto-${i.id}` : undefined}
+                />
+                {i.esgotado ? (
+                  <span class="absolute top-3 left-3 rounded-full bg-black/80 px-2.5 py-1 font-mono text-[10px] font-bold text-tinta uppercase">Esgotado</span>
+                ) : (
+                  i.selo && <span class="absolute top-3 left-3 rounded-full bg-laranja px-2.5 py-1 font-mono text-[10px] font-bold text-black uppercase">{i.selo}</span>
+                )}
+              </a>
+              <div class="flex flex-1 flex-col gap-1.5 p-3 sm:p-4">
+                {i.categoria && <p class="font-mono text-[10px] tracking-widest text-suave uppercase">{i.categoria}</p>}
+                <a href={i.url} data-astro-prefetch={produtoDe(i.url) ? "" : undefined} class="line-clamp-2 text-base leading-tight font-bold hover:text-laranja-2 sm:text-lg">
+                  {i.nome}
+                </a>
+                {i.chamada && <p class="line-clamp-2 text-xs text-tinta-2 sm:text-sm">{i.chamada}</p>}
+                <div class="mt-auto pt-2">
+                  <p class="font-mono text-lg font-bold">
+                    <span class="mr-1 text-[11px] font-normal text-suave">a partir de</span>
+                    {reais(i.a_partir_de_centavos)}
+                  </p>
+                  <p class="font-mono text-[11px] text-suave">
+                    {reais(i.por_unidade_centavos)} por {i.unidade}
+                    {i.frete_gratis_a_partir > 0 && <span class="text-ok"> · frete grátis a partir de {i.frete_gratis_a_partir}</span>}
+                  </p>
+                  {i.esgotado ? (
+                    <a href={i.url} class="mt-3 block rounded-full bg-white/10 px-4 py-2.5 text-center text-xs font-bold text-suave">Esgotado</a>
+                  ) : (
+                    <a href={i.comprar} class="btn-laranja mt-3 block px-4 py-2.5 text-center text-xs">Comprar</a>
+                  )}
+                </div>
+              </div>
+            </article>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="mt-6 text-suave" data-vazio hidden>Nenhum produto nesta categoria.</p>
+  </section>
+</Loja>
+
+<script>
+  // Categoria, ordem e o banner dos destaques (o HTML já veio pronto: aqui só mostra, esconde e reordena).
+  const lista = document.querySelector<HTMLUListElement>("[data-lista]");
+  const vazio = document.querySelector<HTMLElement>("[data-vazio]");
+  const ordem = document.querySelector<HTMLSelectElement>("[data-ordem]");
+  const abas = [...document.querySelectorAll<HTMLButtonElement>("[data-categoria]")];
+  let categoria = "";
+
+  function aplicar() {
+    if (!lista) return;
+    const itens = [...lista.children] as HTMLElement[];
+    const n = (el: HTMLElement, campo: string) => Number(el.dataset[campo] ?? 0);
+    const criterio = ordem?.value ?? "destaques";
+    itens.sort((a, b) =>
+      criterio === "vendidos" ? n(b, "vendidos") - n(a, "vendidos")
+      : criterio === "menor" ? n(a, "preco") - n(b, "preco")
+      : criterio === "maior" ? n(b, "preco") - n(a, "preco")
+      : n(a, "n") - n(b, "n"),
+    );
+    let visiveis = 0;
+    for (const el of itens) {
+      el.hidden = Boolean(categoria) && el.dataset.cat !== categoria;
+      if (!el.hidden) visiveis++;
+      lista.appendChild(el);
+    }
+    if (vazio) vazio.hidden = visiveis > 0;
+  }
+
+  for (const aba of abas)
+    aba.addEventListener("click", () => {
+      categoria = aba.dataset.categoria ?? "";
+      for (const a of abas) {
+        const ativa = a === aba;
+        a.setAttribute("aria-selected", String(ativa));
+        a.classList.toggle("bg-laranja", ativa);
+        a.classList.toggle("text-black", ativa);
+        a.classList.toggle("text-tinta-2", !ativa);
+      }
+      aplicar();
+    });
+  ordem?.addEventListener("change", aplicar);
+
+  // O banner troca sozinho a cada 6 s (e pelos pontinhos).
+  const slides = [...document.querySelectorAll<HTMLElement>("[data-slide]")];
+  const pontos = [...document.querySelectorAll<HTMLButtonElement>("[data-ir]")];
+  let atual = 0;
+  function mostrar(n: number) {
+    atual = n % slides.length;
+    slides.forEach((s, i) => {
+      const ativo = i === atual;
+      s.setAttribute("aria-hidden", String(!ativo));
+      s.classList.toggle("relative", ativo);
+      s.classList.toggle("opacity-100", ativo);
+      s.classList.toggle("pointer-events-none", !ativo);
+      s.classList.toggle("absolute", !ativo);
+      s.classList.toggle("inset-0", !ativo);
+      s.classList.toggle("opacity-0", !ativo);
+    });
+    pontos.forEach((p, i) => {
+      p.classList.toggle("w-6", i === atual);
+      p.classList.toggle("bg-laranja", i === atual);
+      p.classList.toggle("w-2", i !== atual);
+      p.classList.toggle("bg-white/30", i !== atual);
+    });
+  }
+  if (slides.length > 1) {
+    let relogio = window.setInterval(() => mostrar(atual + 1), 6000);
+    pontos.forEach((p, i) =>
+      p.addEventListener("click", () => {
+        window.clearInterval(relogio);
+        mostrar(i);
+        relogio = window.setInterval(() => mostrar(atual + 1), 6000);
+      }),
+    );
+  }
+</script>

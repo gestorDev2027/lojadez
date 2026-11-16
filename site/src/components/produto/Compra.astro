@@ -1,0 +1,21 @@
+---
+// A Server Island da página do produto (server:defer): o preço e o estoque buscados na hora. A página em volta fica no
+// cache da CDN; este pedaço vem fresco do servidor, sem cache.
+import { cfg } from "../../servidor/config";
+import { buscar, publico } from "../../servidor/produtos";
+import Ofertas from "./Ofertas.astro";
+
+type Props = { slug: string };
+const { slug } = Astro.props;
+const produto = await buscar(slug, true);
+const [p, c] = produto ? await Promise.all([publico(produto), cfg()]) : [null, null];
+Astro.response.headers.set("Cache-Control", "no-store");
+---
+
+{
+  p && c ? (
+    <Ofertas produto={p} whatsapp={c.LOJA_WHATSAPP} />
+  ) : (
+    <p class="rounded-2xl border border-linha-2 p-4 text-tinta-2">Este produto saiu de venda.</p>
+  )
+}

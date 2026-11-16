@@ -1,17 +1,98 @@
 ---
-// A página de um produto. O título, a descrição, a foto e o preço vão prontos do servidor (Google e prévias de link
-// do afiliado no WhatsApp); a página em si é o app React.
-import { emCache } from "../../servidor/cdn";
-import Layout from "../../layouts/App.astro";
+// A página de um produto, com o HTML pronto do servidor (antes era o app React, que buscava /api/produtos/<slug> depois de
+// abrir). A página fica no cache da CDN; o bloco de compra é uma Server Island (Compra.astro) com o preço e o estoque da
+// hora. Enquanto ela chega, aparece o mesmo bloco com os dados do cache, que já funciona (o pedido confere tudo de novo).
+// Os dados de produto do schema.org (preço e disponibilidade) vão para o Google.
+import Loja from "../../layouts/Loja.astro";
+import Compra from "../../components/produto/Compra.astro";
+import Ofertas from "../../components/produto/Ofertas.astro";
+import { emCache, fotoOtimizada } from "../../servidor/cdn";
 import { cfg } from "../../servidor/config";
 import { buscar, publico } from "../../servidor/produtos";
 
 const produto = await buscar(Astro.params.slug ?? "", true);
-if (!produto) return new Response("Produto não encontrado.", { status: 404 });
-const [p, c] = await Promise.all([publico(produto), cfg()]);
-const menor = p.ofertas.reduce((m, o) => (o.preco_centavos < m ? o.preco_centavos : m), p.ofertas[0]?.preco_centavos ?? 0);
-const descricao = (p.chamada || p.descricao || `${p.nome} na ${c.LOJA_NOME}.`).slice(0, 200);
-emCache(Astro.response.headers);
+const c = await cfg();
+const testes = c.LOGGI_AMBIENTE === "simulado" || c.INFINITEPAY_AMBIENTE === "simulado";
+if (!produto) Astro.response.status = 404;
+const p = produto ? await publico(produto) : null;
+const precos = p?.ofertas.map((o) => o.preco_centavos) ?? [];
+const menor = precos.length ? Math.min(...precos) : 0;
+const maior = precos.length ? Math.max(...precos) : 0;
+const descricao = p ? (p.chamada || p.descricao || `${p.nome} na ${c.LOJA_NOME}.`).slice(0, 200) : undefined;
+const url = new URL(Astro.url.pathname, Astro.url.origin).href;
+if (p) emCache(Astro.response.headers);
 ---
 
-<Layout titulo={`${p.nome} · ${c.LOJA_NOME}`} descricao={descricao} imagem={p.foto} precoCentavos={menor || undefined} indexar />
+{
+  !p ? (
+    <Loja titulo={`Produto não encontrado · ${c.LOJA_NOME}`} nomeLoja={c.LOJA_NOME} testes={testes}>
+      <section class="mx-auto max-w-xl px-4 py-16 text-center">
+        <p class="text-lg">Produto não encontrado.</p>
+        <a href="/produtos" class="mt-4 inline-block text-laranja-2 hover:underline">Ver os produtos</a>
+      </section>
+    </Loja>
+  ) : (
+    <Loja
+      titulo={`${p.nome} · ${c.LOJA_NOME}`}
+      descricao={descricao}
+      imagem={p.foto}
+      precoCentavos={menor || undefined}
+      nomeLoja={c.LOJA_NOME}
+      testes={testes}
+      dadosGoogle={{
+        "@context": "https://schema.org",
+        "@type": "Product",
+        name: p.nome,
+        description: descricao,
+        image: new URL(p.foto, Astro.url.origin).href,
+        ...(produto?.sku ? { sku: produto.sku } : {}),
+        ...(produto?.ean ? { gtin13: produto.ean } : {}),
+        ...(p.categoria ? { category: p.categoria } : {}),
+        brand: { "@type": "Brand", name: c.LOJA_NOME },
+        offers: {
+          "@type": "AggregateOffer",
+          priceCurrency: "BRL",
+          lowPrice: (menor / 100).toFixed(2),
+          highPrice: (maior / 100).toFixed(2),
+          offerCount: precos.length,
+          availability: p.esgotado ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
+          url,
+        },
+      }}
+    >
+      <section class="mx-auto grid max-w-6xl gap-8 px-4 py-8 md:grid-cols-2 md:py-14">
+        <img
+          src={fotoOtimizada(p.foto, 1200)}
+          alt={p.nome}
+          class="aspect-square w-full rounded-[22px] border border-linha object-cover"
+          style={`view-transition-name: foto-${p.id}`}
+          fetchpriority="high"
+        />
+        <div class="grid content-start gap-5">
+          <div>
+            <a href="/produtos" data-astro-prefetch class="font-mono text-xs tracking-widest text-laranja-2 hover:underline">
+              ← TODOS OS PRODUTOS
+            </a>
+            <h1 class="mt-2 font-display text-5xl leading-none font-extrabold uppercase md:text-6xl">{p.nome}</h1>
+            {p.chamada && <p class="mt-3 text-lg text-tinta-2">{p.chamada}</p>}
+          </div>
+          <Compra server:defer slug={p.id}>
+            <Ofertas slot="fallback" produto={p} whatsapp={c.LOJA_WHATSAPP} />
+          </Compra>
+          {p.conteudo && (
+            <p class="text-sm text-suave">
+              Cada {p.unidade}: {p.conteudo}.
+            </p>
+          )}
+          {p.descricao && (
+            <div class="grid gap-3 border-t border-linha pt-5 text-tinta-2">
+              {p.descricao.split(/\n{2,}|\n/).map((paragrafo) => (
+                <p>{paragrafo}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </Loja>
+  )
+}

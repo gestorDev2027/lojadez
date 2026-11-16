@@ -2,18 +2,17 @@ import { useEffect, useState } from "react";
 import { chamar, guardarRefDaUrl, vitrineDoKit, type Loja } from "./api";
 import { PaginaCheckout } from "./paginas/Checkout";
 import { PaginaObrigado } from "./paginas/Obrigado";
-import { CheckoutDoProduto, PaginaProduto, PaginaVitrine } from "./paginas/Produto";
+import { CheckoutDoProduto } from "./paginas/Produto";
 import { PaginaVendedor } from "./paginas/Vendedor";
 
 // O app React cuida do checkout (/checkout, do kit ou de um produto com ?produto=), da volta do pagamento (/obrigado), do
-// vendedor (/vendedor), da vitrine (/produtos) e da página de cada produto (/p/<slug>).
+// vendedor (/vendedor). A vitrine (/produtos) e a página de cada produto (/p/<slug>) são páginas Astro.
 // A landing page do kit de lâminas (/) é estática: public/loja.html.
 export function App() {
   const [loja, setLoja] = useState<Loja | null>(null);
   const [erro, setErro] = useState("");
   const caminho = window.location.pathname.replace(/\/+$/, "") || "/";
   const produtoDoCheckout = new URLSearchParams(window.location.search).get("produto");
-  const slugDaPagina = caminho.startsWith("/p/") ? decodeURIComponent(caminho.slice(3)) : "";
 
   useEffect(() => {
     if (caminho !== "/vendedor") guardarRefDaUrl(); // quem chegou pelo link de um afiliado
@@ -40,10 +39,6 @@ export function App() {
           <PaginaObrigado loja={loja} />
         ) : caminho === "/vendedor" ? (
           <PaginaVendedor />
-        ) : caminho === "/produtos" ? (
-          <PaginaVitrine loja={loja} />
-        ) : slugDaPagina ? (
-          <PaginaProduto loja={loja} slug={slugDaPagina} />
         ) : produtoDoCheckout && produtoDoCheckout !== "kit-laminas" ? (
           <CheckoutDoProduto loja={loja} slug={produtoDoCheckout} />
         ) : (
