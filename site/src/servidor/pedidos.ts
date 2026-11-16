@@ -6,7 +6,7 @@
 // link vencido, a reserva é liberada (a tarefa agendada cuida dos vencidos).
 import { randomUUID } from "node:crypto";
 import * as afiliados from "./afiliados";
-import { agora, banco, uma, type Linha } from "./banco";
+import { agora, banco, registrar, uma, type Linha } from "./banco";
 import * as catalogo from "./catalogo";
 import { cfg, descontoPix } from "./config";
 import * as cupons from "./cupons";
@@ -422,4 +422,143 @@ export async function envioAutomatico(orderNsu: string): Promise<void> {
       /* nada mais a fazer */
     }
   }
+}
+
+// ───────── A área do vendedor ─────────
+
+/** Os pedidos, do mais novo para o mais antigo (com a situação, se vier). */
+export async function listar(situacao: string | null = null, limite = 5000): Promise<Pedido[]> {
+  return situacao
+    ? banco().consulta<Pedido>("select * from loja.pedidos where situacao = $1 order by criado_em desc limit $2", [situacao, limite])
+    : banco().consulta<Pedido>("select * from loja.pedidos order by criado_em desc limit $1", [limite]);
+}
+
+/** O pedido para a tela do vendedor: tudo, menos o id interno; datas em ISO. */
+export function paraTela(p: Pedido): Record<string, unknown> {
+  const { id: _id, ...resto } = p;
+  return Object.fromEntries(Object.entries(resto).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]));
+}
+
+export async function marcarEnviado(orderNsu: string, codigoRastreio: unknown, email: string | null): Promise<Pedido> {
+  const atual = await pedido(orderNsu);
+  const codigo = String(codigoRastreio ?? "").split(/\s+/).filter(Boolean).join(" ").slice(0, 60) || atual.codigo_rastreio;
+  if (!codigo) throw new ErroPedido("Informe o código de rastreio (ou crie o envio na Loggi).");
+  if (!(await alterar(orderNsu, { situacao: "enviado", codigo_rastreio: codigo, enviado_em: agora() }, ["pago"])))
+    throw new ErroPedido("Só pedidos pagos podem ser marcados como enviados.", 409);
+  await registrar(email, "pedido", `Enviado: ${orderNsu.slice(0, 8)} · ${codigo}`);
+  return pedido(orderNsu);
+}
+
+// Cancelar um pedido pago (reembolso). A API da InfinitePay não estorna: o estorno é feito no app ou no site dela.
+// A loja marca o pedido, cancela o envio na Loggi (se ainda der), tira a comissão do afiliado (o pedido deixa de contar
+// como venda) e guarda o motivo e o valor. O estoque: se o pacote não saiu (pedido "pago", sem envio ou com o envio
+// cancelado), o produto volta na hora; se já saiu, o vendedor diz se voltou ao confirmar o reembolso.
+
+export const MOTIVOS_REEMBOLSO: Record<string, string> = {
+  arrependimento: "Cliente desistiu da compra",
+  sem_estoque: "Sem estoque",
+  endereco: "Endereço errado ou entrega não feita",
+  defeito: "Produto com defeito",
+  outro: "Outro motivo",
+};
+
+/** O que o cliente pagou de fato (no Pix com desconto, o total com o desconto). */
+export const valorPago = (p: Pedido) => (p.desconto_pix && p.forma_pagamento === "pix" ? totalComPix(p) : p.total_centavos);
+
+const reaisTexto = (centavos: number) => (centavos / 100).toFixed(2).replace(".", ",");
+
+function valorReembolso(texto: unknown, pago: number): number {
+  if (texto === null || texto === undefined || texto === "") return pago;
+  const valor = Number(texto);
+  if (!Number.isInteger(valor)) throw new ErroPedido("Valor do reembolso inválido.");
+  if (valor < 1 || valor > pago) throw new ErroPedido(`O reembolso vai de R$ 0,01 até o valor pago (R$ ${reaisTexto(pago)}).`);
+  return valor;
+}
+
+export async function pedirReembolso(
+  orderNsu: string,
+  dados: Record<string, unknown>,
+  email: string | null,
+): Promise<Pedido & { aviso_loggi: string | null; voltou_ao_estoque: number }> {
+  const p = await pedido(orderNsu);
+  if (!["pago", "enviado"].includes(p.situacao))
+    throw new ErroPedido("Só pedidos pagos ou enviados são reembolsados (os não pagos: “Cancelar pedido”).", 409);
+  const motivo = String(dados.motivo ?? "");
+  if (!(motivo in MOTIVOS_REEMBOLSO)) throw new ErroPedido("Escolha o motivo do cancelamento.");
+  const valor = valorReembolso(dados.valor_centavos, valorPago(p));
+  const detalhe = String(dados.detalhe ?? "").split(/\s+/).filter(Boolean).join(" ").slice(0, 300);
+  const texto = MOTIVOS_REEMBOLSO[motivo] + (detalhe ? `: ${detalhe}` : "");
+  const mudar: Record<string, unknown> = {
+    situacao: "reembolso_pendente", reembolso_motivo: texto, reembolso_centavos: valor, reembolso_pedido_em: agora(),
+  };
+  let aviso: string | null = null;
+  let pacoteFicou = !p.loggi_key; // sem envio na Loggi: o produto não saiu
+  if (p.loggi_key) {
+    const semEnvio = { loggi_key: null, envio_criado_em: null, codigo_rastreio: null };
+    try {
+      await loggi.cancelarEnvio(p.loggi_key);
+      Object.assign(mudar, semEnvio);
+      aviso = "O envio na Loggi foi cancelado.";
+      pacoteFicou = true;
+    } catch (erro) {
+      if (!(erro instanceof loggi.ErroFrete)) throw erro;
+      if (await loggi.jaCancelado(p.codigo_rastreio)) {
+        Object.assign(mudar, semEnvio);
+        aviso = "O envio na Loggi já estava cancelado.";
+        pacoteFicou = true;
+      } else {
+        // já em rota ou entregue: o frete fica como custo da loja
+        aviso = `O envio na Loggi não foi cancelado (${erro.message}). Se o pacote já saiu, combine a devolução com o cliente.`;
+      }
+    }
+  }
+  if (!(await alterar(orderNsu, mudar, ["pago", "enviado"])))
+    throw new ErroPedido("O pedido mudou enquanto isso. Atualize e tente de novo.", 409);
+  const voltou = p.situacao === "pago" && pacoteFicou ? await estoque.devolver(orderNsu, email) : 0;
+  await registrar(email, "reembolso", `Reembolso pedido: ${orderNsu.slice(0, 8)} · ${reaisTexto(valor)} · ${texto}`);
+  return { ...(await pedido(orderNsu)), aviso_loggi: aviso, voltou_ao_estoque: voltou };
+}
+
+/** Depois do estorno feito na InfinitePay: o pedido vira "reembolsado" (dá para acertar o valor devolvido). Com
+ * `voltou_ao_estoque`, o produto que o cliente devolveu entra de novo no saldo (repetir não devolve de novo). */
+export async function confirmarReembolso(orderNsu: string, dados: Record<string, unknown>, email: string | null): Promise<Pedido> {
+  const p = await pedido(orderNsu);
+  if (p.situacao !== "reembolso_pendente") throw new ErroPedido("Este pedido não está esperando reembolso.", 409);
+  const mudar: Record<string, unknown> = { situacao: "reembolsado", reembolsado_em: agora() };
+  if (dados.valor_centavos !== undefined && dados.valor_centavos !== null && dados.valor_centavos !== "")
+    mudar.reembolso_centavos = valorReembolso(dados.valor_centavos, valorPago(p));
+  if (!(await alterar(orderNsu, mudar, ["reembolso_pendente"])))
+    throw new ErroPedido("O pedido mudou enquanto isso. Atualize e tente de novo.", 409);
+  if (dados.voltou_ao_estoque === true) await estoque.devolver(orderNsu, email);
+  await registrar(email, "reembolso", `Reembolso confirmado: ${orderNsu.slice(0, 8)}`);
+  return pedido(orderNsu);
+}
+
+export async function etiquetaLoggi(orderNsu: string): Promise<Uint8Array> {
+  const p = await pedido(orderNsu);
+  if (!p.loggi_key) throw new ErroPedido("Crie o envio na Loggi antes de gerar a etiqueta.", 409);
+  try {
+    return await loggi.etiqueta(p.loggi_key);
+  } catch (erro) {
+    if (erro instanceof loggi.ErroFrete) throw new ErroPedido(erro.message, 502);
+    throw erro;
+  }
+}
+
+export async function cancelarEnvioLoggi(orderNsu: string, email: string | null): Promise<Pedido & { aviso_loggi: string | null }> {
+  const p = await pedido(orderNsu);
+  if (!p.loggi_key) throw new ErroPedido("Este pedido não tem envio na Loggi.", 409);
+  let aviso: string | null;
+  try {
+    aviso = await loggi.cancelarEnvio(p.loggi_key);
+  } catch (erro) {
+    if (!(erro instanceof loggi.ErroFrete)) throw erro;
+    if (!(await loggi.jaCancelado(p.codigo_rastreio))) throw new ErroPedido(erro.message, 502);
+    aviso = "Este envio já estava cancelado na Loggi. Agora dá para criar um envio novo.";
+  }
+  await alterar(orderNsu, {
+    loggi_key: null, envio_criado_em: null, codigo_rastreio: null, situacao: p.situacao === "enviado" ? "pago" : p.situacao,
+  });
+  await registrar(email, "pedido", `Envio na Loggi cancelado: ${orderNsu.slice(0, 8)}`);
+  return { ...(await pedido(orderNsu)), aviso_loggi: aviso };
 }

@@ -19,6 +19,7 @@ const JA_NO_ASTRO = [
   "loja", "vitrine", "produtos", "vendedor/(catalogo|foto|produtos)", // etapa 2
   "vendedor/estoque", // estoque e SKU
   "cep", "frete", "cupons/validar", "afiliados/clique", "pedidos", "webhooks", // etapa 3: a compra
+  "vendedor/pedidos", // etapa 4: os pedidos na área do vendedor
 ];
 const apiNoPython = `^/api/(?!(${JA_NO_ASTRO.join("|")})(/|$|\\?)).*`;
 
