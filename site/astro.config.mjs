@@ -24,7 +24,7 @@ const JA_NO_ASTRO = [
 ];
 // Só no computador, enquanto parte da API está no Python: o cookie da sessão vira o cabeçalho que ele espera.
 function passarSessao(pedido, entrada) {
-  const sessao = /(?:^|;s*)loja_sessao=([^;]+)/.exec(entrada.headers.cookie ?? "")?.[1];
+  const sessao = /(?:^|;\s*)loja_sessao=([^;]+)/.exec(entrada.headers.cookie ?? "")?.[1];
   if (sessao) pedido.setHeader("authorization", `Bearer ${decodeURIComponent(sessao)}`);
 }
 const apiNoPython = `^/api/(?!(${JA_NO_ASTRO.join("|")})(/|$|\\?)).*`;
