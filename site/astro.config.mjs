@@ -71,7 +71,8 @@ export default defineConfig({
     plugins: [tailwindcss()],
     server: {
       proxy: {
-        [apiNoPython]: PYTHON,
+        // O painel manda a sessão no cookie; o Python lê o "Authorization: Bearer" (passarSessao).
+        [apiNoPython]: { target: PYTHON, configure: (proxy) => proxy.on("proxyReq", passarSessao) },
       },
     },
   },
