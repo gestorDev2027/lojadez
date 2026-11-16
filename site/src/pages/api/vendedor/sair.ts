@@ -1,7 +1,7 @@
 import { sair } from "../../../servidor/acesso";
-import { rota, token } from "../../../servidor/http";
+import { cookieDaSessao, json, rota, token } from "../../../servidor/http";
 
 export const POST = rota(async (ctx) => {
   await sair(token(ctx.request));
-  return { ok: true };
+  return json({ ok: true }, 200, { "Set-Cookie": cookieDaSessao(ctx.request, "", null) });
 });

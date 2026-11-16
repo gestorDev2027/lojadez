@@ -1,8 +1,9 @@
 // O que toda rota da API usa: respostas em JSON, erros no formato {"erro": "..."}, o limite por IP e a sessão do vendedor.
 import type { APIContext, APIRoute } from "astro";
-import { ErroAcesso, conferirCredenciais, sessao } from "./acesso";
+import { ErroAcesso, conferirCredenciais, pode, sessao, type Acesso, type Permissao } from "./acesso";
 import { emCache, limparCdn, mudaAVitrine } from "./cdn";
 import { ErroLoja } from "./erros";
+import { ErroIdentidade } from "./identidade";
 
 export class ErroHttp extends Error {
   constructor(
@@ -31,6 +32,7 @@ export function rota(fn: (ctx: APIContext) => Promise<Response | unknown>): APIR
     } catch (erro) {
       if (erro instanceof ErroHttp || erro instanceof ErroAcesso) return json({ erro: erro.mensagem }, erro.status);
       if (erro instanceof ErroLoja) return json({ erro: erro.message }, erro.status);
+      if (erro instanceof ErroIdentidade) return json({ erro: erro.message }, erro.status);
       console.error(`Erro em ${ctx.request.method} ${new URL(ctx.request.url).pathname}`, erro);
       return json({ erro: "Algo deu errado. Tente de novo." }, 500);
     }
@@ -83,16 +85,79 @@ export function limitar(ctx: APIContext, grupo: string, porMinuto: number): void
   chamadas.set(chave, fila);
 }
 
-// ───────── A área do vendedor ─────────
+// ───────── O painel da loja ─────────
 
-export const token = (request: Request) => (request.headers.get("authorization") ?? "").replace(/^Bearer /, "").trim();
+/** O cookie da sessão: o JavaScript da página não lê (HttpOnly) e não vai em pedidos vindos de outros sites (Strict). */
+export const COOKIE = "loja_sessao";
 
-/** Confere a sessão e devolve o e-mail de quem entrou. */
-export async function vendedor(ctx: APIContext): Promise<string> {
+export function token(request: Request): string {
+  const m = new RegExp(`(?:^|;\s*)${COOKIE}=([^;]*)`).exec(request.headers.get("cookie") ?? "");
+  try {
+    return m ? decodeURIComponent(m[1]).trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+export function cookieDaSessao(request: Request, valor: string, expira: Date | null): string {
+  const seguro = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  const validade = expira ? `; Expires=${expira.toUTCString()}` : "; Max-Age=0";
+  return `${COOKIE}=${encodeURIComponent(valor)}; Path=/; HttpOnly; SameSite=Strict${seguro}${validade}`;
+}
+
+/**
+ * Cada rota do painel pertence a uma área (a permissão). Rota que não está aqui é só do dono: uma rota nova nunca
+ * fica aberta por esquecimento. null = basta estar logado.
+ */
+const AREAS: Record<string, Permissao | null> = {
+  eu: null,
+  sair: null,
+  senha: null,
+  painel: "visao",
+  pedidos: "pedidos",
+  produtos: "produtos",
+  catalogo: "produtos",
+  foto: "produtos",
+  ia: "produtos",
+  estoque: "estoque",
+  afiliados: "afiliados",
+  campanhas: "afiliados",
+  cupons: "cupons",
+  repasses: "repasses",
+  financeiro: "financeiro",
+  integracoes: "integracoes",
+  configuracoes: "configuracoes",
+  acessos: "acessos",
+};
+
+export function permissaoDaRota(caminho: string): Permissao | null {
+  const area = /^\/api\/vendedor\/([^/?]+)/.exec(caminho)?.[1] ?? "";
+  return area in AREAS ? AREAS[area] : "acessos";
+}
+
+/** Pedido que muda algo precisa vir da própria loja (além do SameSite do cookie). */
+function mesmaOrigem(request: Request): boolean {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return true;
+  const origem = request.headers.get("origin");
+  if (origem) return origem === new URL(request.url).origin;
+  const site = request.headers.get("sec-fetch-site");
+  return !site || site === "same-origin";
+}
+
+/** Confere a sessão e a permissão da área da rota; devolve quem entrou. */
+export async function acessoAtual(ctx: APIContext): Promise<Acesso> {
   limitar(ctx, "vendedor", 120);
-  const email = await sessao(token(ctx.request));
-  if (!email) throw new ErroHttp("Entre de novo na área do vendedor.", 401);
-  return email;
+  if (!mesmaOrigem(ctx.request)) throw new ErroHttp("Pedido de outra origem.", 403);
+  const acesso = await sessao(token(ctx.request));
+  if (!acesso) throw new ErroHttp("Entre de novo na área do vendedor.", 401);
+  const precisa = permissaoDaRota(new URL(ctx.request.url).pathname);
+  if (precisa && !pode(acesso, precisa)) throw new ErroHttp("Seu acesso não permite esta área. Fale com o dono da loja.", 403);
+  return acesso;
+}
+
+/** Confere a sessão e a permissão e devolve o e-mail de quem entrou. */
+export async function vendedor(ctx: APIContext): Promise<string> {
+  return (await acessoAtual(ctx)).email;
 }
 
 /** Ações sensíveis (as chaves de pagamento) pedem a senha de novo. */

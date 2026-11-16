@@ -252,6 +252,22 @@ create table if not exists loja.estoque_reservas (
 );
 create index if not exists ix_loja_estoque_reservas_ativas on loja.estoque_reservas (produto_id) where situacao = 'ativa';
 
+-- ───────── Acessos ao painel (16/11/2026) ─────────
+-- A conta (senha, app autenticador, convites) fica no Supabase Auth; aqui, quem tem acesso, o papel e as permissões.
+-- O dono pode tudo (as permissões dele não ficam guardadas). As sessões continuam em loja.sessoes, pelo e-mail.
+create table if not exists loja.acessos (
+  email varchar(200) primary key,
+  usuario_id uuid unique,
+  nome varchar(120),
+  papel varchar(20) not null check (papel in ('dono', 'operacao', 'financeiro', 'marketing', 'afiliado')),
+  permissoes text[] not null default '{}',
+  ativo boolean not null default true,
+  criado_por varchar(200),
+  criado_em timestamptz not null,
+  atualizado_em timestamptz not null,
+  ultimo_acesso_em timestamptz
+);
+
 alter table loja.pedidos enable row level security;
 alter table loja.ajustes enable row level security;
 alter table loja.afiliados enable row level security;
@@ -269,3 +285,4 @@ alter table loja.auditoria enable row level security;
 alter table loja.estoque enable row level security;
 alter table loja.estoque_movimentos enable row level security;
 alter table loja.estoque_reservas enable row level security;
+alter table loja.acessos enable row level security;

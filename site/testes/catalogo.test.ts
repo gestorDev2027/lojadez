@@ -1,6 +1,5 @@
 // O catálogo do kit, os produtos, a vitrine e as fotos.
 import { beforeEach, describe, expect, it } from "vitest";
-import { definirAdministrador, entrar } from "../src/servidor/acesso";
 import { limparCache } from "../src/servidor/catalogo";
 import { esquecer } from "../src/servidor/config";
 import { configDaLanding } from "../src/servidor/loja";
@@ -12,7 +11,7 @@ import { PUT as rotaFotoKit } from "../src/pages/api/vendedor/foto";
 import { GET as rotaVerFotoKit } from "../src/pages/produto/foto";
 import { GET as rotaProdutos, POST as rotaCriar } from "../src/pages/api/vendedor/produtos/index";
 import { DELETE as rotaExcluir, PUT as rotaAlterar } from "../src/pages/api/vendedor/produtos/[slug]/index";
-import { bancoNovo, chamar } from "./apoio";
+import { bancoNovo, chamar, entrarComo } from "./apoio";
 
 const POMADA = {
   nome: "Pomada Modeladora",
@@ -47,8 +46,7 @@ describe("catálogo e produtos", () => {
     await bancoNovo();
     esquecer();
     limparCache();
-    await definirAdministrador("vendedor@exemplo.com", "senha-de-teste-123");
-    token = (await entrar("vendedor@exemplo.com", "senha-de-teste-123")).token;
+    token = await entrarComo("vendedor@exemplo.com");
   });
 
   it("o resumo da loja traz o kit com as ofertas padrão e o desconto do Pix", async () => {
@@ -109,7 +107,7 @@ describe("catálogo e produtos", () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     const ok = await chamar(
       async (ctx) => {
-        const req = new Request(ctx.request.url, { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-type": "image/png" }, body: png });
+        const req = new Request(ctx.request.url, { method: "PUT", headers: { cookie: `loja_sessao=${token}`, origin: "http://localhost", "content-type": "image/png" }, body: png });
         return rotaFotoKit({ ...ctx, request: req } as any);
       },
     );

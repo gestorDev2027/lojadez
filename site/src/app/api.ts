@@ -249,7 +249,8 @@ export class ErroApi extends Error {
 export async function chamar<T>(caminho: string, opcoes: { metodo?: string; corpo?: unknown; senha?: string } = {}): Promise<T> {
   const cabecalhos: Record<string, string> = {};
   if (opcoes.corpo !== undefined) cabecalhos["Content-Type"] = "application/json";
-  if (opcoes.senha) cabecalhos.Authorization = `Bearer ${opcoes.senha}`;
+  // A sessão do painel vai no cookie (HttpOnly), que o navegador manda sozinho. A opção "senha", que as telas do painel
+  // ainda passam, ficou só por compatibilidade: não vai mais em cabeçalho nenhum.
   let resposta: Response;
   try {
     resposta = await fetch(caminho, {
