@@ -34,6 +34,36 @@ type Catalogo = {
 };
 
 const paraReais = (centavos: number) => (centavos / 100).toFixed(2).replace(".", ",");
+const paraPorcento = (texto: string) => {
+  const valor = Number.parseFloat(texto.replace(",", "."));
+  return Number.isFinite(valor) ? valor : NaN;
+};
+const mostrarPorcento = (valor: number) => (Math.round(valor * 10) / 10).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+
+// O preço de cada oferta sai do preço de 1 kit: kits × preço de 1 kit, menos o desconto da oferta.
+type OfertaEditada = OfertaAjuste & { preco: string; desconto: string };
+const precoDaOferta = (base: number, kits: number, desconto: number) => Math.round(base * kits * (1 - desconto / 100));
+
+/** Ao carregar, o desconto de cada oferta é o que o preço salvo dá em relação a kits × preço de 1 kit. */
+function comDescontos(ofertas: OfertaAjuste[]): OfertaEditada[] {
+  const base = ofertas.find((o) => o.kits === 1)?.preco_centavos ?? 0;
+  return ofertas.map((o) => {
+    const cheio = base * o.kits;
+    const desconto = o.kits > 1 && cheio > 0 ? Math.max(0, (1 - o.preco_centavos / cheio) * 100) : 0;
+    return { ...o, preco: paraReais(o.preco_centavos), desconto: mostrarPorcento(desconto) };
+  });
+}
+
+/** Recalcula as ofertas de mais de um kit a partir do preço de 1 kit e do desconto de cada uma. */
+function recalcular(ofertas: OfertaEditada[]): OfertaEditada[] {
+  const base = paraCentavos(ofertas.find((o) => o.kits === 1)?.preco ?? "");
+  if (!(base > 0)) return ofertas;
+  return ofertas.map((o) => {
+    const desconto = paraPorcento(o.desconto);
+    if (o.kits === 1 || !(desconto >= 0 && desconto < 100)) return o;
+    return { ...o, preco: paraReais(precoDaOferta(base, o.kits, desconto)) };
+  });
+}
 const paraCentavos = (texto: string) => {
   const limpo = texto.replace(/[^\d,.]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", ".");
   const valor = Number.parseFloat(limpo);
@@ -44,7 +74,7 @@ export function AbaProduto({ senha }: { senha: string }) {
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
   const [refis, setRefis] = useState("");
   const [laminas, setLaminas] = useState("");
-  const [ofertas, setOfertas] = useState<(OfertaAjuste & { preco: string })[]>([]);
+  const [ofertas, setOfertas] = useState<OfertaEditada[]>([]);
   const [montarAtivo, setMontarAtivo] = useState(true);
   const [montarMaximo, setMontarMaximo] = useState("");
   const [montarPreco, setMontarPreco] = useState("");
@@ -68,7 +98,7 @@ export function AbaProduto({ senha }: { senha: string }) {
       largura_cm: String(c.produto.largura_cm),
       altura_cm: String(c.produto.altura_cm),
     });
-    setOfertas(c.ofertas.map((o) => ({ ...o, preco: paraReais(o.preco_centavos) })));
+    setOfertas(comDescontos(c.ofertas));
     setMontarAtivo(c.montar.ativo);
     setMontarMaximo(String(c.montar.maximo));
     setMontarPreco(paraReais(c.montar.preco_kit_centavos));
@@ -92,6 +122,11 @@ export function AbaProduto({ senha }: { senha: string }) {
     const invalida = ofertas.find((o) => !(paraCentavos(o.preco) >= 100));
     if (invalida) {
       setAviso({ ok: false, texto: `Preço inválido em ${invalida.titulo}.` });
+      return;
+    }
+    const descontoRuim = ofertas.find((o) => o.kits > 1 && !(paraPorcento(o.desconto) >= 0 && paraPorcento(o.desconto) <= 90));
+    if (descontoRuim) {
+      setAviso({ ok: false, texto: `Desconto inválido em ${descontoRuim.titulo}: de 0 a 90%.` });
       return;
     }
     if (!(paraCentavos(montarPreco) >= 100)) {
@@ -237,20 +272,58 @@ export function AbaProduto({ senha }: { senha: string }) {
         </Cartao>
 
         <Cartao titulo="Ofertas e preços">
+          <p className="mb-3 text-xs text-suave">
+            Digite o preço de 1 kit e o desconto de cada oferta: o preço de 2 e 3 kits é calculado sozinho (kits × preço de 1 kit,
+            menos o desconto).
+          </p>
           <div className="grid gap-3">
             {ofertas.map((o, i) => {
               const centavos = paraCentavos(o.preco);
               const porRefil = nRefis && centavos ? Math.round(centavos / (nRefis * o.kits)) : 0;
-              const mudar = (campo: Partial<OfertaAjuste & { preco: string }>) =>
-                setOfertas((lista) => lista.map((x, j) => (j === i ? { ...x, ...campo } : x)));
+              const base = paraCentavos(ofertas.find((x) => x.kits === 1)?.preco ?? "");
+              const economia = o.kits > 1 && base > 0 && centavos > 0 ? base * o.kits - centavos : 0;
+              const dica = [
+                o.kits > 1 && centavos > 0 ? `${reais(Math.round(centavos / o.kits))} por kit` : "",
+                porRefil ? `${reais(porRefil)} por refil` : "",
+                economia > 0 ? `economiza ${reais(economia)}` : "",
+              ].filter(Boolean).join(" · ");
+              // O preço de 1 kit ou um desconto mudou: as ofertas de mais de um kit são recalculadas.
+              const mudar = (campo: Partial<OfertaEditada>, recalcula = false) =>
+                setOfertas((lista) => {
+                  const nova = lista.map((x, j) => (j === i ? { ...x, ...campo } : x));
+                  return recalcula ? recalcular(nova) : nova;
+                });
               return (
-                <div key={o.id} className={`grid gap-3 rounded-2xl border p-4 sm:grid-cols-[130px_1fr_1fr] sm:items-end ${o.ativa ? "border-linha-2" : "border-linha opacity-60"}`}>
+                <div key={o.id} className={`grid gap-3 rounded-2xl border p-4 sm:grid-cols-[130px_120px_1fr_1fr] sm:items-end ${o.ativa ? "border-linha-2" : "border-linha opacity-60"}`}>
                   <label className="flex items-center gap-2 font-display text-2xl font-extrabold uppercase">
                     <input type="checkbox" checked={o.ativa} onChange={(e) => mudar({ ativa: e.target.checked })} className="size-4 accent-laranja" />
                     {o.titulo}
                   </label>
-                  <Campo rotulo="Preço (R$)" dica={porRefil ? `${reais(porRefil)} por refil` : undefined}>
-                    <input className="campo font-mono" inputMode="decimal" value={o.preco} onChange={(e) => mudar({ preco: e.target.value })} />
+                  {o.kits === 1 ? (
+                    <p className="pb-3 text-xs text-suave">Preço base</p>
+                  ) : (
+                    <Campo rotulo="Desconto (%)">
+                      <input
+                        className="campo font-mono"
+                        inputMode="decimal"
+                        value={o.desconto}
+                        onChange={(e) => mudar({ desconto: e.target.value }, true)}
+                        aria-label={`Desconto de ${o.titulo}`}
+                      />
+                    </Campo>
+                  )}
+                  <Campo rotulo="Preço (R$)" dica={dica || undefined}>
+                    {o.kits === 1 ? (
+                      <input className="campo font-mono" inputMode="decimal" value={o.preco} onChange={(e) => mudar({ preco: e.target.value }, true)} />
+                    ) : (
+                      <input
+                        className="campo font-mono text-tinta-2"
+                        value={o.preco}
+                        readOnly
+                        aria-readonly
+                        title="Calculado: kits × preço de 1 kit, menos o desconto"
+                      />
+                    )}
                   </Campo>
                   <Campo rotulo="Selo (opcional)">
                     <input className="campo" maxLength={40} value={o.selo} onChange={(e) => mudar({ selo: e.target.value })} />
