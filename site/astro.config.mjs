@@ -1,36 +1,20 @@
-// A loja em Astro: as páginas e a API (src/pages/api) rodam no servidor; na Netlify, como Functions.
+// A loja em Astro: as páginas e a API (src/pages/api) rodam num servidor Node (no Render, servidor.mjs).
 //
-// Durante a migração, no computador, o que ainda não foi reescrito em TypeScript continua no servidor Python
-// (porta 8000): o `npm run dev` repassa essas rotas para ele (lista em PYTHON). Cada etapa tira itens da lista.
-import netlify from "@astrojs/netlify";
+// Durante a migração, as abas do painel que ainda não foram reescritas em TypeScript continuam no servidor Python: a
+// rota src/pages/api/vendedor/[...resto].ts repassa para ele (servidor/python.ts), no computador e no Render.
+import node from "@astrojs/node";
 import partytown from "@astrojs/partytown";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
 import { config as carregarEnv } from "dotenv";
 import { defineConfig, envField } from "astro/config";
 
-// No computador, as variáveis vêm do .env da raiz do repositório (o mesmo do Python). Na Netlify, do painel dela.
+// No computador, as variáveis vêm do .env da raiz do repositório (o mesmo do Python). No Render, do painel dele.
 // Nos testes, nunca: eles não podem ver as chaves de verdade (vitest.paginas.config.ts lê este arquivo).
 if (!process.env.VITEST) carregarEnv({ path: new URL("../.env", import.meta.url), quiet: true });
 
-const PYTHON = "http://localhost:8000";
-// O que já está em TypeScript (Astro). O resto da API, no desenvolvimento, vai para o Python.
-const JA_NO_ASTRO = [
-  "vendedor/(entrar|sair|eu|senha|configuracoes|link|acessos)", // etapa 1 e os acessos
-  "loja", "vitrine", "produtos", "vendedor/(catalogo|foto|produtos)", // etapa 2
-  "vendedor/estoque", // estoque e SKU
-  "cep", "frete", "cupons/validar", "afiliados/clique", "pedidos", "webhooks", // etapa 3: a compra
-  "vendedor/pedidos", // etapa 4: os pedidos na área do vendedor
-];
-// Só no computador, enquanto parte da API está no Python: o cookie da sessão vira o cabeçalho que ele espera.
-function passarSessao(pedido, entrada) {
-  const sessao = /(?:^|;\s*)loja_sessao=([^;]+)/.exec(entrada.headers.cookie ?? "")?.[1];
-  if (sessao) pedido.setHeader("authorization", `Bearer ${decodeURIComponent(sessao)}`);
-}
-const apiNoPython = `^/api/(?!(${JA_NO_ASTRO.join("|")})(/|$|\\?)).*`;
-
 // O Partytown roda o Meta Pixel e o GTM num Web Worker. Os scripts deles vêm de outro domínio sem liberar o acesso
-// (CORS): no site publicado passam pelo próprio site (/~partytown/<domínio>/..., repassado pela Netlify: netlify.toml).
+// (CORS): no site publicado passam pelo próprio site (/~partytown/<domínio>/..., src/pages/~partytown).
 // A função vai para o navegador como texto: não pode usar nada de fora dela.
 function resolverUrl(url, location, tipo) {
   const dominios = ["connect.facebook.net", "www.googletagmanager.com"];
@@ -43,13 +27,13 @@ function resolverUrl(url, location, tipo) {
 
 export default defineConfig({
   output: "server",
-  // A loja não usa as sessões do Astro (o afiliado e o carrinho ficam no navegador): sem elas, a Function fica menor.
+  // A loja não usa as sessões do Astro (o afiliado e o carrinho ficam no navegador).
   session: false,
   // Pré-carrega a página do produto quando o cliente passa o mouse (ou foca) no link: só os links com
   // data-astro-prefetch (vitrine e landing). Em conexão lenta ou economia de dados, o Astro espera o clique.
   prefetch: { prefetchAll: false, defaultStrategy: "hover" },
-  // As variáveis conferidas ao subir e no build (na Netlify, o build falha se faltar o banco). As outras configurações
-  // (Loggi, InfinitePay...) vêm da tela de Configurações e do Vault, não daqui.
+  // As variáveis conferidas ao subir e no build (o Dockerfile põe um DATABASE_URL de mentira só para o build). As outras
+  // configurações (Loggi, InfinitePay...) vêm da tela de Configurações e do Vault, não daqui.
   env: {
     schema: {
       DATABASE_URL: envField.string({ context: "server", access: "secret", startsWith: "postgres" }),
@@ -63,17 +47,9 @@ export default defineConfig({
     },
     validateSecrets: true,
   },
-  // No computador, sem a emulação da Netlify (as Edge Functions pedem o Deno, e a loja não usa nenhuma).
-  adapter: netlify({ devFeatures: { environmentVariables: false, images: false, edgeFunctions: false } }),
+  // Um servidor Node que serve as páginas, a API e os arquivos de public/ (node ./dist/server/entry.mjs).
+  adapter: node({ mode: "standalone" }),
   integrations: [react(), partytown({ config: { debug: false, forward: ["dataLayer.push", "fbq"], resolveUrl: resolverUrl } })],
   server: { port: 4321 },
-  vite: {
-    plugins: [tailwindcss()],
-    server: {
-      proxy: {
-        // O painel manda a sessão no cookie; o Python lê o "Authorization: Bearer" (passarSessao).
-        [apiNoPython]: { target: PYTHON, configure: (proxy) => proxy.on("proxyReq", passarSessao) },
-      },
-    },
-  },
+  vite: { plugins: [tailwindcss()] },
 });

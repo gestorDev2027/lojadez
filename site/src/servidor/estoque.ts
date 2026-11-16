@@ -13,7 +13,6 @@
 //   vai para o financeiro (custo das vendas).
 import { agora, banco, registrar, type Banco } from "./banco";
 import * as catalogo from "./catalogo";
-import { limparCdn } from "./cdn";
 import { cfg } from "./config";
 import { ErroLoja } from "./erros";
 import * as produtos from "./produtos";
@@ -266,7 +265,6 @@ export type ItemPedido = { produto_id: string | null; quantidade: number };
 
 /** Reserva as unidades do pedido (dentro da transação que cria o pedido). Sem saldo, recusa com a mensagem para o cliente. */
 export async function reservar(b: Banco, pedidoNsu: string, itensPedido: ItemPedido[], expiraEm: Date): Promise<void> {
-  let zerou = false;
   for (const it of itensPedido) {
     const id = it.produto_id || produtos.KIT;
     const atual = await travar(b, id);
@@ -278,9 +276,7 @@ export async function reservar(b: Banco, pedidoNsu: string, itensPedido: ItemPed
        values ($1, $2, $3, 'ativa', $4, $5, $4)`,
       [pedidoNsu, id, it.quantidade, agora(), expiraEm],
     );
-    if (atual.controlar && disponivel - it.quantidade <= 0) zerou = true;
   }
-  if (zerou) await limparCdn(); // a vitrine passa a mostrar "Esgotado"
 }
 
 /** O pagamento entrou: as reservas do pedido viram venda (saem do saldo físico). Repetir não baixa de novo. */
@@ -307,7 +303,6 @@ export async function liberar(pedidoNsu: string): Promise<number> {
     "update loja.estoque_reservas set situacao = 'liberada', atualizado_em = $2 where pedido_nsu = $1 and situacao = 'ativa' returning produto_id",
     [pedidoNsu, agora()],
   );
-  if (linhas.length) await limparCdn();
   return linhas.length;
 }
 
@@ -317,7 +312,6 @@ export async function liberarVencidas(): Promise<string[]> {
     "update loja.estoque_reservas set situacao = 'liberada', atualizado_em = $1 where situacao = 'ativa' and expira_em < $1 returning pedido_nsu",
     [agora()],
   );
-  if (linhas.length) await limparCdn();
   return [...new Set(linhas.map((l) => l.pedido_nsu))];
 }
 
@@ -338,7 +332,6 @@ export async function devolver(pedidoNsu: string, email: string | null): Promise
       total += r.quantidade;
     }
   });
-  if (total) await limparCdn();
   return total;
 }
 

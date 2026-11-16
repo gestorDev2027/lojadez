@@ -1,4 +1,4 @@
-// O endereço do link de convite ou de troca de senha: o do próprio site onde o dono gerou o link (na Netlify, o
+// O endereço do link de convite ou de troca de senha: o do próprio site onde o dono gerou o link (no Render, o
 // endereço público; no computador, o localhost do Astro). O código vai depois do "#": não chega ao servidor nem aos
 // logs (a tela lê e manda no corpo do POST /api/vendedor/link).
 import type { Link } from "./acesso";

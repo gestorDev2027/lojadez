@@ -1,7 +1,7 @@
 // O que toda rota da API usa: respostas em JSON, erros no formato {"erro": "..."}, o limite por IP e a sessão do vendedor.
 import type { APIContext, APIRoute } from "astro";
 import { ErroAcesso, conferirCredenciais, pode, sessao, type Acesso, type Permissao } from "./acesso";
-import { emCache, limparCdn, mudaAVitrine } from "./cdn";
+import { emCache } from "./cdn";
 import { ErroLoja } from "./erros";
 import { ErroIdentidade } from "./identidade";
 
@@ -26,8 +26,6 @@ export function rota(fn: (ctx: APIContext) => Promise<Response | unknown>): APIR
   return async (ctx) => {
     try {
       const saida = await fn(ctx);
-      // O vendedor mudou algo que aparece na vitrine: a CDN esquece o que guardou.
-      if (mudaAVitrine(ctx.request.method, new URL(ctx.request.url).pathname)) await limparCdn();
       return saida instanceof Response ? saida : json(saida);
     } catch (erro) {
       if (erro instanceof ErroHttp || erro instanceof ErroAcesso) return json({ erro: erro.mensagem }, erro.status);
@@ -39,7 +37,7 @@ export function rota(fn: (ctx: APIContext) => Promise<Response | unknown>): APIR
   };
 }
 
-/** Rota pública (igual para todo visitante): a resposta certa vai para o cache da CDN (servidor/cdn.ts). */
+/** Rota pública (igual para todo visitante): os cabeçalhos de cache de servidor/cdn.ts. */
 export function rotaPublica(fn: (ctx: APIContext) => Promise<Response | unknown>): APIRoute {
   const r = rota(fn);
   return async (ctx) => {
@@ -66,8 +64,9 @@ export const texto = (valor: unknown) => (valor === null || valor === undefined 
 
 const chamadas = new Map<string, number[]>();
 
-function ip(ctx: APIContext): string {
-  const encaminhado = ctx.request.headers.get("x-nf-client-connection-ip") ?? ctx.request.headers.get("x-forwarded-for");
+/** O IP de quem chamou. No Render, o primeiro do X-Forwarded-For (o proxy dele põe o do cliente). */
+export function ipDoCliente(ctx: APIContext): string {
+  const encaminhado = ctx.request.headers.get("x-forwarded-for");
   if (encaminhado) return encaminhado.split(",")[0].trim();
   try {
     return ctx.clientAddress;
@@ -77,7 +76,7 @@ function ip(ctx: APIContext): string {
 }
 
 export function limitar(ctx: APIContext, grupo: string, porMinuto: number): void {
-  const chave = `${grupo}:${ip(ctx)}`;
+  const chave = `${grupo}:${ipDoCliente(ctx)}`;
   const agora = Date.now();
   const fila = (chamadas.get(chave) ?? []).filter((t) => agora - t <= 60_000);
   if (fila.length >= porMinuto) throw new ErroHttp("Muitas tentativas. Espere um minuto.", 429);
@@ -91,7 +90,7 @@ export function limitar(ctx: APIContext, grupo: string, porMinuto: number): void
 export const COOKIE = "loja_sessao";
 
 export function token(request: Request): string {
-  const m = new RegExp(`(?:^|;\s*)${COOKIE}=([^;]*)`).exec(request.headers.get("cookie") ?? "");
+  const m = new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]*)`).exec(request.headers.get("cookie") ?? "");
   try {
     return m ? decodeURIComponent(m[1]).trim() : "";
   } catch {
@@ -169,12 +168,11 @@ export async function confirmarSenha(ctx: APIContext, email: string, dados: Reco
 // ───────── Trabalho depois da resposta ─────────
 
 /**
- * Roda `tarefa` sem segurar a resposta: na Netlify, pelo waitUntil (a Function continua até terminar); no computador e
- * nos testes, espera aqui mesmo.
+ * Roda `tarefa` sem segurar a resposta: no site publicado, o servidor (sempre ligado) termina depois; no computador e
+ * nos testes, espera aqui mesmo. A tarefa nunca lança (pedidos.ts), mas um erro inesperado vai para o log.
  */
-export async function depois(ctx: APIContext, tarefa: Promise<unknown> | null): Promise<void> {
+export async function depois(_ctx: APIContext, tarefa: Promise<unknown> | null): Promise<void> {
   if (!tarefa) return;
-  const esperar = (ctx.locals as any)?.netlify?.context?.waitUntil;
-  if (typeof esperar === "function") esperar.call((ctx.locals as any).netlify.context, tarefa);
+  if (import.meta.env?.PROD) void tarefa.catch((erro) => console.error("Tarefa depois da resposta", erro));
   else await tarefa;
 }

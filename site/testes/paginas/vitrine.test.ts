@@ -39,7 +39,7 @@ afterAll(() => {
 
 async function produto(slug: string) {
   const r = await container.renderToResponse(PaginaProduto, { params: { slug }, request: pedido(`/p/${slug}`) });
-  return { status: r.status, html: texto(await r.text()), cache: r.headers.get("Netlify-CDN-Cache-Control") };
+  return { status: r.status, html: texto(await r.text()), cache: r.headers.get("Cache-Control") };
 }
 
 describe("vitrine e produto em Astro", () => {
@@ -67,7 +67,7 @@ describe("vitrine e produto em Astro", () => {
   it("a página do produto: HTML pronto, a mesma foto da vitrine, dados para o Google e o bloco de compra", async () => {
     const r = await produto("pomada-modeladora");
     expect(r.status).toBe(200);
-    expect(r.cache).toContain("s-maxage"); // a página fica no cache da CDN
+    expect(r.cache).toBe("public, max-age=0, must-revalidate"); // pública: o navegador sempre pergunta
     expect(r.html).toContain("<h1");
     expect(r.html).toContain("Fixação forte, efeito seco.");
     expect(r.html).toContain("<p>Segundo parágrafo.</p>");
@@ -103,7 +103,7 @@ describe("vitrine e produto em Astro", () => {
   it("produto que não existe ou foi desativado: 404 sem cache", async () => {
     const r = await produto("nao-existe");
     expect(r.status).toBe(404);
-    expect(r.cache).toBeNull();
+    expect(r.cache ?? "").not.toContain("public");
     expect(r.html).toContain("Produto não encontrado.");
   });
 });

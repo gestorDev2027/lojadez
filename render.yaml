@@ -1,18 +1,26 @@
-# Blueprint do Render: um serviço web (Docker). O banco é o Postgres do Supabase (DATABASE_URL, Session pooler).
-# Só o DATABASE_URL fica aqui: o resto (Loggi, InfinitePay, remetente...) muda em /vendedor → Configurações, e as
-# chaves ficam no Vault do Supabase. O primeiro acesso ao /vendedor usa o código que aparece nos Logs ao ligar.
+# Blueprint do Render: um serviço web (Docker) com o site em Astro na frente e o Python por dentro (as abas do painel
+# ainda não reescritas). O banco é o Postgres do Supabase. O resto da configuração (Loggi, InfinitePay, remetente...)
+# muda em /vendedor → Configurações, e as chaves ficam no Vault do Supabase.
 services:
   - type: web
     name: loja-laminas
     runtime: docker
     plan: starter # o plano free dorme sem acesso: o webhook da InfinitePay pode chegar com o site dormindo
-    region: virginia
+    region: virginia # perto do Supabase
     healthCheckPath: /api/loja
     autoDeploy: true # cada merge na main publica de novo
     envVars:
       - key: DATABASE_URL
-        sync: false # Supabase: Connect > Session pooler (porta 5432), com a senha do banco
+        sync: false # Supabase: Connect > Session pooler (porta 5432). Usuário postgres enquanto o Python existir
+      - key: SITE_URL
+        sync: false # o endereço do site, com https e sem a barra no fim (ex.: https://loja-laminas.onrender.com)
+      - key: SUPABASE_URL
+        sync: false # o login do painel: Project Settings → API
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
       - key: LOJA_ADMIN_EMAIL
-        sync: false # opcional: o acesso ao /vendedor (sem ele, o primeiro acesso usa o código dos Logs)
+        sync: false # o primeiro dono do painel (só enquanto não há nenhum acesso)
       - key: LOJA_ADMIN_SENHA
-        sync: false # opcional: pelo menos 10 caracteres; a senha desse acesso só muda aqui
+        sync: false

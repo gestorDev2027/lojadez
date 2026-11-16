@@ -9,8 +9,8 @@
 // - POST /packages/cancel?loggi_key= (cancela);
 // - GET /packages/{tracking_code}/tracking (rastreio).
 //
-// Na Netlify cada Function começa do zero: o token fica na memória da instância e também no Vault (LOGGI_TOKEN_CACHE),
-// para as outras instâncias não pedirem um token novo a cada visita.
+// O token fica na memória do servidor e também no Vault (LOGGI_TOKEN_CACHE): ao reiniciar (cada publicação), o servidor
+// não pede um token novo.
 import { createHash, randomBytes } from "node:crypto";
 import * as catalogo from "./catalogo";
 import * as cofre from "./cofre";

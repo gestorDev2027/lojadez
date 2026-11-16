@@ -408,7 +408,7 @@ export async function criarEnvioLoggi(orderNsu: string): Promise<Pedido> {
 }
 
 /** Cria o envio logo depois do pagamento. Se a Loggi recusar, guarda o motivo no pedido (o vendedor cria à mão).
- * Nunca lança: roda depois da resposta (waitUntil da Netlify). */
+ * Nunca lança: roda depois da resposta (http.depois). */
 export async function envioAutomatico(orderNsu: string): Promise<void> {
   try {
     await criarEnvioLoggi(orderNsu);
