@@ -56,6 +56,6 @@ export async function limparCdn(): Promise<void> {
  * Só no site publicado: no computador, o endereço original.
  */
 export function fotoOtimizada(url: string, largura: number): string {
-  if (!import.meta.env.PROD || !url || !url.startsWith("/") || url.endsWith(".svg")) return url;
+  if (!import.meta.env?.PROD || !url || !url.startsWith("/") || url.endsWith(".svg")) return url;
   return `/.netlify/images?url=${encodeURIComponent(url)}&w=${largura}`;
 }

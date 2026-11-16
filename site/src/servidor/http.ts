@@ -100,3 +100,16 @@ export async function confirmarSenha(ctx: APIContext, email: string, dados: Reco
   limitar(ctx, "confirmar", 10);
   await conferirCredenciais(email, texto(dados.senha));
 }
+
+// ───────── Trabalho depois da resposta ─────────
+
+/**
+ * Roda `tarefa` sem segurar a resposta: na Netlify, pelo waitUntil (a Function continua até terminar); no computador e
+ * nos testes, espera aqui mesmo.
+ */
+export async function depois(ctx: APIContext, tarefa: Promise<unknown> | null): Promise<void> {
+  if (!tarefa) return;
+  const esperar = (ctx.locals as any)?.netlify?.context?.waitUntil;
+  if (typeof esperar === "function") esperar.call((ctx.locals as any).netlify.context, tarefa);
+  else await tarefa;
+}

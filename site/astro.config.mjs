@@ -18,6 +18,7 @@ const JA_NO_ASTRO = [
   "vendedor/(entrar|sair|eu|senha|configuracoes|primeiro-acesso)", // etapa 1
   "loja", "vitrine", "produtos", "vendedor/(catalogo|foto|produtos)", // etapa 2
   "vendedor/estoque", // estoque e SKU
+  "cep", "frete", "cupons/validar", "afiliados/clique", "pedidos", "webhooks", // etapa 3: a compra
 ];
 const apiNoPython = `^/api/(?!(${JA_NO_ASTRO.join("|")})(/|$|\\?)).*`;
 
@@ -57,8 +58,6 @@ export default defineConfig({
     server: {
       proxy: {
         [apiNoPython]: PYTHON,
-        "^/l/": PYTHON,
-        "/simulador": PYTHON,
       },
     },
   },
