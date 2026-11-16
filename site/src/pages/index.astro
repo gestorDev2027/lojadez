@@ -3,6 +3,7 @@
 // antigo /lp-config.js). As animações continuam em public/assets/js/main.js, que lê window.LP_CONFIG.
 import Simbolo from "../components/Simbolo.astro";
 import * as catalogo from "../servidor/catalogo";
+import { emCache, fotoOtimizada } from "../servidor/cdn";
 import { cfg } from "../servidor/config";
 import { configDaLanding, jsonNoHtml } from "../servidor/loja";
 
@@ -15,7 +16,19 @@ const titulo = `${kit.nome} · ${nome}`;
 const descricao = `${kit.aparelhos} aparelho + ${kit.refis} refis de ${kit.laminas_por_refil} lâminas com fita lubrificante${preco ? `, a partir de ${preco}` : ""}. Lâmina nova todo santo dia.`;
 const base = c.SITE_URL.startsWith("http") ? c.SITE_URL : Astro.url.origin;
 const foto = new URL(config.fotoKit, base).href;
-Astro.response.headers.set("Cache-Control", "public, max-age=0, must-revalidate");
+emCache(Astro.response.headers);
+
+// As fotos pela Image CDN da Netlify (no computador, os endereços originais); a do og:image fica a original.
+const pagina = {
+  ...config,
+  fotoKit: fotoOtimizada(config.fotoKit, 1200),
+  produtos: config.produtos.map((p) => ({ ...p, foto: fotoOtimizada(p.foto, 640) })),
+};
+// O Meta Pixel e o GTM rodam fora da linha principal (Partytown), a não ser que o vendedor desligue.
+const { metaPixelId, gtmId, segundoPlano } = config.rastreamento;
+const emSegundoPlano = segundoPlano && Boolean(metaPixelId || gtmId);
+const pixel = `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init',${JSON.stringify(metaPixelId)});fbq('track','PageView');`;
+const gtm = `window.dataLayer=window.dataLayer||[];window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});var s=document.createElement('script');s.async=true;s.src='https://www.googletagmanager.com/gtm.js?id='+encodeURIComponent(${JSON.stringify(gtmId)});document.head.appendChild(s);`;
 ---
 
 <!doctype html>
@@ -41,7 +54,9 @@ Astro.response.headers.set("Cache-Control", "public, max-age=0, must-revalidate"
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@500;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="preload" as="image" href={config.fotoKit}>
+  <link rel="preload" as="image" href={pagina.fotoKit}>
+  {emSegundoPlano && gtmId && <script type="text/partytown" set:html={gtm} />}
+  {emSegundoPlano && metaPixelId && <script type="text/partytown" set:html={pixel} />}
   <link rel="stylesheet" href="/assets/css/style.css">
 </head>
 <body>
@@ -550,7 +565,7 @@ Astro.response.headers.set("Cache-Control", "public, max-age=0, must-revalidate"
   </a>
 
   <!-- A configuração (preços, ofertas, links do checkout) vem junto com a página, montada no servidor. -->
-  <script is:inline set:html={`window.LP_CONFIG = ${jsonNoHtml(config)};`}></script>
+  <script is:inline set:html={`window.LP_CONFIG = ${jsonNoHtml(pagina)};`}></script>
   <script is:inline src="/assets/js/main.js" defer></script>
 </body>
 </html>

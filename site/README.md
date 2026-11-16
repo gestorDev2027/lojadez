@@ -37,3 +37,14 @@ Títulos em Bebas Neue, texto em Inter. O logo ainda é provisório (`src/compon
 - **Variáveis:** `DATABASE_URL` (Supabase, Connect > **Transaction pooler**, porta 6543), `LOJA_ADMIN_EMAIL` e
   `LOJA_ADMIN_SENHA` (o acesso à área do vendedor; não há tela de primeiro acesso).
 - O resto da configuração (Loggi, InfinitePay...) fica na aba Configurações, com as chaves no Vault do Supabase.
+- As variáveis com o escopo **All scopes**: o build confere o `DATABASE_URL` (`env.schema` no `astro.config.mjs`).
+- **Cache na CDN** (`src/servidor/cdn.ts`): a landing, a vitrine, as páginas dos produtos, o mapa do site e a API
+  pública saem da CDN (10 min, etiqueta `loja`). Quando o vendedor muda preço, produto, foto ou configuração, a
+  etiqueta é limpa na hora. Checkout, painel e API do vendedor nunca vão para o cache.
+- **Fotos** da landing e da vitrine pela Image CDN da Netlify (`/.netlify/images`, tamanho certo e WebP/AVIF); no
+  computador, os endereços originais.
+- **Meta Pixel e GTM** pelo Partytown (fora da linha principal), com os scripts passando pelo próprio site
+  (`/~partytown/...`, no `netlify.toml`). Onde o navegador não aceita service worker, rodam do jeito normal. Desliga em
+  Configurações → Rastreamento em segundo plano.
+- `/sitemap.xml` e `/robots.txt` saem do banco (os produtos ativos) e usam o `SITE_URL`.
+- Região das Functions: no plano grátis, Ohio (EUA); São Paulo (`gru`) só no plano Pro.

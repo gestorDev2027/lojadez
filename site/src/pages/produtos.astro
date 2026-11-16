@@ -1,10 +1,12 @@
 ---
 // A vitrine: o kit de lâminas e os produtos. Título, descrição e foto vão prontos do servidor; a lista é o app React.
+import { emCache } from "../servidor/cdn";
 import Layout from "../layouts/App.astro";
 import * as catalogo from "../servidor/catalogo";
 import { cfg } from "../servidor/config";
 
 const [c, foto] = await Promise.all([cfg(), catalogo.urlFoto()]);
+emCache(Astro.response.headers);
 ---
 
 <Layout

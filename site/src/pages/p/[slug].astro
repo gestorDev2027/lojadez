@@ -1,6 +1,7 @@
 ---
 // A página de um produto. O título, a descrição, a foto e o preço vão prontos do servidor (Google e prévias de link
 // do afiliado no WhatsApp); a página em si é o app React.
+import { emCache } from "../../servidor/cdn";
 import Layout from "../../layouts/App.astro";
 import { cfg } from "../../servidor/config";
 import { buscar, publico } from "../../servidor/produtos";
@@ -10,6 +11,7 @@ if (!produto) return new Response("Produto não encontrado.", { status: 404 });
 const [p, c] = await Promise.all([publico(produto), cfg()]);
 const menor = p.ofertas.reduce((m, o) => (o.preco_centavos < m ? o.preco_centavos : m), p.ofertas[0]?.preco_centavos ?? 0);
 const descricao = (p.chamada || p.descricao || `${p.nome} na ${c.LOJA_NOME}.`).slice(0, 200);
+emCache(Astro.response.headers);
 ---
 
 <Layout titulo={`${p.nome} · ${c.LOJA_NOME}`} descricao={descricao} imagem={p.foto} precoCentavos={menor || undefined} indexar />
