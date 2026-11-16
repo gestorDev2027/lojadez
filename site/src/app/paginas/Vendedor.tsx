@@ -10,10 +10,9 @@ import { AbaEstoque } from "./VendedorEstoque";
 import { AbaRepasses } from "./VendedorRepasses";
 import { AbaFinanceiro } from "./VendedorFinanceiro";
 import { AbaProdutos } from "./VendedorProdutos";
+import { AbaAcessos, AbaConta } from "./VendedorAcessos";
+import { CriarSenha, Entrar, lerLinkDaUrl, type Eu, type LinkDaUrl } from "./VendedorEntrar";
 
-// A área do vendedor: entra com e-mail e senha; a sessão (um token, vale 12 horas) fica só nesta aba do navegador.
-// As telas usam o token no lugar da antiga senha única (a prop continua se chamando "senha").
-const CHAVE = "loja-sessao-vendedor";
 
 const FILTROS: { valor: string; rotulo: string; situacoes: string[] }[] = [
   { valor: "pago", rotulo: "Para enviar", situacoes: ["pago"] },
@@ -33,28 +32,25 @@ const SITUACOES: Record<string, { rotulo: string; cor: string }> = {
   reembolsado: { rotulo: "Reembolsado", cor: "bg-white/10 text-tinta-2" },
 };
 
-function lerSenha() {
-  try {
-    return sessionStorage.getItem(CHAVE) ?? "";
-  } catch {
-    return "";
-  }
-}
+type Aba =
+  | "visao" | "pedidos" | "produto" | "produtos" | "estoque" | "afiliados" | "repasses" | "cupons" | "financeiro" | "integracoes"
+  | "configuracoes" | "acessos" | "conta";
 
-type Aba = "visao" | "pedidos" | "produto" | "produtos" | "estoque" | "afiliados" | "repasses" | "cupons" | "financeiro" | "integracoes" | "configuracoes";
-
-const MENU: { id: Aba; rotulo: string; icone: string; breve?: boolean }[] = [
-  { id: "visao", rotulo: "Visão geral", icone: "M4 13h6V4H4zM14 20h6V11h-6zM4 20h6v-3H4zM14 7h6V4h-6z" },
-  { id: "pedidos", rotulo: "Pedidos", icone: "M6 3h12l2 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7zM4 7h16M9 11h6" },
-  { id: "produto", rotulo: "Kit de lâminas", icone: "M4 7l8-4 8 4v10l-8 4-8-4zM4 7l8 4 8-4M12 11v10" },
-  { id: "produtos", rotulo: "Produtos", icone: "M3 9h18l-2 11H5zM8 9V6a4 4 0 0 1 8 0v3" },
-  { id: "estoque", rotulo: "Estoque", icone: "M3 21V8l9-5 9 5v13M3 21h18M7 21v-8h10v8M7 17h10" },
-  { id: "afiliados", rotulo: "Afiliados", icone: "M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" },
-  { id: "repasses", rotulo: "Repasses", icone: "M3 7h18v10H3zM7 7v10M17 7v10M12 10v4M10 12h4" },
-  { id: "cupons", rotulo: "Cupons", icone: "M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 0 0-4V4H3zM10 4v16" },
-  { id: "financeiro", rotulo: "Financeiro", icone: "M4 19V5M4 19h16M8 15l4-4 3 3 5-6" },
-  { id: "integracoes", rotulo: "Integrações", icone: "M9 7V3M15 7V3M7 7h10v5a5 5 0 0 1-10 0zM12 17v4" },
-  { id: "configuracoes", rotulo: "Configurações", icone: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z" },
+// Cada aba aparece só para quem tem a permissão dela (null = todos). Quem confere de verdade é cada rota no servidor.
+const MENU: { id: Aba; rotulo: string; icone: string; permissao: string | null; breve?: boolean }[] = [
+  { id: "visao", rotulo: "Visão geral", permissao: "visao", icone: "M4 13h6V4H4zM14 20h6V11h-6zM4 20h6v-3H4zM14 7h6V4h-6z" },
+  { id: "pedidos", rotulo: "Pedidos", permissao: "pedidos", icone: "M6 3h12l2 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7zM4 7h16M9 11h6" },
+  { id: "produto", rotulo: "Kit de lâminas", permissao: "produtos", icone: "M4 7l8-4 8 4v10l-8 4-8-4zM4 7l8 4 8-4M12 11v10" },
+  { id: "produtos", rotulo: "Produtos", permissao: "produtos", icone: "M3 9h18l-2 11H5zM8 9V6a4 4 0 0 1 8 0v3" },
+  { id: "estoque", rotulo: "Estoque", permissao: "estoque", icone: "M3 21V8l9-5 9 5v13M3 21h18M7 21v-8h10v8M7 17h10" },
+  { id: "afiliados", rotulo: "Afiliados", permissao: "afiliados", icone: "M16 11a4 4 0 1 0-8 0M4 21a8 8 0 0 1 16 0" },
+  { id: "repasses", rotulo: "Repasses", permissao: "repasses", icone: "M3 7h18v10H3zM7 7v10M17 7v10M12 10v4M10 12h4" },
+  { id: "cupons", rotulo: "Cupons", permissao: "cupons", icone: "M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 0 0-4V4H3zM10 4v16" },
+  { id: "financeiro", rotulo: "Financeiro", permissao: "financeiro", icone: "M4 19V5M4 19h16M8 15l4-4 3 3 5-6" },
+  { id: "integracoes", rotulo: "Integrações", permissao: "integracoes", icone: "M9 7V3M15 7V3M7 7h10v5a5 5 0 0 1-10 0zM12 17v4" },
+  { id: "configuracoes", rotulo: "Configurações", permissao: "configuracoes", icone: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 1-2-1V5h-4v2l-2 1-2-1-2 4 2 1v0l-2 1 2 4 2-1 2 1v2h4v-2l2-1 2 1 2-4z" },
+  { id: "acessos", rotulo: "Acessos", permissao: "acessos", icone: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4" },
+  { id: "conta", rotulo: "Minha conta", permissao: null, icone: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" },
 ];
 
 function Icone({ d }: { d: string }) {
@@ -65,50 +61,50 @@ function Icone({ d }: { d: string }) {
   );
 }
 
+// A área do vendedor: entra com e-mail, senha e o app autenticador (VendedorEntrar). A sessão fica num cookie que o
+// JavaScript não lê; as telas ainda recebem a prop "senha" (hoje, só o e-mail de quem entrou: não vai em cabeçalho).
 export function PaginaVendedor() {
-  const [senha, setSenha] = useState(lerSenha);
+  const [eu, setEu] = useState<Eu | null | undefined>(undefined);
+  const [link, setLink] = useState<LinkDaUrl | null>(lerLinkDaUrl);
   const [aba, setAba] = useState<Aba>("visao");
-  const [email, setEmail] = useState("");
   const [pedidoAberto, setPedidoAberto] = useState<string | null>(null);
-  const [erro, setErro] = useState("");
 
-  useEffect(() => {
-    if (!senha) return;
-    chamar<{ email: string }>("/api/vendedor/eu", { senha })
-      .then((r) => setEmail(r.email))
-      .catch((e) => e instanceof ErroApi && e.status === 401 && sair());
-  }, [senha]);
-
-  function encerrar() {
-    if (senha) void chamar("/api/vendedor/sair", { senha, corpo: {} }).catch(() => undefined);
-    sair();
-  }
+  const carregar = useCallback(() => {
+    chamar<Eu>("/api/vendedor/eu")
+      .then(setEu)
+      .catch(() => setEu(null));
+  }, []);
+  useEffect(carregar, [carregar]);
 
   function sair() {
-    try {
-      sessionStorage.removeItem(CHAVE);
-    } catch {
-      /* sem armazenamento: só esquece na memória */
-    }
-    setSenha("");
-    setEmail("");
-    setErro("");
+    setEu(null);
+    setAba("visao");
+    setPedidoAberto(null);
   }
 
-  if (!senha)
+  function encerrar() {
+    void chamar("/api/vendedor/sair", { corpo: {} })
+      .catch(() => undefined)
+      .finally(sair);
+  }
+
+  if (link)
     return (
-      <Entrar
-        erro={erro}
-        aoEntrar={(s) => {
-          try {
-            sessionStorage.setItem(CHAVE, s);
-          } catch {
-            /* segue só na memória */
-          }
-          setSenha(s);
+      <CriarSenha
+        link={link}
+        aoTerminar={() => {
+          setLink(null);
+          setEu(null);
         }}
       />
     );
+  if (eu === undefined) return <p className="mx-auto max-w-sm px-4 py-12 text-suave">Carregando…</p>;
+  if (!eu) return <Entrar aoEntrar={carregar} />;
+
+  const senha = eu.email;
+  const menu = MENU.filter((m) => m.permissao === null || eu.permissoes.includes(m.permissao));
+  const atual: Aba = menu.some((m) => m.id === aba) ? aba : menu[0].id;
+  const quem = eu.nome ? `${eu.nome} · ${eu.email}` : eu.email;
 
   return (
     <div className="mx-auto grid max-w-[1500px] grid-cols-[minmax(0,1fr)] gap-0 lg:grid-cols-[236px_minmax(0,1fr)]">
@@ -116,9 +112,9 @@ export function PaginaVendedor() {
       <aside className="min-w-0 border-b border-linha lg:sticky lg:top-[61px] lg:h-[calc(100dvh-61px)] lg:border-r lg:border-b-0">
         <div className="flex h-full flex-col gap-4 p-3 lg:p-4">
           <p className="hidden px-2 font-mono text-[11px] font-bold tracking-[.16em] text-suave uppercase lg:block">Gestão da loja</p>
-          <nav aria-label="Área do vendedor" className="flex gap-1 overflow-x-auto [scrollbar-width:none] lg:flex-col lg:overflow-visible">
-            {MENU.map((m) => {
-              const ativo = aba === m.id;
+          <nav aria-label="Área do vendedor" className="flex gap-1 overflow-x-auto [scrollbar-width:none] lg:flex-col lg:overflow-y-auto">
+            {menu.map((m) => {
+              const ativo = atual === m.id;
               return (
                 <button
                   key={m.id}
@@ -142,7 +138,9 @@ export function PaginaVendedor() {
             })}
           </nav>
           <div className="mt-auto hidden border-t border-linha pt-4 lg:block">
-            {email && <p className="truncate px-2 font-mono text-xs text-suave" title={email}>{email}</p>}
+            <p className="truncate px-2 font-mono text-xs text-suave" title={quem}>
+              {quem}
+            </p>
             <button type="button" onClick={encerrar} className="mt-2 w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-tinta-2 hover:bg-white/[.05]">
               Sair
             </button>
@@ -152,12 +150,12 @@ export function PaginaVendedor() {
 
       <section className="min-w-0 px-4 py-6 lg:px-8">
         <div className="mb-4 flex items-center justify-end gap-3 lg:hidden">
-          {email && <span className="truncate font-mono text-xs text-suave">{email}</span>}
+          <span className="truncate font-mono text-xs text-suave">{eu.email}</span>
           <button type="button" onClick={encerrar} className="rounded-full px-3 py-1.5 text-sm text-suave">
             Sair
           </button>
         </div>
-        {aba === "visao" ? (
+        {atual === "visao" ? (
           <VisaoGeral
             senha={senha}
             aoAbrirPedido={(nsu) => {
@@ -165,26 +163,30 @@ export function PaginaVendedor() {
               setAba("pedidos");
             }}
           />
-        ) : aba === "pedidos" ? (
+        ) : atual === "pedidos" ? (
           <AbaPedidos senha={senha} aberto={pedidoAberto} aoAbrir={setPedidoAberto} aoSair={sair} />
-        ) : aba === "produto" ? (
+        ) : atual === "produto" ? (
           <AbaProduto senha={senha} />
-        ) : aba === "produtos" ? (
+        ) : atual === "produtos" ? (
           <AbaProdutos senha={senha} />
-        ) : aba === "estoque" ? (
+        ) : atual === "estoque" ? (
           <AbaEstoque senha={senha} />
-        ) : aba === "afiliados" ? (
+        ) : atual === "afiliados" ? (
           <AbaAfiliados senha={senha} />
-        ) : aba === "cupons" ? (
+        ) : atual === "cupons" ? (
           <AbaCupons senha={senha} />
-        ) : aba === "repasses" ? (
+        ) : atual === "repasses" ? (
           <AbaRepasses senha={senha} />
-        ) : aba === "financeiro" ? (
+        ) : atual === "financeiro" ? (
           <AbaFinanceiro senha={senha} aoIrPara={setAba} />
-        ) : aba === "integracoes" ? (
+        ) : atual === "integracoes" ? (
           <AbaIntegracoes senha={senha} />
-        ) : (
+        ) : atual === "configuracoes" ? (
           <AbaConfiguracoes senha={senha} aoSair={sair} />
+        ) : atual === "acessos" ? (
+          <AbaAcessos eu={eu} />
+        ) : (
+          <AbaConta eu={eu} aoSair={sair} />
         )}
       </section>
     </div>
@@ -520,148 +522,6 @@ function Reembolso({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senh
   );
 }
 
-function Entrar({ erro: erroDeFora, aoEntrar }: { erro: string; aoEntrar: (token: string) => void }) {
-  const [primeiro, setPrimeiro] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    chamar<{ disponivel: boolean }>("/api/vendedor/primeiro-acesso")
-      .then((r) => setPrimeiro(r.disponivel))
-      .catch(() => setPrimeiro(false));
-  }, []);
-
-  if (primeiro === null) return <p className="mx-auto max-w-sm px-4 py-12 text-suave">Carregando…</p>;
-  if (primeiro) return <PrimeiroAcesso aoEntrar={aoEntrar} aoDesistir={() => setPrimeiro(false)} />;
-  return <FormEntrar erro={erroDeFora} aoEntrar={aoEntrar} />;
-}
-
-// Sem nenhum acesso criado: o primeiro é criado aqui, com o código de uso único que a loja mostra no terminal (no
-// Render, nos logs) quando liga. Criado o primeiro, esta tela some.
-function PrimeiroAcesso({ aoEntrar, aoDesistir }: { aoEntrar: (token: string) => void; aoDesistir: () => void }) {
-  const [codigo, setCodigo] = useState("");
-  const [email, setEmail] = useState("");
-  const [senha, setSenha] = useState("");
-  const [repetir, setRepetir] = useState("");
-  const [ver, setVer] = useState(false);
-  const [erro, setErro] = useState("");
-  const [criando, setCriando] = useState(false);
-
-  async function enviar(e: FormEvent) {
-    e.preventDefault();
-    setErro("");
-    if (senha.length < 10) return setErro("A senha precisa ter pelo menos 10 caracteres.");
-    if (senha !== repetir) return setErro("As duas senhas estão diferentes.");
-    setCriando(true);
-    try {
-      const r = await chamar<{ token: string }>("/api/vendedor/primeiro-acesso", { corpo: { codigo, email, senha } });
-      setSenha("");
-      setRepetir("");
-      aoEntrar(r.token);
-    } catch (falha) {
-      if ((falha as { status?: number }).status === 409) return aoDesistir();
-      setErro((falha as Error).message);
-    } finally {
-      setCriando(false);
-    }
-  }
-
-  const tipo = ver ? "text" : "password";
-  return (
-    <section className="mx-auto max-w-sm px-4 py-12">
-      <form className="grid gap-3 rounded-2xl border border-linha bg-cartao p-6" onSubmit={(e) => void enviar(e)}>
-        <h1 className="text-xl font-bold">Criar o primeiro acesso</h1>
-        <p className="text-sm text-tinta-2">
-          A loja ainda não tem acesso à área do vendedor. Use o código de 8 números que aparece no terminal onde a loja
-          está rodando (no Render, nos Logs). Ele vale uma vez só.
-        </p>
-        <label className="grid gap-1.5 text-sm font-medium">
-          Código do terminal
-          <input
-            className="campo font-mono tracking-widest"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="0000-0000"
-            maxLength={9}
-            required
-            value={codigo}
-            onChange={(e) => setCodigo(e.target.value)}
-          />
-        </label>
-        <label className="grid gap-1.5 text-sm font-medium">
-          Seu e-mail
-          <input className="campo" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        </label>
-        <label className="grid gap-1.5 text-sm font-medium">
-          Senha (pelo menos 10 caracteres)
-          <input className="campo" type={tipo} autoComplete="new-password" required minLength={10} value={senha} onChange={(e) => setSenha(e.target.value)} />
-        </label>
-        <label className="grid gap-1.5 text-sm font-medium">
-          Repita a senha
-          <input className="campo" type={tipo} autoComplete="new-password" required value={repetir} onChange={(e) => setRepetir(e.target.value)} />
-        </label>
-        <label className="flex items-center gap-2 text-sm text-tinta-2">
-          <input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} />
-          Mostrar a senha
-        </label>
-        {erro && (
-          <p role="alert" className="text-sm text-alerta">
-            {erro}
-          </p>
-        )}
-        <button type="submit" disabled={criando} className="btn-laranja px-5 py-3 text-sm">
-          {criando ? "Criando…" : "Criar acesso e entrar"}
-        </button>
-      </form>
-    </section>
-  );
-}
-
-function FormEntrar({ erro: erroDeFora, aoEntrar }: { erro: string; aoEntrar: (token: string) => void }) {
-  const [email, setEmail] = useState("");
-  const [senha, setSenha] = useState("");
-  const [erro, setErro] = useState("");
-  const [entrando, setEntrando] = useState(false);
-
-  async function enviar(e: FormEvent) {
-    e.preventDefault();
-    setErro("");
-    setEntrando(true);
-    try {
-      const r = await chamar<{ token: string }>("/api/vendedor/entrar", { corpo: { email, senha } });
-      setSenha("");
-      aoEntrar(r.token);
-    } catch (falha) {
-      setErro((falha as Error).message);
-    } finally {
-      setEntrando(false);
-    }
-  }
-
-  const mensagem = erro || erroDeFora;
-  return (
-    <section className="mx-auto max-w-sm px-4 py-12">
-      <form className="grid gap-3 rounded-2xl border border-linha bg-cartao p-6" onSubmit={(e) => void enviar(e)}>
-        <h1 className="text-xl font-bold">Área do vendedor</h1>
-        <label className="grid gap-1.5 text-sm font-medium">
-          E-mail
-          <input className="campo" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        </label>
-        <label className="grid gap-1.5 text-sm font-medium">
-          Senha
-          <input className="campo" type="password" autoComplete="current-password" required value={senha} onChange={(e) => setSenha(e.target.value)} />
-        </label>
-        {mensagem && (
-          <p role="alert" className="text-sm text-alerta">
-            {mensagem}
-          </p>
-        )}
-        <button type="submit" disabled={entrando} className="btn-laranja px-5 py-3 text-sm">
-          {entrando ? "Entrando…" : "Entrar"}
-        </button>
-      </form>
-    </section>
-  );
-}
-
 function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; senha: string; aoMudar: () => void }) {
   const [codigo, setCodigo] = useState("");
   const [erro, setErro] = useState("");
@@ -697,7 +557,7 @@ function CartaoPedido({ pedido: p, senha, aoMudar }: { pedido: PedidoVendedor; s
   async function baixarEtiqueta() {
     setErro("");
     try {
-      const r = await fetch(`/api/vendedor/pedidos/${p.order_nsu}/loggi/etiqueta`, { headers: { Authorization: `Bearer ${senha}` } });
+      const r = await fetch(`/api/vendedor/pedidos/${p.order_nsu}/loggi/etiqueta`, { credentials: "same-origin" });
       if (!r.ok) {
         const dados = await r.json().catch(() => ({}));
         throw new Error(dados.erro ?? dados.detail ?? "Não consegui gerar a etiqueta.");

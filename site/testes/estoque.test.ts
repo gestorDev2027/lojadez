@@ -1,6 +1,5 @@
 // O estoque (saldo por movimentos, reservas dos pedidos, custo médio, inventário) e o SKU automático.
 import { beforeEach, describe, expect, it } from "vitest";
-import { definirAdministrador, entrar } from "../src/servidor/acesso";
 import { banco } from "../src/servidor/banco";
 import { limparCache } from "../src/servidor/catalogo";
 import { esquecer } from "../src/servidor/config";
@@ -11,7 +10,7 @@ import { GET as rotaEstoque } from "../src/pages/api/vendedor/estoque/index";
 import { POST as rotaLancar } from "../src/pages/api/vendedor/estoque/[produto]/movimentos";
 import { GET as rotaVitrine } from "../src/pages/api/vitrine";
 import { POST as rotaCriar } from "../src/pages/api/vendedor/produtos/index";
-import { bancoNovo, chamar } from "./apoio";
+import { bancoNovo, chamar, entrarComo } from "./apoio";
 
 const POMADA = {
   nome: "Pomada Modeladora",
@@ -69,8 +68,7 @@ describe("estoque", () => {
     await bancoNovo();
     esquecer();
     limparCache();
-    await definirAdministrador("vendedor@exemplo.com", "senha-de-teste-123");
-    token = (await entrar("vendedor@exemplo.com", "senha-de-teste-123")).token;
+    token = await entrarComo("vendedor@exemplo.com");
     await salvar(POMADA, null, null);
   });
 

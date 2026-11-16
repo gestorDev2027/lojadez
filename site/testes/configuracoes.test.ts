@@ -1,10 +1,9 @@
 // A aba Configurações: banco > ambiente > padrão, segredos que nunca voltam para a tela, conferência e auditoria.
 import { beforeEach, describe, expect, it } from "vitest";
-import { entrar, definirAdministrador } from "../src/servidor/acesso";
 import { cfg, conferir, descontoPix, esquecer, montar } from "../src/servidor/config";
 import { GET as rotaLer, PUT as rotaSalvar } from "../src/pages/api/vendedor/configuracoes/index";
 import { POST as rotaImportar } from "../src/pages/api/vendedor/configuracoes/importar";
-import { bancoNovo, chamar } from "./apoio";
+import { bancoNovo, chamar, entrarComo } from "./apoio";
 
 const EMAIL = "vendedor@exemplo.com";
 const SENHA = "senha-de-teste-123";
@@ -16,8 +15,7 @@ describe("configurações", () => {
       delete process.env[chave];
     await bancoNovo();
     esquecer();
-    await definirAdministrador(EMAIL, SENHA);
-    token = (await entrar(EMAIL, SENHA)).token;
+    token = await entrarComo(EMAIL);
   });
 
   it("monta a configuração: banco vale sobre o ambiente, que vale sobre o padrão", () => {

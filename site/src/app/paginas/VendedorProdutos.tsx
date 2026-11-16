@@ -352,7 +352,7 @@ function EditorProduto({
     try {
       const r = await fetch(`/api/vendedor/produtos/${produto.slug}/foto`, {
         method: "PUT",
-        headers: { "Content-Type": arquivo.type, Authorization: `Bearer ${senha}` },
+        headers: { "Content-Type": arquivo.type },
         body: arquivo,
       });
       const dados = await r.json().catch(() => ({}));

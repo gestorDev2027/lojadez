@@ -93,7 +93,7 @@ export function AbaConfiguracoes({ senha, aoSair }: { senha: string; aoSair: () 
           <p className="font-bold">{estado.no_env.length} configurações ainda vêm do .env</p>
           <p className="mt-1 text-tinta-2">
             Leve tudo para o banco (as chaves para o Vault) com um clique. Depois, no .env e no Render só precisa ficar o DATABASE_URL
-            (e, se quiser, o acesso fixo LOJA_ADMIN_EMAIL e LOJA_ADMIN_SENHA).
+            e as chaves do login (SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY e SUPABASE_SECRET_KEY).
           </p>
           <form onSubmit={importar} className="mt-3 flex flex-wrap items-end gap-3">
             <label className="grid min-w-56 flex-1 gap-1.5 font-semibold">
@@ -159,7 +159,6 @@ export function AbaConfiguracoes({ senha, aoSair }: { senha: string; aoSair: () 
       </form>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <TrocarSenha senha={senha} aoTrocar={aoSair} />
         <Cartao titulo="Últimas mudanças">
           {estado.mudancas.length === 0 ? (
             <p className="text-sm text-suave">Nada ainda.</p>
@@ -238,7 +237,7 @@ function CampoConfiguracao({
   );
 }
 
-function TrocarSenha({ senha, aoTrocar }: { senha: string; aoTrocar: () => void }) {
+export function TrocarSenha({ senha, aoTrocar }: { senha: string; aoTrocar: () => void }) {
   const [atual, setAtual] = useState("");
   const [nova, setNova] = useState("");
   const [repetir, setRepetir] = useState("");

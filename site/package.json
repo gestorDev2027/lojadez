@@ -16,6 +16,7 @@
     "@astrojs/partytown": "2.1.9",
     "@astrojs/react": "7.1.9",
     "@netlify/functions": "6.0.3",
+    "@supabase/supabase-js": "^2.119.0",
     "astro": "7.4.12",
     "postgres": "4.1.1",
     "qrcode": "1.5.4",

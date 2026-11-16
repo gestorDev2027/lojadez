@@ -16,11 +16,16 @@ if (!process.env.VITEST) carregarEnv({ path: new URL("../.env", import.meta.url)
 const PYTHON = "http://localhost:8000";
 // O que já está em TypeScript (Astro). O resto da API, no desenvolvimento, vai para o Python.
 const JA_NO_ASTRO = [
-  "vendedor/(entrar|sair|eu|senha|configuracoes|primeiro-acesso)", // etapa 1
+  "vendedor/(entrar|sair|eu|senha|configuracoes|link|acessos)", // etapa 1 e os acessos
   "loja", "vitrine", "produtos", "vendedor/(catalogo|foto|produtos)", // etapa 2
   "vendedor/estoque", // estoque e SKU
   "cep", "frete", "cupons/validar", "afiliados/clique", "pedidos", "webhooks", // etapa 3: a compra
 ];
+// Só no computador, enquanto parte da API está no Python: o cookie da sessão vira o cabeçalho que ele espera.
+function passarSessao(pedido, entrada) {
+  const sessao = /(?:^|;s*)loja_sessao=([^;]+)/.exec(entrada.headers.cookie ?? "")?.[1];
+  if (sessao) pedido.setHeader("authorization", `Bearer ${decodeURIComponent(sessao)}`);
+}
 const apiNoPython = `^/api/(?!(${JA_NO_ASTRO.join("|")})(/|$|\\?)).*`;
 
 // O Partytown roda o Meta Pixel e o GTM num Web Worker. Os scripts deles vêm de outro domínio sem liberar o acesso
@@ -49,6 +54,10 @@ export default defineConfig({
       DATABASE_URL: envField.string({ context: "server", access: "secret", startsWith: "postgres" }),
       LOJA_ADMIN_EMAIL: envField.string({ context: "server", access: "secret", optional: true }),
       LOJA_ADMIN_SENHA: envField.string({ context: "server", access: "secret", optional: true, min: 10 }),
+      // O login do painel (Supabase Auth): as chaves em Project Settings → API.
+      SUPABASE_URL: envField.string({ context: "server", access: "secret", optional: true, url: true }),
+      SUPABASE_PUBLISHABLE_KEY: envField.string({ context: "server", access: "secret", optional: true }),
+      SUPABASE_SECRET_KEY: envField.string({ context: "server", access: "secret", optional: true }),
       SITE_URL: envField.string({ context: "server", access: "public", optional: true, url: true }),
     },
     validateSecrets: true,
