@@ -53,7 +53,7 @@ export const GRUPOS: Record<string, string> = {
 
 export const CAMPOS: Campo[] = [
   campo("LOJA_NOME", "Nome da loja", "loja", "texto", "Wolf & Co"),
-  campo("LOJA_WHATSAPP", "WhatsApp", "loja", "digitos", "5511983910543", "Com 55 e o DDD, só números.", { tamanhos: [12, 13] }),
+  campo("LOJA_WHATSAPP", "WhatsApp", "loja", "digitos", "5511970364501", "Com 55 e o DDD, só números.", { tamanhos: [12, 13] }),
   campo("LOJA_PROMO_ATE", "Fim da promoção", "loja", "data", "2026-11-30T23:59:59-03:00",
     "Contagem regressiva da página. Vazio: não aparece. Use só uma data real."),
   campo("EMPRESA_RAZAO_SOCIAL", "Razão social", "loja"),
