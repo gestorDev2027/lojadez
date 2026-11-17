@@ -796,7 +796,8 @@ svg { display: block; }
    ===================================================================== */
 @media (max-width: 1080px) {
   .nav { display: none; }
-  .offer-list { grid-template-columns: 1fr; max-width: 520px; margin-inline: auto; }
+  /* também com 4 ofertas: a regra de 2 colunas acima tem o [data-n] e venceria esta */
+  .offer-list, .offer-list[data-n="4"] { grid-template-columns: 1fr; max-width: 520px; margin-inline: auto; }
   .offer { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'title stack' 'desc stack' 'price stack' 'meta meta' 'foot foot'; column-gap: 12px; }
   .offer__title { grid-area: title; }
   .offer__desc { grid-area: desc; }
@@ -850,6 +851,11 @@ svg { display: block; }
   .stat { padding: 26px 14px; }
   .offer__stack { width: 110px; height: 130px; }
   .offer__now { font-size: 50px; }
+  .offer { padding: 24px 18px 20px; border-radius: 22px; }
+  .offer:has(.offer__seal) { padding-top: 54px; }
+  .offer__seal { left: 18px; }
+  .offer__title { font-size: 38px; }
+  .offer__meta { flex-wrap: wrap; }
   .btn--xl { width: 100%; padding-inline: 20px; font-size: 16px; white-space: normal; }
   .countdown__clock { gap: 4px; }
   .countdown__clock span { min-width: 54px; padding: 8px 4px; }
