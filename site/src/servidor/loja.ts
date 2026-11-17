@@ -53,6 +53,8 @@ export async function configDaLanding() {
     depoimentos: [], // só depoimentos reais
     empresa: c.EMPRESA,
     rastreamento: c.RASTREAMENTO,
+    // A roleta (o sorteio é no servidor: aqui só os valores para desenhar a roda)
+    roleta: { ativa: c.ROLETA.ativa, valores: c.ROLETA.valores_centavos.map((v) => v / 100), minimo: c.ROLETA.minimo_centavos / 100 },
   };
 }
 

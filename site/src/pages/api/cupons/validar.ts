@@ -5,5 +5,5 @@ import { validarCupom } from "../../../servidor/pedidos";
 export const POST = rota(async (ctx) => {
   limitar(ctx, "cupom", 20);
   const d = await corpo(ctx.request);
-  return validarCupom(d.cupom, d.oferta, d.produto);
+  return validarCupom(d.cupom, d.oferta, d.produto, d.cpf);
 });

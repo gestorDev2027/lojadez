@@ -84,6 +84,7 @@ COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP 
                           "reembolso_pedido_em": "TIMESTAMP WITH TIME ZONE", "reembolsado_em": "TIMESTAMP WITH TIME ZONE",
                           "cupom_codigo": "VARCHAR(30)", "desconto_cupom_centavos": "INTEGER",
                           "campanha_codigo": "VARCHAR(12)", "repasse_id": "INTEGER"},
+                 "cupons": {"origem": "VARCHAR(20)", "cpf": "VARCHAR(11)", "pedido_nsu": "VARCHAR(36)"},
                  "produtos": {"destaque": "BOOLEAN", "categoria": "VARCHAR(40)", "selo": "VARCHAR(40)"},
                  "afiliados": {"comissoes_produto": "JSON", "excluido_em": "TIMESTAMP WITH TIME ZONE"},
                  "campanhas": {"excluido_em": "TIMESTAMP WITH TIME ZONE"}}
@@ -136,6 +137,11 @@ cupons = Table(
     Column("afiliado_id", Integer),  # cupom de afiliado: a venda (e a comissão) é dele
     Column("ativo", Boolean, nullable=False, default=True),
     Column("descricao_interna", Text),  # só o vendedor vê (ex.: "campanha Black Friday")
+    # Os que a loja gera sozinha (o site em Astro): "roleta" (página inicial) ou "volta" (próxima compra, preso ao CPF e
+    # ao pedido). Os do vendedor ficam sem origem e só eles aparecem na aba Cupons.
+    Column("origem", String(20)),
+    Column("cpf", String(11)),
+    Column("pedido_nsu", String(36)),
     Column("criado_em", DateTime(timezone=True), nullable=False),
     Column("atualizado_em", DateTime(timezone=True), nullable=False),
 )

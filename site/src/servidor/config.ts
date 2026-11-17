@@ -46,6 +46,7 @@ export const GRUPOS: Record<string, string> = {
   remetente: "Remetente (quem envia)",
   infinitepay: "InfinitePay",
   afiliados: "Afiliados",
+  roleta: "Roleta de cupons (página inicial)",
   financeiro: "Financeiro (taxas da InfinitePay)",
   ia: "IA (Google Gemini)",
   rastreamento: "Rastreamento (opcional)",
@@ -99,6 +100,13 @@ export const CAMPOS: Campo[] = [
   campo("AFILIADOS_DIAS_LIBERACAO", "Dias para liberar a comissão", "afiliados", "inteiro", "7",
     "A comissão fica “a liberar” por estes dias depois do pagamento (o prazo de devolução); depois fica disponível " +
       "para repassar.", { minimo: 0, maximo: 90 }),
+  campo("ROLETA_ATIVA", "Mostrar a roleta na página inicial", "roleta", "sim_nao", "sim",
+    "Quem raspa a espuma gira a roleta e ganha um cupom. Desligada, a seção volta a mostrar o preço por refil."),
+  campo("ROLETA_VALORES", "Prêmios (R$)", "roleta", "texto", "2, 3, 4",
+    "Valores inteiros separados por vírgula. O primeiro sai mais vezes e o último, menos."),
+  campo("ROLETA_MINIMO", "Valor mínimo dos produtos para usar o cupom (R$)", "roleta", "decimal", "40",
+    "0: vale em qualquer kit. Com 40, o kit de 1 não usa o cupom."),
+  campo("ROLETA_DIAS", "Dias de validade do cupom", "roleta", "inteiro", "30", "", { minimo: 1, maximo: 365 }),
   campo("FINANCEIRO_TAXA_PIX", "Taxa do Pix (%)", "financeiro", "decimal", "0",
     "O que a InfinitePay desconta de cada venda no Pix (veja no app, em Taxas). 0: sem taxa.", { minimo: 0, maximo: 20 }),
   campo("FINANCEIRO_TAXA_CARTAO", "Taxa do cartão à vista (%)", "financeiro", "decimal", "0",
@@ -143,6 +151,14 @@ function decimal(texto: string | undefined, padrao: number): number {
 const entre = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
 
 const simNao = (texto: string) => ["sim", "s", "true", "1"].includes(String(texto ?? "").trim().toLowerCase());
+
+/** Os prêmios da roleta em centavos: "2, 3, 4" → [200, 300, 400] (de R$ 1 a R$ 50, sem repetir, até 8). */
+export function premios(texto: string): number[] {
+  const lista = String(texto ?? "").split(/[,;\s]+/).filter(Boolean).map(Number)
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 50).map((n) => n * 100);
+  const unicos = [...new Set(lista)].slice(0, 8);
+  return unicos.length ? unicos : [200, 300, 400];
+}
 
 export function dimensoes(texto: string, padrao = "32x17x5"): [number, number, number] {
   const partes = String(texto).toLowerCase().replace(/ /g, "").split("x").filter(Boolean);
@@ -211,6 +227,12 @@ export function montar(sobrepor: Record<string, string | null | undefined> = {})
     INFINITEPAY_VALIDADE_HORAS: inteiro(v("INFINITEPAY_VALIDADE_HORAS"), 48),
     INFINITEPAY_DESCONTO_PIX: entre(decimal(v("INFINITEPAY_DESCONTO_PIX"), 0), 0, 50),
     AFILIADOS_DIAS_LIBERACAO: inteiro(v("AFILIADOS_DIAS_LIBERACAO"), 7),
+    ROLETA: {
+      ativa: simNao(v("ROLETA_ATIVA")),
+      valores_centavos: premios(v("ROLETA_VALORES")),
+      minimo_centavos: Math.round(entre(decimal(v("ROLETA_MINIMO"), 40), 0, 10_000) * 100),
+      dias: entre(inteiro(v("ROLETA_DIAS"), 30), 1, 365),
+    },
     FINANCEIRO_TAXA_PIX: entre(decimal(v("FINANCEIRO_TAXA_PIX"), 0), 0, 20),
     FINANCEIRO_TAXA_CARTAO: entre(decimal(v("FINANCEIRO_TAXA_CARTAO"), 0), 0, 20),
     FINANCEIRO_TAXA_PARCELADO: entre(decimal(v("FINANCEIRO_TAXA_PARCELADO"), 0), 0, 30),

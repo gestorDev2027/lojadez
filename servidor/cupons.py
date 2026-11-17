@@ -47,7 +47,9 @@ def buscar(cupom_id: int) -> dict | None:
 
 def listar() -> list[dict]:
     with banco.engine.connect() as c:
-        return [dict(l) for l in c.execute(select(banco.cupons).order_by(banco.cupons.c.criado_em.desc())).mappings().all()]
+        # Os da roleta (origem preenchida) são gerados pelo site, um por visitante: não entram na lista do vendedor.
+        consulta = select(banco.cupons).where(banco.cupons.c.origem.is_(None)).order_by(banco.cupons.c.criado_em.desc())
+        return [dict(l) for l in c.execute(consulta).mappings().all()]
 
 
 def usos(codigo: str) -> int:

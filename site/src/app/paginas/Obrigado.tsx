@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { chamar, reais, type Loja, type PedidoPublico, type Rastreio } from "../api";
+import { chamar, esquecerCupom, guardarCupom, reais, type Loja, type PedidoPublico, type PremioRoleta, type Rastreio } from "../api";
 
 // A volta da InfinitePay: o endereço traz order_nsu, transaction_nsu, slug e receipt_url. O servidor confere o pagamento
 // na InfinitePay (nunca confia só no endereço); enquanto não confirma, tenta de novo a cada 3 segundos por 1 minuto.
@@ -28,6 +28,7 @@ export function PaginaObrigado({ loja }: { loja: Loja }) {
         const p = await chamar<PedidoPublico>(`/api/pedidos/${encodeURIComponent(nsu)}/conferir`, { corpo });
         if (parar) return;
         setPedido(p);
+        if (p.situacao === "pago" || p.situacao === "enviado") esquecerCupom(p.cupom_codigo); // o cupom da roleta foi usado
         if (p.situacao === "aguardando_pagamento" && ++vezes < 20) espera = window.setTimeout(conferir, 3000);
         else if (p.situacao === "aguardando_pagamento") setDesistiu(true);
       } catch (e) {
@@ -92,6 +93,9 @@ export function PaginaObrigado({ loja }: { loja: Loja }) {
         <dl className="mt-6 grid gap-2 border-t border-linha pt-4 text-sm">
           <Linha rotulo={pedido.produto} valor={reais(pedido.preco_centavos)} />
           <Linha rotulo={pedido.frete_descricao} valor={reais(pedido.frete_centavos)} />
+          {pedido.cupom_codigo && pedido.desconto_cupom_centavos ? (
+            <Linha rotulo={`Cupom ${pedido.cupom_codigo}`} valor={`− ${reais(pedido.desconto_cupom_centavos)}`} />
+          ) : null}
           <Linha rotulo="Total" valor={reais(pedido.total_centavos)} forte />
           {pedido.valor_pago_centavos != null && pedido.valor_pago_centavos < pedido.total_centavos && (
             <Linha rotulo={`Pago com desconto no Pix${pedido.desconto_pix ? ` (${pedido.desconto_pix}% off)` : ""}`} valor={reais(pedido.valor_pago_centavos)} />
@@ -102,6 +106,7 @@ export function PaginaObrigado({ loja }: { loja: Loja }) {
           {pedido.codigo_rastreio && <Linha rotulo="Rastreio Loggi" valor={pedido.codigo_rastreio} />}
         </dl>
         {pedido.tem_envio_loggi && <BlocoRastreio nsu={pedido.order_nsu} />}
+        {pago && <RoletaProxima nsu={pedido.order_nsu} />}
         <div className="mt-6 flex flex-wrap gap-3">
           {pedido.recibo_url && (
             <a href={pedido.recibo_url} target="_blank" rel="noreferrer" className="rounded-full border border-linha-2 px-5 py-2.5 font-medium hover:border-laranja">
@@ -157,6 +162,84 @@ function BlocoRastreio({ nsu }: { nsu: string }) {
             </li>
           ))}
         </ol>
+      )}
+    </section>
+  );
+}
+
+/** A roleta da próxima compra: quem pagou gira e ganha um cupom preso ao CPF do pedido (o servidor sorteia). */
+function RoletaProxima({ nsu }: { nsu: string }) {
+  const [estado, setEstado] = useState<{ ativa: boolean; premio: PremioRoleta | null } | null>(null);
+  const [girando, setGirando] = useState(false);
+  const [mostrador, setMostrador] = useState("?");
+  const [erro, setErro] = useState("");
+  const [copiado, setCopiado] = useState(false);
+  const caminho = `/api/pedidos/${encodeURIComponent(nsu)}/roleta`;
+
+  useEffect(() => {
+    chamar<{ ativa: boolean; premio: PremioRoleta | null }>(caminho)
+      .then(setEstado)
+      .catch(() => setEstado(null));
+  }, [caminho]);
+
+  async function girar() {
+    setGirando(true);
+    setErro("");
+    const valores = ["2", "3", "4"];
+    let i = 0;
+    const roda = window.setInterval(() => setMostrador(valores[i++ % valores.length]), 90);
+    try {
+      const [p] = await Promise.all([chamar<PremioRoleta>(caminho, { corpo: {} }), new Promise((r) => setTimeout(r, 1600))]);
+      guardarCupom(p);
+      setEstado({ ativa: true, premio: p });
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      window.clearInterval(roda);
+      setGirando(false);
+    }
+  }
+
+  if (!estado || (!estado.ativa && !estado.premio)) return null;
+  const p = estado.premio;
+  return (
+    <section aria-label="Cupom para a próxima compra" className="mt-5 rounded-2xl border border-laranja/50 bg-laranja/[.06] p-4 text-center">
+      <p className="font-mono text-xs tracking-widest text-laranja-2">PRESENTE PARA A PRÓXIMA COMPRA</p>
+      {p ? (
+        <>
+          <p className="mt-2 font-display text-6xl leading-none font-extrabold text-laranja-2">{reais(p.valor_centavos)}</p>
+          <p className="text-sm text-suave">de desconto na sua próxima compra</p>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(p.codigo).then(() => setCopiado(true), () => undefined);
+            }}
+            className="mt-3 inline-flex items-center gap-3 rounded-xl border border-dashed border-laranja px-4 py-2 font-mono text-lg font-extrabold tracking-wider"
+          >
+            {p.codigo}
+            <span className="font-sans text-xs font-bold text-laranja-2 uppercase">{copiado ? "Copiado" : "Copiar"}</span>
+          </button>
+          <p className="mt-2 text-xs text-suave">
+            Vale só para o seu CPF{p.fim ? `, até ${p.fim.split("-").reverse().slice(0, 2).join("/")}` : ""}
+            {p.minimo_centavos ? `, em pedidos a partir de ${reais(p.minimo_centavos)}` : ""}. Fica guardado neste aparelho e entra
+            sozinho no checkout.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="mt-2 text-sm text-suave">Gire a roleta e ganhe um desconto para usar quando o refil acabar.</p>
+          <p aria-live="polite" className="my-2 font-display text-6xl leading-none font-extrabold text-laranja-2">
+            R$ {mostrador}
+          </p>
+          <button type="button" disabled={girando} onClick={() => void girar()} className="btn-laranja px-6 py-3 text-sm disabled:opacity-60">
+            {girando ? "Girando…" : "Girar a roleta"}
+          </button>
+          {erro && (
+            <p role="alert" className="mt-2 text-sm text-alerta">
+              {erro}
+            </p>
+          )}
+        </>
       )}
     </section>
   );
