@@ -85,7 +85,8 @@ COLUNAS_NOVAS = {"pedidos": {"loggi_key": "TEXT", "envio_criado_em": "TIMESTAMP 
                           "cupom_codigo": "VARCHAR(30)", "desconto_cupom_centavos": "INTEGER",
                           "campanha_codigo": "VARCHAR(12)", "repasse_id": "INTEGER"},
                  "produtos": {"destaque": "BOOLEAN", "categoria": "VARCHAR(40)", "selo": "VARCHAR(40)"},
-                 "afiliados": {"comissoes_produto": "JSON"}}
+                 "afiliados": {"comissoes_produto": "JSON", "excluido_em": "TIMESTAMP WITH TIME ZONE"},
+                 "campanhas": {"excluido_em": "TIMESTAMP WITH TIME ZONE"}}
 
 
 # Os ajustes que o vendedor muda pela área do vendedor (refis, preços...): valem sobre os padrões do .env.
@@ -115,6 +116,8 @@ afiliados = Table(
     Column("observacoes", Text),
     Column("criado_em", DateTime(timezone=True), nullable=False),
     Column("atualizado_em", DateTime(timezone=True), nullable=False),
+    # excluído com vendas ou repasses: sai das listas e para de funcionar, mas o histórico (pedidos, comissões) fica
+    Column("excluido_em", DateTime(timezone=True)),
 )
 
 # Cupons de desconto (percentual, valor fixo ou frete grátis), que podem ser de um afiliado.
@@ -151,6 +154,7 @@ campanhas = Table(
     Column("cliques", Integer, nullable=False, default=0),
     Column("ativo", Boolean, nullable=False, default=True),
     Column("criado_em", DateTime(timezone=True), nullable=False),
+    Column("excluido_em", DateTime(timezone=True)),  # excluído com vendas: some da lista e o link para de funcionar
 )
 
 # Repasses: o pagamento das comissões a um afiliado (feito por Pix fora da loja; aqui fica o registro).

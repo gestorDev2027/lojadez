@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import QRCode from "qrcode";
 import { chamar, formatarCpf, formatarTelefone, reais, type Loja, type ProdutoPublico } from "../api";
+import { Confirmar, MenuAcoes } from "./Acoes";
 import { Tabela, type ColunaTabela } from "./Tabela";
 import { Campo } from "./VendedorAjustes";
 import { Cartao, Coluna, Selo, SeletorPeriodo, periodoInicial, rotuloPagamento, type Periodo } from "./VendedorPainel";
@@ -203,6 +204,7 @@ export function AbaAfiliados({ senha }: { senha: string }) {
         aviso={aviso}
         aoVoltar={() => (setAviso(""), setTela({ tipo: "lista" }))}
         aoEditar={(a) => (setAviso(""), setTela({ tipo: "editar", afiliado: a }))}
+        aoExcluir={(mensagem) => (setAviso(mensagem), setTela({ tipo: "lista" }))}
       />
     );
   return (
@@ -210,36 +212,83 @@ export function AbaAfiliados({ senha }: { senha: string }) {
       senha={senha}
       periodo={periodo}
       aoMudarPeriodo={setPeriodo}
-      aoAbrir={(id) => setTela({ tipo: "ficha", id })}
-      aoNovo={() => setTela({ tipo: "editar", afiliado: null })}
+      aviso={aviso}
+      aoAviso={setAviso}
+      aoAbrir={(id) => (setAviso(""), setTela({ tipo: "ficha", id }))}
+      aoNovo={() => (setAviso(""), setTela({ tipo: "editar", afiliado: null }))}
     />
   );
 }
 
 // ───────── Lista ─────────
 
+type Situacao = "todos" | "ativos" | "inativos";
+
 function ListaAfiliados({
   senha,
   periodo,
   aoMudarPeriodo,
+  aviso,
+  aoAviso,
   aoAbrir,
   aoNovo,
 }: {
   senha: string;
   periodo: Periodo;
   aoMudarPeriodo: (p: Periodo) => void;
+  aviso: string;
+  aoAviso: (texto: string) => void;
   aoAbrir: (id: number) => void;
   aoNovo: () => void;
 }) {
   const [dados, setDados] = useState<Resumo | null>(null);
   const [erro, setErro] = useState("");
+  const [versao, setVersao] = useState(0);
+  const [situacao, setSituacao] = useState<Situacao>("todos");
+  const [excluindo, setExcluindo] = useState<Afiliado | null>(null);
 
   useEffect(() => {
     setErro("");
     chamar<Resumo>(`/api/vendedor/afiliados?${new URLSearchParams(periodo)}`, { senha })
       .then(setDados)
       .catch((e: Error) => setErro(e.message));
-  }, [senha, periodo]);
+  }, [senha, periodo, versao]);
+
+  async function ativar(a: Afiliado, ativo: boolean) {
+    try {
+      await chamar(`/api/vendedor/afiliados/${a.id}/ativo`, { senha, corpo: { ativo } });
+      aoAviso(`“${a.nome}” ${ativo ? "ativado" : "desativado"}.`);
+      setVersao((n) => n + 1);
+    } catch (falha) {
+      setErro((falha as Error).message);
+    }
+  }
+
+  const colunas = useMemo<ColunaTabela<Afiliado & Numeros>[]>(
+    () => [
+      ...COLUNAS_AFILIADOS,
+      {
+        id: "acoes",
+        rotulo: "",
+        ordenavel: false,
+        naPlanilha: false,
+        valor: () => "",
+        render: (a) => (
+          <MenuAcoes
+            rotulo={`Ações de ${a.nome}`}
+            acoes={[
+              { rotulo: "Abrir a ficha", aoEscolher: () => aoAbrir(a.id) },
+              { rotulo: a.ativo ? "Desativar" : "Ativar", aoEscolher: () => void ativar(a, !a.ativo) },
+              { rotulo: "Excluir…", perigo: true, aoEscolher: () => setExcluindo(a) },
+            ]}
+          />
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [senha],
+  );
+  const linhas = (dados?.afiliados ?? []).filter((a) => situacao === "todos" || (situacao === "ativos") === a.ativo);
 
   const t = dados?.totais;
   return (
@@ -257,6 +306,7 @@ function ListaAfiliados({
         </div>
       </div>
 
+      {aviso && <p role="status" className="text-ok">{aviso}</p>}
       {erro && <p role="alert" className="text-alerta">{erro}</p>}
       {!dados || !t ? (
         <p className="text-suave">Carregando…</p>
@@ -291,19 +341,110 @@ function ListaAfiliados({
             </section>
           ) : (
             <Tabela
-              linhas={dados.afiliados}
-              colunas={COLUNAS_AFILIADOS}
+              linhas={linhas}
+              colunas={colunas}
               chave={(a) => String(a.id)}
               aoClicar={(a) => aoAbrir(a.id)}
               ordemInicial={{ coluna: "vendas", desc: true }}
               buscaDica="Buscar por nome, código, e-mail, telefone ou chave Pix"
               arquivo="afiliados"
-              larguraMinima={900}
+              larguraMinima={960}
+              vazio={situacao === "ativos" ? "Nenhum afiliado ativo." : "Nenhum afiliado inativo."}
+              extras={<FiltroSituacao valor={situacao} aoMudar={setSituacao} />}
             />
           )}
         </>
       )}
+      {excluindo && (
+        <ExcluirAfiliado
+          senha={senha}
+          afiliado={excluindo}
+          aoCancelar={() => setExcluindo(null)}
+          aoExcluir={(mensagem) => {
+            setExcluindo(null);
+            aoAviso(mensagem);
+            setVersao((n) => n + 1);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function FiltroSituacao({ valor, aoMudar }: { valor: Situacao; aoMudar: (s: Situacao) => void }) {
+  const opcoes: [Situacao, string][] = [
+    ["todos", "Todos"],
+    ["ativos", "Ativos"],
+    ["inativos", "Inativos"],
+  ];
+  return (
+    <div role="group" aria-label="Situação" className="flex rounded-xl border border-linha-2 p-0.5">
+      {opcoes.map(([id, rotulo]) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={valor === id}
+          onClick={() => aoMudar(id)}
+          className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${valor === id ? "bg-laranja text-black" : "text-tinta-2 hover:text-tinta"}`}
+        >
+          {rotulo}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type Previa = { modo: "apagar" | "arquivar"; pedidos: number; repasses: number; a_repassar_centavos: number };
+
+/** Confirma a exclusão contando o que acontece: apaga de vez (sem histórico) ou arquiva (com vendas ou repasses). */
+function ExcluirAfiliado({
+  senha,
+  afiliado,
+  aoCancelar,
+  aoExcluir,
+}: {
+  senha: string;
+  afiliado: Afiliado;
+  aoCancelar: () => void;
+  aoExcluir: (mensagem: string) => void;
+}) {
+  const [previa, setPrevia] = useState<Previa | null>(null);
+  const [erro, setErro] = useState("");
+  useEffect(() => {
+    chamar<Previa>(`/api/vendedor/afiliados/${afiliado.id}/excluir`, { senha })
+      .then(setPrevia)
+      .catch((e: Error) => setErro(e.message));
+  }, [senha, afiliado.id]);
+
+  async function excluir() {
+    const r = await chamar<Previa>(`/api/vendedor/afiliados/${afiliado.id}`, { metodo: "DELETE", senha });
+    aoExcluir(r.modo === "apagar" ? `“${afiliado.nome}” foi apagado.` : `“${afiliado.nome}” foi excluído. As vendas e comissões dele continuam no Financeiro.`);
+  }
+
+  return (
+    <Confirmar titulo={`Excluir “${afiliado.nome}”?`} botao="Excluir" perigo aoConfirmar={excluir} aoCancelar={aoCancelar}>
+      {erro ? (
+        <p className="text-alerta">{erro}</p>
+      ) : !previa ? (
+        <p>Conferindo as vendas dele…</p>
+      ) : previa.modo === "apagar" ? (
+        <p>Ele não tem vendas nem repasses: o cadastro, os links e as contagens de cliques são apagados de vez. Os cupons dele ficam desligados e sem dono.</p>
+      ) : (
+        <>
+          <p>
+            Ele tem {previa.pedidos} {previa.pedidos === 1 ? "pedido" : "pedidos"}
+            {previa.repasses ? ` e ${previa.repasses} ${previa.repasses === 1 ? "repasse" : "repasses"}` : ""}. Ele sai das listas e o código, os links e
+            os cupons param de funcionar, mas os pedidos, as comissões e os repasses continuam no Financeiro como estão.
+          </p>
+          {previa.a_repassar_centavos > 0 && (
+            <p className="rounded-xl border border-laranja/40 bg-laranja/10 p-3 text-tinta">
+              Ainda falta repassar <strong>{reais(previa.a_repassar_centavos)}</strong> de comissão a ele. Esse valor continua na aba Repasses até você pagar.
+            </p>
+          )}
+        </>
+      )}
+      <p className="text-xs text-suave">Esta ação não volta atrás. Se for só uma pausa, use “Desativar”.</p>
+    </Confirmar>
   );
 }
 
@@ -317,6 +458,7 @@ function FichaAfiliado({
   aviso,
   aoVoltar,
   aoEditar,
+  aoExcluir,
 }: {
   senha: string;
   id: number;
@@ -325,9 +467,24 @@ function FichaAfiliado({
   aviso: string;
   aoVoltar: () => void;
   aoEditar: (a: Afiliado) => void;
+  aoExcluir: (mensagem: string) => void;
 }) {
   const [ficha, setFicha] = useState<Ficha | null>(null);
   const [erro, setErro] = useState("");
+  const [excluindo, setExcluindo] = useState(false);
+  const [mudando, setMudando] = useState(false);
+
+  async function ativar(ativo: boolean) {
+    setMudando(true);
+    try {
+      await chamar(`/api/vendedor/afiliados/${id}/ativo`, { senha, corpo: { ativo } });
+      setVersao((n) => n + 1);
+    } catch (falha) {
+      setErro((falha as Error).message);
+    } finally {
+      setMudando(false);
+    }
+  }
   const [copiado, setCopiado] = useState("");
   const [versao, setVersao] = useState(0);
 
@@ -373,8 +530,24 @@ function FichaAfiliado({
           <button type="button" onClick={() => aoEditar(a)} className="rounded-xl border border-linha-2 bg-fundo-2 px-4 py-2 text-sm font-semibold hover:border-laranja">
             Editar
           </button>
+          <button
+            type="button"
+            disabled={mudando}
+            onClick={() => void ativar(!a.ativo)}
+            className="rounded-xl border border-linha-2 bg-fundo-2 px-4 py-2 text-sm font-semibold hover:border-laranja disabled:opacity-60"
+          >
+            {a.ativo ? "Desativar" : "Ativar"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setExcluindo(true)}
+            className="rounded-xl border border-red-500/50 px-4 py-2 text-sm font-semibold text-alerta hover:bg-red-500/10"
+          >
+            Excluir
+          </button>
         </div>
       </div>
+      {excluindo && <ExcluirAfiliado senha={senha} afiliado={a} aoCancelar={() => setExcluindo(false)} aoExcluir={aoExcluir} />}
       {aviso && <p role="status" className="text-ok">{aviso}</p>}
       {erro && <p role="alert" className="text-alerta">{erro}</p>}
 
@@ -658,6 +831,7 @@ function LinksDeCampanha({
   const [criando, setCriando] = useState(false);
   const [erro, setErro] = useState("");
   const [qr, setQr] = useState<Campanha | null>(null);
+  const [apagando, setApagando] = useState<Campanha | null>(null);
   const [copiado, setCopiado] = useState("");
 
   // Os produtos que o afiliado pode divulgar, com as ofertas (para o link direto no checkout).
@@ -794,9 +968,18 @@ function LinksDeCampanha({
                   conversão {c.conversao_pct === null ? "—" : `${c.conversao_pct.toLocaleString("pt-BR")}%`} · comissão {reais(c.comissao_centavos)}
                 </span>
               </p>
-              <button type="button" onClick={() => void alternar(c)} className="justify-self-start rounded-full border border-linha-2 px-3 py-1 text-xs md:justify-self-end">
-                {c.ativo ? "Desligar" : "Ligar"}
-              </button>
+              <div className="flex gap-2 justify-self-start md:justify-self-end">
+                <button type="button" onClick={() => void alternar(c)} className="rounded-full border border-linha-2 px-3 py-1.5 text-xs">
+                  {c.ativo ? "Desligar" : "Ligar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setApagando(c)}
+                  className="rounded-full border border-red-500/50 px-3 py-1.5 text-xs text-alerta hover:bg-red-500/10"
+                >
+                  Excluir
+                </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -806,6 +989,28 @@ function LinksDeCampanha({
         principal, sem comissão.
       </p>
       {qr && <JanelaQr campanha={qr} afiliado={afiliado} aoFechar={() => setQr(null)} />}
+      {apagando && (
+        <Confirmar
+          titulo={`Excluir o link “${apagando.nome}”?`}
+          botao="Excluir link"
+          perigo
+          aoCancelar={() => setApagando(null)}
+          aoConfirmar={async () => {
+            await chamar(`/api/vendedor/campanhas/${apagando.id}`, { metodo: "DELETE", senha });
+            setApagando(null);
+            aoMudar();
+          }}
+        >
+          {apagando.pedidos ? (
+            <p>
+              Este link trouxe {apagando.pedidos} {apagando.pedidos === 1 ? "venda" : "vendas"}: ele some da lista e para de funcionar (leva só à página
+              principal), mas as vendas continuam contando para {afiliado.nome}.
+            </p>
+          ) : (
+            <p>O link ainda não trouxe vendas: ele é apagado de vez. Quem tiver o QR Code impresso cai na página principal, sem comissão.</p>
+          )}
+        </Confirmar>
+      )}
     </section>
   );
 }

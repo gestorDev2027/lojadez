@@ -5,6 +5,10 @@ Entram os pedidos pagos do período (pago, enviado e os reembolsados, pela data 
 da InfinitePay são as que o vendedor informa em Configurações → Financeiro; o custo de cada produto (opcional) fica nos
 ajustes da loja ("custos_produtos": centavos por unidade, o kit inteiro no caso do kit de lâminas). Os números batem com a
 "receita líquida" da visão geral antes das taxas e do custo dos produtos.
+
+O frete que o cliente paga só passa pela loja: vai para a Loggi. Por isso a receita é a dos produtos (sem esse frete) e o
+custo de frete é só o que a loja paga de verdade (o frete grátis, ou a Loggi cobrando mais do que o cliente pagou). O
+resultado é o mesmo de antes; só a receita, os custos e a margem ficam sem o frete de passagem.
 """
 
 from collections import defaultdict
@@ -97,6 +101,7 @@ def numeros(p: dict, tabela_custos: dict[str, int]) -> dict:
     comissao = 0 if reembolsado else painel.comissao(p)
     unitario = tabela_custos.get(painel._chave_produto(p))
     custo = 0 if reembolsado or unitario is None else unitario * int(p["kits"])
+    frete_cliente = 0 if reembolsado else int(p["frete_centavos"])  # o frete que o cliente pagou e ficou (vai para a Loggi)
     return {
         "produtos": int(p["preco_centavos"]),
         "cupom": int(p.get("desconto_cupom_centavos") or 0),
@@ -105,6 +110,8 @@ def numeros(p: dict, tabela_custos: dict[str, int]) -> dict:
         "faturamento": pago,
         "reembolsos": devolvido,
         "frete_loja": frete,
+        "frete_cliente": frete_cliente,
+        "frete_custo": frete - frete_cliente,  # o que a loja paga de frete de verdade (pode ser negativo)
         "frete_gratis": frete if int(p["frete_centavos"]) == 0 else 0,
         "taxas": taxa,
         "comissoes": comissao,
@@ -116,11 +123,11 @@ def numeros(p: dict, tabela_custos: dict[str, int]) -> dict:
 
 
 def _somar(lista: list[dict]) -> dict:
-    chaves = ("produtos", "cupom", "pix", "frete_cobrado", "faturamento", "reembolsos", "frete_loja", "frete_gratis",
-              "taxas", "comissoes", "custo_produtos", "resultado")
+    chaves = ("produtos", "cupom", "pix", "frete_cobrado", "faturamento", "reembolsos", "frete_loja", "frete_cliente",
+              "frete_custo", "frete_gratis", "taxas", "comissoes", "custo_produtos", "resultado")
     total = {k: sum(n[k] for n in lista) for k in chaves}
-    total["custos"] = total["frete_loja"] + total["taxas"] + total["comissoes"] + total["custo_produtos"]
-    total["receita"] = total["faturamento"] - total["reembolsos"]
+    total["custos"] = total["frete_custo"] + total["taxas"] + total["comissoes"] + total["custo_produtos"]
+    total["receita"] = total["faturamento"] - total["reembolsos"] - total["frete_cliente"]
     total["margem_pct"] = round(total["resultado"] / total["receita"] * 100, 1) if total["receita"] > 0 else None
     total["pedidos"] = len(lista)
     return total
@@ -205,7 +212,8 @@ def demonstrativo(de: str | None = None, ate: str | None = None) -> dict:
             "produto": painel.nome_produto(chave), "quantidade": painel.titulo_quantidade(chave, int(p["kits"])),
             "forma": FORMAS[n["forma"]], "parcelas": int(p.get("parcelas") or 1), "situacao": p["situacao"],
             "afiliado": painel.nome_afiliado(p.get("afiliado_codigo")) if p.get("afiliado_codigo") else None,
-            **{k: n[k] for k in ("faturamento", "reembolsos", "frete_loja", "taxas", "comissoes", "custo_produtos", "resultado")},
+            **{k: n[k] for k in ("faturamento", "reembolsos", "frete_loja", "frete_cliente", "frete_custo", "taxas", "comissoes",
+                                 "custo_produtos", "resultado")},
             "frete_gratis": int(p["frete_centavos"]) == 0, "sem_custo": n["sem_custo"],
         })
 

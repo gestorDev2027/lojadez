@@ -117,6 +117,11 @@ create table if not exists loja.campanhas (
   criado_em timestamptz not null
 );
 
+-- Excluído com vendas ou repasses (17/11/2026): sai das listas e para de funcionar, mas o histórico fica (as chaves
+-- estrangeiras abaixo não deixam apagar). Sem vendas, a loja apaga de vez. O servidor Python também cria ao subir.
+alter table loja.afiliados add column if not exists excluido_em timestamptz;
+alter table loja.campanhas add column if not exists excluido_em timestamptz;
+
 create table if not exists loja.repasses (
   id serial primary key,
   afiliado_id integer not null,

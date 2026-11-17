@@ -89,13 +89,15 @@ def resumo() -> dict:
     hist = historico()
     mes = agora.astimezone(FUSO).strftime("%Y-%m")
     lista = []
-    for a in afiliados.listar():
+    for a in afiliados.listar(com_excluidos=True):
         linhas = por_afiliado.get(a["id"], [])
         somas = _somas(linhas)
+        if a.get("excluido_em") and not (somas["disponivel"] or somas["a_liberar"]):
+            continue  # excluído e sem nada a pagar: sai da lista (o histórico continua embaixo)
         ultimos = [r for r in hist if r["afiliado_id"] == a["id"]]
         proxima = min((l["liberada_em"] for l in linhas if l["situacao"] == "a_liberar"), default=None)
         lista.append({"id": a["id"], "nome": a["nome"], "codigo": a["codigo"], "chave_pix": a.get("chave_pix"),
-                      "ativo": a["ativo"], "somas": somas, "vendas": len([l for l in linhas if l["situacao"] != "cancelada"]),
+                      "ativo": a["ativo"], "excluido": bool(a.get("excluido_em")), "somas": somas, "vendas": len([l for l in linhas if l["situacao"] != "cancelada"]),
                       "ultimo_repasse": ultimos[0]["pago_em"] if ultimos else None, "proxima_liberacao": proxima,
                       "disponiveis": [l for l in linhas if l["situacao"] == "disponivel"],
                       "reembolsados_depois": sum(1 for l in linhas if l["reembolsado_depois"])})
@@ -116,7 +118,7 @@ def historico(afiliado_id: int | None = None) -> list[dict]:
         consulta = consulta.where(banco.repasses.c.afiliado_id == afiliado_id)
     with banco.engine.connect() as c:
         linhas = [dict(l) for l in c.execute(consulta).mappings().all()]
-    nomes = {a["id"]: a for a in afiliados.listar()}
+    nomes = {a["id"]: a for a in afiliados.listar(com_excluidos=True)}
     return [{**{k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in r.items()},
              "afiliado_nome": nomes.get(r["afiliado_id"], {}).get("nome", "—"),
              "afiliado_codigo": nomes.get(r["afiliado_id"], {}).get("codigo", ""), "vendas": len(r["pedidos"] or [])}
