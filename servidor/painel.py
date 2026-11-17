@@ -305,7 +305,7 @@ def _vendidos_do(afiliado_id: int) -> list[dict]:
 def ficha_afiliado(afiliado_id: int, de: str | None = None, ate: str | None = None) -> dict | None:
     """Um afiliado: os links, os números do período, as vendas por produto e a tabela das vendas."""
     a = afiliados.buscar(afiliado_id)
-    if not a:
+    if not a or a.get("excluido_em"):
         return None
     _nomes.clear()
     inicio, fim = periodo(de, ate)

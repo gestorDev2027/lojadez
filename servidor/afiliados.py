@@ -12,7 +12,7 @@ import re
 import secrets
 from datetime import datetime
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import delete, func, insert, select, update
 
 from servidor import banco, config, produtos
 
@@ -31,8 +31,11 @@ def _limpo(codigo: str | None) -> str:
 
 # ───────── Leitura ─────────
 
-def listar(so_ativos: bool = False) -> list[dict]:
+def listar(so_ativos: bool = False, com_excluidos: bool = False) -> list[dict]:
+    """Os afiliados, sem os excluídos (com_excluidos: também eles, para o histórico de repasses mostrar o nome)."""
     consulta = select(banco.afiliados).order_by(banco.afiliados.c.nome)
+    if not com_excluidos:
+        consulta = consulta.where(banco.afiliados.c.excluido_em.is_(None))
     if so_ativos:
         consulta = consulta.where(banco.afiliados.c.ativo.is_(True))
     with banco.engine.connect() as c:
@@ -183,12 +186,73 @@ def salvar(dados: dict, afiliado_id: int | None = None, email: str | None = None
         banco.registrar(email, "afiliado", f"Afiliado criado: {codigo}")
         return buscar(novo)
     atual = buscar(afiliado_id)
-    if not atual:
+    if not atual or atual.get("excluido_em"):
         raise ErroAfiliado("Afiliado não encontrado.")
     with banco.engine.begin() as c:
         c.execute(update(banco.afiliados).where(banco.afiliados.c.id == afiliado_id).values(atualizado_em=agora, **valores))
     banco.registrar(email, "afiliado", f"Afiliado alterado: {atual['codigo']}")
     return buscar(afiliado_id)
+
+
+def definir_ativo(afiliado_id: int, ativo: bool, email: str | None = None) -> dict:
+    """Liga ou desliga o afiliado num clique: desligado, os links e o código param de dar venda (o histórico fica)."""
+    atual = buscar(afiliado_id)
+    if not atual or atual.get("excluido_em"):
+        raise ErroAfiliado("Afiliado não encontrado.")
+    with banco.engine.begin() as c:
+        c.execute(update(banco.afiliados).where(banco.afiliados.c.id == afiliado_id)
+                  .values(ativo=bool(ativo), atualizado_em=banco.agora()))
+    banco.registrar(email, "afiliado", f"Afiliado {'ativado' if ativo else 'desativado'}: {atual['codigo']}")
+    return buscar(afiliado_id)
+
+
+def _historico(afiliado_id: int) -> dict:
+    """O que prende o afiliado à loja: vendas (pedidos com ele) e repasses feitos."""
+    with banco.engine.connect() as c:
+        pedidos = c.execute(select(func.count()).select_from(banco.pedidos)
+                            .where(banco.pedidos.c.afiliado_id == afiliado_id)).scalar_one()
+        feitos = c.execute(select(func.count()).select_from(banco.repasses)
+                           .where(banco.repasses.c.afiliado_id == afiliado_id)).scalar_one()
+    return {"pedidos": int(pedidos), "repasses": int(feitos)}
+
+
+def antes_de_excluir(afiliado_id: int) -> dict:
+    """O que o painel mostra na confirmação: se apaga de vez ou arquiva, e a comissão que ainda falta repassar."""
+    from servidor import repasses  # aqui, para não importar em ciclo
+
+    atual = buscar(afiliado_id)
+    if not atual or atual.get("excluido_em"):
+        raise ErroAfiliado("Afiliado não encontrado.")
+    h = _historico(afiliado_id)
+    somas = repasses.saldo_afiliado(afiliado_id)["somas"]
+    return {"modo": "arquivar" if h["pedidos"] or h["repasses"] else "apagar", **h,
+            "a_repassar_centavos": int(somas.get("disponivel", 0)) + int(somas.get("a_liberar", 0))}
+
+
+def excluir(afiliado_id: int, email: str | None = None) -> dict:
+    """Sem vendas nem repasses: apaga de vez (com os links e os cliques; os cupons dele ficam sem dono e desligados).
+    Com histórico: arquiva. Some das listas, desliga o código, os links e os cupons, e os pedidos, as comissões e os
+    repasses continuam como estavam (o Financeiro do passado não muda)."""
+    previa = antes_de_excluir(afiliado_id)
+    atual = buscar(afiliado_id)
+    agora = banco.agora()
+    a, cp, cu = banco.afiliados.c, banco.campanhas.c, banco.cupons.c
+    with banco.engine.begin() as c:
+        if previa["modo"] == "apagar":
+            c.execute(update(banco.cupons).where(cu.afiliado_id == afiliado_id)
+                      .values(afiliado_id=None, ativo=False, atualizado_em=agora))
+            c.execute(delete(banco.campanhas).where(cp.afiliado_id == afiliado_id))
+            c.execute(delete(banco.afiliado_cliques).where(banco.afiliado_cliques.c.afiliado_id == afiliado_id))
+            c.execute(delete(banco.afiliados).where(a.id == afiliado_id))
+        else:
+            c.execute(update(banco.cupons).where(cu.afiliado_id == afiliado_id).values(ativo=False, atualizado_em=agora))
+            c.execute(update(banco.campanhas).where(cp.afiliado_id == afiliado_id, cp.excluido_em.is_(None))
+                      .values(ativo=False, excluido_em=agora))
+            c.execute(update(banco.afiliados).where(a.id == afiliado_id)
+                      .values(ativo=False, excluido_em=agora, atualizado_em=agora))
+    acao = "apagado" if previa["modo"] == "apagar" else "excluído (histórico mantido)"
+    banco.registrar(email, "afiliado", f"Afiliado {acao}: {atual['codigo']}")
+    return previa
 
 
 def para_vendedor(afiliado: dict) -> dict:
@@ -212,7 +276,8 @@ def _nome_produto(produto_id: str) -> str | None:
 
 def campanhas(afiliado_id: int) -> list[dict]:
     with banco.engine.connect() as c:
-        return [dict(l) for l in c.execute(select(banco.campanhas).where(banco.campanhas.c.afiliado_id == afiliado_id)
+        return [dict(l) for l in c.execute(select(banco.campanhas).where(banco.campanhas.c.afiliado_id == afiliado_id,
+                                                                         banco.campanhas.c.excluido_em.is_(None))
                                            .order_by(banco.campanhas.c.criado_em.desc())).mappings().all()]
 
 
@@ -270,10 +335,31 @@ def criar_campanha(afiliado_id: int, dados: dict, email: str | None = None) -> d
 
 
 def mudar_campanha(campanha_id: int, ativo: bool) -> dict:
+    cp = banco.campanhas.c
     with banco.engine.begin() as c:
-        if c.execute(update(banco.campanhas).where(banco.campanhas.c.id == campanha_id).values(ativo=ativo)).rowcount == 0:
+        if c.execute(update(banco.campanhas).where(cp.id == campanha_id, cp.excluido_em.is_(None))
+                     .values(ativo=ativo)).rowcount == 0:
             raise ErroAfiliado("Link não encontrado.")
         return dict(c.execute(select(banco.campanhas).where(banco.campanhas.c.id == campanha_id)).mappings().first())
+
+
+def excluir_campanha(campanha_id: int, email: str | None = None) -> dict:
+    """Sem vendas: apaga o link. Com vendas: o link some da lista e para de funcionar; as vendas continuam do afiliado
+    (o pedido guarda o código do link)."""
+    cp = banco.campanhas.c
+    with banco.engine.connect() as c:
+        campanha = c.execute(select(banco.campanhas).where(cp.id == campanha_id, cp.excluido_em.is_(None))).mappings().first()
+        if not campanha:
+            raise ErroAfiliado("Link não encontrado.")
+        vendas = c.execute(select(func.count()).select_from(banco.pedidos)
+                           .where(banco.pedidos.c.campanha_codigo == campanha["codigo"])).scalar_one()
+    with banco.engine.begin() as c:
+        if vendas:
+            c.execute(update(banco.campanhas).where(cp.id == campanha_id).values(ativo=False, excluido_em=banco.agora()))
+        else:
+            c.execute(delete(banco.campanhas).where(cp.id == campanha_id))
+    banco.registrar(email, "afiliado", f"Link de campanha excluído: {campanha['nome']} ({campanha['codigo']})")
+    return {"modo": "arquivar" if vendas else "apagar", "pedidos": int(vendas)}
 
 
 def visitar_campanha(codigo: str, dia: str) -> tuple[str, dict | None]:

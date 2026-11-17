@@ -31,8 +31,12 @@ def test_demonstrativo_bate_com_a_visao_geral(cliente, monkeypatch):
     f = cliente.get("/api/vendedor/financeiro", headers=VENDEDOR).json()
     t = f["total"]
     assert t["pedidos"] == 3
-    assert t["receita"] == t["faturamento"] - t["reembolsos"]
+    # o frete do cliente só passa pela loja: fica fora da receita e dos custos (o resultado não muda)
+    assert t["receita"] == t["faturamento"] - t["reembolsos"] - t["frete_cliente"]
+    assert t["custos"] == t["frete_custo"] + t["taxas"] + t["comissoes"] + t["custo_produtos"]
+    assert t["frete_custo"] == t["frete_loja"] - t["frete_cliente"]
     assert t["resultado"] == t["receita"] - t["custos"]
+    assert t["frete_cliente"] > 0  # os pedidos de 1 e 2 kits pagaram frete
     assert t["faturamento"] == t["produtos"] - t["cupom"] - t["pix"] + t["frete_cobrado"]
     # Antes das taxas e do custo dos produtos, é a receita líquida da visão geral
     visao = cliente.get("/api/vendedor/painel", headers=VENDEDOR).json()["indicadores"]

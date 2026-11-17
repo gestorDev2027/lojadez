@@ -16,6 +16,8 @@ type Total = {
   reembolsos: number;
   receita: number;
   frete_loja: number;
+  frete_cliente: number;
+  frete_custo: number;
   frete_gratis: number;
   taxas: number;
   comissoes: number;
@@ -37,6 +39,8 @@ type LinhaPedido = {
   faturamento: number;
   reembolsos: number;
   frete_loja: number;
+  frete_cliente: number;
+  frete_custo: number;
   taxas: number;
   comissoes: number;
   custo_produtos: number;
@@ -187,10 +191,11 @@ function Indicadores({ dados }: { dados: Financeiro }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <Cartao rotulo="Receita" valor={reais(t.receita)} selo={variacao(v.receita)} tom={tom(v.receita)}>
-        pago pelos clientes ({reais(t.faturamento)}) − reembolsos ({reais(t.reembolsos)}) · {t.pedidos} {t.pedidos === 1 ? "pedido" : "pedidos"}
+        dos produtos: pago pelos clientes ({reais(t.faturamento)}) − frete deles ({reais(t.frete_cliente)}) − reembolsos ({reais(t.reembolsos)}) ·{" "}
+        {t.pedidos} {t.pedidos === 1 ? "pedido" : "pedidos"}
       </Cartao>
       <Cartao rotulo="Custos" valor={reais(t.custos)} selo={t.receita ? `${pct(Math.round((t.custos / t.receita) * 1000) / 10)} da receita` : "—"} tom="destaque">
-        frete {reais(t.frete_loja)} · taxas {reais(t.taxas)} · comissões {reais(t.comissoes)}
+        frete pago pela loja {reais(t.frete_custo)} · taxas {reais(t.taxas)} · comissões {reais(t.comissoes)}
         {t.custo_produtos > 0 && ` · produtos ${reais(t.custo_produtos)}`}
       </Cartao>
       <Cartao rotulo="Resultado" valor={reais(t.resultado)} selo={variacao(v.resultado)} tom={t.resultado < 0 ? "alerta" : tom(v.resultado)}>
@@ -213,8 +218,9 @@ function linhasDemonstrativo(t: Total, custos: boolean): { rotulo: string; valor
     { rotulo: "Frete cobrado dos clientes", valor: t.frete_cobrado, tipo: "mais" },
     { rotulo: "Pago pelos clientes", valor: t.faturamento, tipo: "total" },
     { rotulo: "Reembolsos", valor: -t.reembolsos, tipo: "menos" },
-    { rotulo: "Receita", valor: t.receita, tipo: "total" },
-    { rotulo: "Frete pago à Loggi", valor: -t.frete_loja, tipo: "menos" },
+    { rotulo: "Frete dos clientes (vai para a Loggi)", valor: -t.frete_cliente, tipo: "menos" },
+    { rotulo: "Receita dos produtos", valor: t.receita, tipo: "total" },
+    { rotulo: "Frete pago pela loja", valor: -t.frete_custo, tipo: "menos" },
     { rotulo: "dos fretes grátis", valor: -t.frete_gratis, tipo: "detalhe" },
     { rotulo: "Taxas da InfinitePay", valor: -t.taxas, tipo: "menos" },
     { rotulo: "Comissões dos afiliados", valor: -t.comissoes, tipo: "menos" },
@@ -416,6 +422,7 @@ const COLUNAS: ColunaTabela<LinhaPedido>[] = [
   { id: "situacao", rotulo: "Situação", valor: (l) => SITUACAO[l.situacao] ?? l.situacao },
   dinheiro("Pago", "faturamento"),
   dinheiro("Reembolso", "reembolsos", true),
+  dinheiro("Frete do cliente", "frete_cliente"),
   dinheiro("Frete Loggi", "frete_loja", true),
   dinheiro("Taxa", "taxas", true),
   dinheiro("Comissão", "comissoes", true),

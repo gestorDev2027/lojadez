@@ -495,6 +495,31 @@ async def vendedor_salvar_afiliado(afiliado_id: int, request: Request):
     return afiliados.para_vendedor(afiliados.salvar(await _json(request), afiliado_id, email))
 
 
+@app.post("/api/vendedor/afiliados/{afiliado_id}/ativo")
+async def vendedor_ativar_afiliado(afiliado_id: int, request: Request):
+    email = _vendedor(request)
+    dados = await _json(request)
+    return afiliados.para_vendedor(afiliados.definir_ativo(afiliado_id, bool(dados.get("ativo")), email))
+
+
+@app.get("/api/vendedor/afiliados/{afiliado_id}/excluir")
+def vendedor_previa_excluir_afiliado(afiliado_id: int, request: Request):
+    _vendedor(request)
+    return afiliados.antes_de_excluir(afiliado_id)
+
+
+@app.delete("/api/vendedor/afiliados/{afiliado_id}")
+def vendedor_excluir_afiliado(afiliado_id: int, request: Request):
+    email = _vendedor(request)
+    return afiliados.excluir(afiliado_id, email)
+
+
+@app.delete("/api/vendedor/campanhas/{campanha_id}")
+def vendedor_excluir_campanha(campanha_id: int, request: Request):
+    email = _vendedor(request)
+    return afiliados.excluir_campanha(campanha_id, email)
+
+
 @app.post("/api/vendedor/afiliados/{afiliado_id}/campanhas")
 async def vendedor_criar_campanha(afiliado_id: int, request: Request):
     email = _vendedor(request)
