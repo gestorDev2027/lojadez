@@ -723,8 +723,8 @@
     $('#shaveSkip').addEventListener('click', finish);
 
     new ResizeObserver(resize).observe(stage);
-    // Quem já ganhou o cupom da roleta (neste navegador) vê o prêmio direto, sem espuma.
-    if (reduced || roletaGuardada()) finish();
+    // Toda visita raspa e gira de novo (o servidor devolve o mesmo cupom enquanto ele valer).
+    if (reduced) finish();
   })();
 
   /* ------------------------------------------------------------------
@@ -732,16 +732,6 @@
      O sorteio é no servidor (/api/roleta); aqui só a animação. O cupom fica
      guardado neste navegador e o checkout já aplica sozinho.
      ------------------------------------------------------------------ */
-  function roletaGuardada() {
-    try {
-      const c = JSON.parse(localStorage.getItem('loja-cupom') || 'null');
-      const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
-      return c && c.codigo && (!c.fim || c.fim >= hoje) ? c : null;
-    } catch (err) {
-      return null;
-    }
-  }
-
   (function roleta() {
     const R = C.roleta || {};
     const caixa = $('#roleta');
@@ -774,8 +764,6 @@
       if (animar && !reduced) res.animate([{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(.2,.8,.2,1)' });
     }
 
-    const guardado = roletaGuardada();
-    if (guardado) { mostrar(guardado, false); return; }
 
     const pronto = () => {
       girar.disabled = false;
