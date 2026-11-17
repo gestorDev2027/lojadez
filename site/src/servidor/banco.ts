@@ -40,8 +40,40 @@ export function banco(): Banco {
   if (!url) throw new Error("Falta o DATABASE_URL (o Postgres do Supabase).");
   // Uma conexão por instância da Function; prepare: false porque o pooler do Supabase (Supavisor) não guarda
   // comandos preparados entre transações.
-  atual = dePostgres(postgres(url, { max: 3, prepare: false, idle_timeout: 20, connect_timeout: 10 }));
+  atual = dePostgres(postgres(url, { max: 3, prepare: false, idle_timeout: 20, connect_timeout: 10, types: TIPOS }));
   return atual;
+}
+
+/**
+ * O JSON vai pronto, como texto (JSON.stringify antes de chamar). O postgres.js descobre que o parâmetro é json (pelo
+ * ::json) e, sem isto, passava o texto pelo JSON.stringify de novo: o objeto virava um texto JSON dentro do JSON (as
+ * ofertas salvas no painel eram ignoradas) e cada salvamento punha mais uma camada de aspas no nome do kit.
+ * Texto passa como está; objeto (quem não fez o stringify) ainda é convertido.
+ */
+export const TIPOS = {
+  json: {
+    to: 114,
+    from: [114, 3802],
+    serialize: (x: unknown) => (typeof x === "string" ? x : JSON.stringify(x)),
+    parse: (x: string) => JSON.parse(x),
+  },
+};
+
+/**
+ * O valor de um ajuste gravado antes da correção acima: texto com JSON dentro, às vezes em várias camadas
+ * ("{\"kit1\":...}", "\"\\\"Kit\\\"\""). Abre as camadas até sobrar o valor de verdade. Texto comum fica como está.
+ */
+export function desembrulhar(valor: unknown): unknown {
+  for (let i = 0; i < 10 && typeof valor === "string"; i++) {
+    const t = valor.trim();
+    if (!/^(?:[{["]|-?\d|true$|false$|null$)/.test(t)) break;
+    try {
+      valor = JSON.parse(t);
+    } catch {
+      break;
+    }
+  }
+  return valor;
 }
 
 export const agora = () => new Date();
@@ -69,7 +101,7 @@ export async function ultimasMudancas(limite = 20) {
 
 export async function lerAjustes(): Promise<Record<string, unknown>> {
   const linhas = await banco().consulta<{ chave: string; valor: unknown }>("select chave, valor from loja.ajustes");
-  return Object.fromEntries(linhas.map((l) => [l.chave, l.valor]));
+  return Object.fromEntries(linhas.map((l) => [l.chave, desembrulhar(l.valor)]));
 }
 
 export async function gravarAjustes(valores: Record<string, unknown>): Promise<void> {
