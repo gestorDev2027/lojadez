@@ -49,6 +49,17 @@ export default defineConfig({
   },
   // Um servidor Node que serve as páginas, a API e os arquivos de public/ (node ./dist/server/entry.mjs).
   adapter: node({ mode: "standalone" }),
+  // No Render, o https termina no balanceador, que repassa ao Node por dentro (http) com o endereço real no Host e
+  // em X-Forwarded-Proto. O Astro só confia nesses cabeçalhos para os domínios daqui; sem a lista, cada pedido parece
+  // vir de http://localhost e a conferência de origem do painel (servidor/http.ts) recusa tudo ("Pedido de outra
+  // origem"). Domínio novo da loja = mais uma linha (e o domínio no Render).
+  security: {
+    allowedDomains: [
+      { protocol: "https", hostname: "wolfco.online" },
+      { protocol: "https", hostname: "www.wolfco.online" },
+      { protocol: "https", hostname: "lojadez.onrender.com" },
+    ],
+  },
   integrations: [react(), partytown({ config: { debug: false, forward: ["dataLayer.push", "fbq"], resolveUrl: resolverUrl } })],
   server: { port: 4321 },
   vite: { plugins: [tailwindcss()] },
