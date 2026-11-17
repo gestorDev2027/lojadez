@@ -1,5 +1,7 @@
 """O banco: os pedidos, o catálogo e o painel. SQLite local (dados/loja.db) ou Postgres pelo DATABASE_URL."""
 
+import json
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import (JSON, Boolean, Column, DateTime, Float, Integer, LargeBinary, MetaData, String, Table, Text, create_engine,
@@ -336,9 +338,25 @@ def alterar(order_nsu: str, valores: dict, *, so_se_situacao: tuple[str, ...] | 
         return c.execute(consulta.values(**valores)).rowcount > 0
 
 
+def desembrulhar(valor):
+    """O ajuste gravado pelo site antes da correção do JSON: texto com JSON dentro, às vezes em várias camadas
+    ('{"kit1": ...}' ou '"\\"Kit\\""'). Abre as camadas até sobrar o valor de verdade; texto comum fica como está."""
+    for _ in range(10):
+        if not isinstance(valor, str):
+            break
+        texto = valor.strip()
+        if not re.match(r'(?:[{\["]|-?\d|true$|false$|null$)', texto):
+            break
+        try:
+            valor = json.loads(texto)
+        except ValueError:
+            break
+    return valor
+
+
 def ler_ajustes() -> dict:
     with engine.connect() as c:
-        return {l.chave: l.valor for l in c.execute(select(ajustes.c.chave, ajustes.c.valor))}
+        return {l.chave: desembrulhar(l.valor) for l in c.execute(select(ajustes.c.chave, ajustes.c.valor))}
 
 
 def gravar_ajustes(valores: dict) -> None:
