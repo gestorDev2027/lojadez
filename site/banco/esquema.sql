@@ -122,6 +122,14 @@ create table if not exists loja.campanhas (
 alter table loja.afiliados add column if not exists excluido_em timestamptz;
 alter table loja.campanhas add column if not exists excluido_em timestamptz;
 
+-- Roleta de cupons (17/11/2026): os cupons que a loja gera sozinha. origem "roleta" (a página inicial; cada CPF usa um
+-- só) ou "volta" (a próxima compra, ganho na página de obrigado: preso ao CPF e ao pedido). Os do vendedor ficam sem
+-- origem. O servidor Python também cria as colunas ao subir.
+alter table loja.cupons add column if not exists origem varchar(20);
+alter table loja.cupons add column if not exists cpf varchar(11);
+alter table loja.cupons add column if not exists pedido_nsu varchar(36);
+create unique index if not exists ux_loja_cupons_pedido on loja.cupons (pedido_nsu) where pedido_nsu is not null;
+
 create table if not exists loja.repasses (
   id serial primary key,
   afiliado_id integer not null,

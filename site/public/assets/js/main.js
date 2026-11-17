@@ -127,6 +127,10 @@
      ------------------------------------------------------------------ */
   const R = C.rastreamento || {};
   window.dataLayer = window.dataLayer || [];
+  // Um evento para o GTM que nunca quebra a página (sem GTM, ou com o dataLayer trocado pelo Partytown).
+  function marcar(dados) {
+    try { (window.dataLayer = window.dataLayer || []).push(dados); } catch (err) { /* sem rastreamento */ }
+  }
   // Com R.segundoPlano, a página já carregou o Pixel e o GTM pelo Partytown (fora da linha principal); o fbq e o
   // dataLayer.push daqui são repassados para lá.
   if (R.gtmId && !R.segundoPlano) {
@@ -553,6 +557,7 @@
     const fx = $('#foamFx');
     const razor = $('#razor');
     const meter = $('#shaveMeter');
+    const barra = $('#shaveBarra'); // a barra larga do topo (com a roleta), no estilo da barra de leitura
     const pctEl = $('#shavePct');
     const ctx = foam.getContext('2d');
     const fctx = fx.getContext('2d');
@@ -644,6 +649,7 @@
     function updateMeter() {
       const p = grid ? Math.min(1, cleared / grid.length / GOAL) : 0;
       meter.style.transform = `scaleX(${done ? 1 : p})`;
+      if (barra) barra.style.transform = `scaleX(${done ? 1 : p})`;
       pctEl.textContent = `${done ? 100 : Math.round(p * 100)}%`;
     }
 
@@ -676,7 +682,8 @@
       }
       foam.animate([{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(10px)' }], { duration: 900, easing: 'ease-out', fill: 'forwards' });
       stage.style.touchAction = 'auto';
-      window.dataLayer.push({ event: 'shave_game_complete' });
+      document.dispatchEvent(new CustomEvent('barbeado'));
+      marcar({ event: 'shave_game_complete' });
     }
 
     const pos = (e) => { const r = stage.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -716,7 +723,109 @@
     $('#shaveSkip').addEventListener('click', finish);
 
     new ResizeObserver(resize).observe(stage);
-    if (reduced) finish();
+    // Quem já ganhou o cupom da roleta (neste navegador) vê o prêmio direto, sem espuma.
+    if (reduced || roletaGuardada()) finish();
+  })();
+
+  /* ------------------------------------------------------------------
+     ROLETA DE CUPOM: depois de raspar, gira e ganha de R$ 2 a R$ 4
+     O sorteio é no servidor (/api/roleta); aqui só a animação. O cupom fica
+     guardado neste navegador e o checkout já aplica sozinho.
+     ------------------------------------------------------------------ */
+  function roletaGuardada() {
+    try {
+      const c = JSON.parse(localStorage.getItem('loja-cupom') || 'null');
+      const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+      return c && c.codigo && (!c.fim || c.fim >= hoje) ? c : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  (function roleta() {
+    const R = C.roleta || {};
+    const caixa = $('#roleta');
+    if (!caixa || !R.ativa) return;
+    const disco = $('#roletaDisco');
+    const girar = $('#roletaGirar');
+    const aviso = $('#roletaAviso');
+    const valores = (R.valores && R.valores.length ? R.valores : [2, 3, 4]);
+    // 8 fatias, repetindo os prêmios; as cores alternam entre o laranja e o aço
+    const fatias = Array.from({ length: 8 }, (_, i) => valores[i % valores.length]);
+    const passo = 360 / fatias.length;
+    const cores = ['#ff5a00', '#1d1f24', '#ff7a2a', '#2a2d33'];
+    disco.style.background = `conic-gradient(${fatias.map((_, i) => `${cores[i % cores.length]} ${i * passo}deg ${(i + 1) * passo}deg`).join(',')})`;
+    disco.innerHTML = fatias.map((v, i) =>
+      `<span class="roleta__fatia" style="--a:${i * passo + passo / 2}deg"><b>R$ ${v}</b></span>`).join('');
+    let angulo = 0;
+
+    const dataBr = (iso) => iso ? iso.split('-').reverse().slice(0, 2).join('/') : '';
+    function mostrar(p, animar) {
+      const reais = Math.round(p.valor_centavos) / 100;
+      $('#roletaValor').textContent = Number.isInteger(reais) ? String(reais) : num(reais);
+      $('#roletaCodigoTexto').textContent = p.codigo;
+      const regras = [];
+      if (p.fim) regras.push(`Vale até ${dataBr(p.fim)}`);
+      if (p.minimo_centavos) regras.push(`em pedidos a partir de ${brl(p.minimo_centavos / 100)}`);
+      $('#roletaRegras').textContent = `${regras.join(' ')}${regras.length ? '. ' : ''}Já entra sozinho no checkout, nesta compra ou na próxima.`;
+      $('#roletaGiro').hidden = true;
+      const res = $('#roletaResultado');
+      res.hidden = false;
+      if (animar && !reduced) res.animate([{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    }
+
+    const guardado = roletaGuardada();
+    if (guardado) { mostrar(guardado, false); return; }
+
+    const pronto = () => {
+      girar.disabled = false;
+      girar.classList.add('is-pronto');
+      try { girar.focus({ preventScroll: true }); } catch (err) { /* sem foco */ }
+    };
+    document.addEventListener('barbeado', pronto);
+    if ($('#shaveStage').classList.contains('is-done')) pronto(); // movimento reduzido: a espuma já saiu
+
+    girar.addEventListener('click', async () => {
+      girar.disabled = true;
+      girar.classList.remove('is-pronto');
+      aviso.textContent = '';
+      // gira devagar enquanto o servidor sorteia
+      disco.style.transition = 'transform 1.2s linear';
+      angulo += 360;
+      disco.style.transform = `rotate(${angulo}deg)`;
+      let p;
+      try {
+        const r = await fetch('/api/roleta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        p = await r.json();
+        if (!r.ok) throw new Error(p.erro || 'Não deu para girar agora.');
+      } catch (err) {
+        aviso.textContent = `${err.message || 'Não deu para girar agora.'} Tente de novo.`;
+        girar.disabled = false;
+        return;
+      }
+      // para numa fatia com o valor sorteado (o ponteiro fica no topo)
+      const valor = Math.round(p.valor_centavos) / 100;
+      const opcoes = fatias.map((v, i) => (v === valor ? i : -1)).filter((i) => i >= 0);
+      const alvo = opcoes.length ? opcoes[Math.floor(Math.random() * opcoes.length)] : 0;
+      const meio = alvo * passo + passo / 2 + (Math.random() - 0.5) * passo * 0.6;
+      const atual = ((angulo % 360) + 360) % 360;
+      angulo += (reduced ? 0 : 360 * 5) + ((360 - meio - atual) % 360 + 360) % 360;
+      disco.style.transition = reduced ? 'none' : 'transform 4.2s cubic-bezier(.12,.6,.1,1)';
+      disco.style.transform = `rotate(${angulo}deg)`;
+      try { localStorage.setItem('loja-cupom', JSON.stringify(p)); } catch (err) { /* sem armazenamento: o código fica na tela */ }
+      marcar({ event: 'roleta_premio', valor });
+      setTimeout(() => mostrar(p, true), reduced ? 0 : 4400);
+    });
+
+    $('#roletaCodigo').addEventListener('click', async () => {
+      const texto = $('#roletaCodigoTexto').textContent;
+      try {
+        await navigator.clipboard.writeText(texto);
+        $('#roletaCopiar').textContent = 'Copiado';
+      } catch (err) {
+        $('#roletaCopiar').textContent = 'Selecione e copie';
+      }
+    });
   })();
 
   /* ------------------------------------------------------------------

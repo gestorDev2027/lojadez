@@ -10,6 +10,7 @@ import {
   reais,
   refGuardado,
   campanhaGuardada,
+  cupomGuardado,
   type Cotacao,
   type Loja,
   type Oferta,
@@ -45,7 +46,9 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
   const [alterarRua, setAlterarRua] = useState(rascunho.alterar_rua ?? false);
   const [comComplemento, setComComplemento] = useState(Boolean(rascunho.dados?.complemento ?? lembrados.dados?.complemento));
   const [focarDepoisDoCep, setFocarDepoisDoCep] = useState(false);
-  const [cupomTexto, setCupomTexto] = useState(rascunho.cupom ?? "");
+  // O cupom do rascunho desta aba ou, sem ele, o da roleta (guardado neste navegador) ou o do ?cupom= da URL.
+  const [cupomInicial] = useState(() => rascunho.cupom ?? cupomGuardado() ?? "");
+  const [cupomTexto, setCupomTexto] = useState(cupomInicial);
   const [cupom, setCupom] = useState<CupomAplicado | null>(null);
   const [erroCupom, setErroCupom] = useState("");
   const [validandoCupom, setValidandoCupom] = useState(false);
@@ -90,6 +93,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     window.history.replaceState(null, "", url);
     if (cotacao) void cotar(id); // o frete muda com o peso
     if (cupom) void aplicarCupom(cupom.codigo, id);
+    else if (cupomTexto && erroCupom) void aplicarCupom(cupomTexto, id); // ex.: o cupom da roleta pede um kit maior
   }
 
   /** Devolve o código, se o cupom valeu. */
@@ -99,7 +103,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
     setValidandoCupom(true);
     setErroCupom("");
     try {
-      const c = await chamar<CupomAplicado>("/api/cupons/validar", { corpo: { cupom: limpo, oferta: id, produto: v.produto } });
+      const c = await chamar<CupomAplicado>("/api/cupons/validar", { corpo: { cupom: limpo, oferta: id, produto: v.produto, cpf: dados.cpf } });
       setCupom(c);
       setCupomTexto(c.codigo);
       if (cotacao && c.frete_gratis !== cupom?.frete_gratis) void cotar(id, cep, c.codigo);
@@ -125,7 +129,7 @@ export function PaginaCheckout({ loja, vitrine: v }: { loja: Loja; vitrine: Vitr
   // lembrado de quem já comprou neste aparelho).
   useEffect(() => {
     void (async () => {
-      const codigo = rascunho.cupom ? await aplicarCupom(rascunho.cupom, ofertaId) : undefined;
+      const codigo = cupomInicial ? await aplicarCupom(cupomInicial, ofertaId) : undefined;
       if (cepInicial.replace(/\D/g, "").length === 8) await cotar(ofertaId, cepInicial, codigo);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

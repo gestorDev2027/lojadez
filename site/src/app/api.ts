@@ -173,6 +173,8 @@ export type PedidoPublico = {
   tem_envio_loggi: boolean;
   valor_pago_centavos: number | null;
   desconto_pix: number | null;
+  cupom_codigo: string | null;
+  desconto_cupom_centavos: number | null;
 };
 
 export type CampoConfig = {
@@ -314,6 +316,47 @@ export function guardarRefDaUrl() {
   void fetch("/api/afiliados/clique", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref: codigo }) }).catch(
     () => undefined,
   );
+}
+
+// ───────── Cupom da roleta ─────────
+// A roleta (página inicial e obrigado) guarda o cupom ganho neste navegador; o checkout aplica sozinho. O servidor
+// confere tudo de novo no pedido (validade, uso único, um por CPF).
+
+const CHAVE_CUPOM = "loja-cupom";
+
+export type PremioRoleta = { codigo: string; valor_centavos: number; fim: string | null; minimo_centavos: number; origem: "roleta" | "volta" };
+
+const hojeBr = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+
+export function guardarCupom(p: PremioRoleta) {
+  try {
+    localStorage.setItem(CHAVE_CUPOM, JSON.stringify(p));
+  } catch {
+    /* sem armazenamento: o código fica na tela */
+  }
+}
+
+/** O cupom para o checkout: o ?cupom= da URL ou o da roleta guardado (se ainda valer). */
+export function cupomGuardado(): string | null {
+  const daUrl = (new URLSearchParams(window.location.search).get("cupom") ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 30);
+  if (daUrl) return daUrl;
+  try {
+    const c = JSON.parse(localStorage.getItem(CHAVE_CUPOM) ?? "null") as PremioRoleta | null;
+    return c?.codigo && (!c.fim || c.fim >= hojeBr()) ? c.codigo : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Esquece o cupom guardado depois que ele foi usado num pedido pago. */
+export function esquecerCupom(codigo: string | null | undefined) {
+  if (!codigo) return;
+  try {
+    const c = JSON.parse(localStorage.getItem(CHAVE_CUPOM) ?? "null") as PremioRoleta | null;
+    if (c?.codigo === codigo) localStorage.removeItem(CHAVE_CUPOM);
+  } catch {
+    /* nada guardado */
+  }
 }
 
 /** A campanha (link curto) guardada junto com o afiliado, se ainda valer. */

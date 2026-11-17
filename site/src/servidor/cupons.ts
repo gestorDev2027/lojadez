@@ -28,6 +28,9 @@ export type Cupom = {
   afiliado_id: number | null;
   ativo: boolean;
   descricao_interna: string | null;
+  origem?: "roleta" | "volta" | null; // gerado pela loja (roleta.ts); sem origem: do vendedor
+  cpf?: string | null; // o cupom da próxima compra só vale para este CPF
+  pedido_nsu?: string | null;
 };
 
 export type CupomAplicado = { cupom: Cupom; desconto_centavos: number; frete_gratis: boolean; descricao: string };
@@ -60,8 +63,20 @@ export function descricao(c: Pick<Cupom, "tipo" | "valor">): string {
   return "Frete grátis";
 }
 
-/** Confere o cupom para este produto e preço. */
-export async function aplicar(codigo: unknown, produtoId: string | null, precoCentavos: number): Promise<CupomAplicado> {
+/** Este CPF já usou (ou está usando, num pedido aberto) outro cupom da roleta? */
+export async function usouRoleta(cpf: string, exceto: string): Promise<boolean> {
+  const recente = new Date(Date.now() - 2 * 3600_000);
+  const linha = await uma<{ n: string | number }>(
+    `select count(*) as n from loja.pedidos p join loja.cupons c on c.codigo = p.cupom_codigo
+      where p.cpf = $1 and c.origem = 'roleta' and p.cupom_codigo <> $2
+        and (p.situacao in ('pago', 'enviado') or (p.situacao = 'aguardando_pagamento' and p.criado_em >= $3))`,
+    [cpf, exceto, recente],
+  );
+  return Number(linha?.n ?? 0) > 0;
+}
+
+/** Confere o cupom para este produto e preço. Com o CPF (na hora do pedido), confere também os cupons da roleta. */
+export async function aplicar(codigo: unknown, produtoId: string | null, precoCentavos: number, cpf?: string | null): Promise<CupomAplicado> {
   const cupom = await buscarCodigo(codigo);
   if (!cupom || !cupom.ativo) throw new ErroCupom("Cupom inválido.");
   const hoje = hojeNoBrasil();
@@ -71,7 +86,11 @@ export async function aplicar(codigo: unknown, produtoId: string | null, precoCe
   if (!cupom.todos_produtos && !(cupom.produtos ?? []).includes(id)) throw new ErroCupom("Este cupom não vale para este produto.");
   if (cupom.minimo_centavos && precoCentavos < cupom.minimo_centavos)
     throw new ErroCupom(`Este cupom vale a partir de R$ ${reais(cupom.minimo_centavos)}.`);
-  if (cupom.limite_usos && (await usos(cupom.codigo)) >= cupom.limite_usos) throw new ErroCupom("Este cupom já atingiu o limite de usos.");
+  if (cupom.limite_usos && (await usos(cupom.codigo)) >= cupom.limite_usos)
+    throw new ErroCupom(cupom.origem ? "Este cupom já foi usado." : "Este cupom já atingiu o limite de usos.");
+  if (cpf && cupom.cpf && cupom.cpf !== cpf) throw new ErroCupom("Este cupom é de outro cliente (vale só para o CPF de quem ganhou).");
+  if (cpf && cupom.origem === "roleta" && (await usouRoleta(cpf, cupom.codigo)))
+    throw new ErroCupom("Este CPF já usou um cupom da roleta.");
   let desconto = 0;
   let frete = false;
   if (cupom.tipo === "percentual") desconto = Math.round((precoCentavos * Number(cupom.valor)) / 100);

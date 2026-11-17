@@ -121,10 +121,10 @@ async function cotar(cep: string, o: OfertaPedido, freteDoCupom = false) {
   return { endereco: cotacao.endereco, opcoes, frete_gratis: gratis };
 }
 
-async function cupom(codigo: unknown, o: OfertaPedido): Promise<cupons.CupomAplicado | null> {
+async function cupom(codigo: unknown, o: OfertaPedido, cpf?: string | null): Promise<cupons.CupomAplicado | null> {
   if (!String(codigo ?? "").trim()) return null;
   try {
-    return await cupons.aplicar(codigo, o.produto_id, o.preco_centavos);
+    return await cupons.aplicar(codigo, o.produto_id, o.preco_centavos, cpf);
   } catch (erro) {
     if (erro instanceof cupons.ErroCupom) throw new ErroPedido(erro.message);
     throw erro;
@@ -132,8 +132,9 @@ async function cupom(codigo: unknown, o: OfertaPedido): Promise<cupons.CupomApli
 }
 
 /** A prévia do cupom no checkout (o servidor confere de novo ao criar o pedido). */
-export async function validarCupom(codigo: unknown, ofertaId: unknown, produtoId: unknown) {
-  const aplicado = await cupom(codigo, await oferta(ofertaId, produtoId));
+export async function validarCupom(codigo: unknown, ofertaId: unknown, produtoId: unknown, cpf?: unknown) {
+  const doCpf = String(cpf ?? "").replace(/\D/g, "");
+  const aplicado = await cupom(codigo, await oferta(ofertaId, produtoId), cpfValido(doCpf) ? doCpf : null);
   if (!aplicado) throw new ErroPedido("Digite o cupom.");
   return {
     codigo: aplicado.cupom.codigo, descricao: aplicado.descricao,
@@ -196,7 +197,7 @@ export async function criar(dados: Record<string, unknown>): Promise<{ order_nsu
   const numero = campo(dados, "numero", "o número", { maximo: 20 });
   const complemento = campo(dados, "complemento", "o complemento", { maximo: 80, obrigatorio: false });
 
-  const aplicado = await cupom(dados.cupom, o);
+  const aplicado = await cupom(dados.cupom, o, cpf);
   const desconto = aplicado?.desconto_centavos ?? 0;
   const cotacao = await cotar(String(dados.cep ?? ""), o, Boolean(aplicado?.frete_gratis));
   const opcao = cotacao.opcoes.find((op) => op.tipo === dados.frete_tipo);
